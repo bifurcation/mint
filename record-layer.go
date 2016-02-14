@@ -7,15 +7,6 @@ import (
 	"io"
 )
 
-// TODO move this to a common spot
-type recordType byte // enum
-
-const (
-	recordTypeAlert           recordType = 21
-	recordTypeHandshake       recordType = 22
-	recordTypeApplicationData recordType = 23
-)
-
 const (
 	sequenceNumberLen = 8       // sequence number length
 	recordHeaderLen   = 5       // record header length
