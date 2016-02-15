@@ -273,3 +273,36 @@ func (sh *serverHelloBody) Unmarshal(data []byte) (int, error) {
 
 	return read, nil
 }
+
+// struct {
+//     opaque verify_data[verify_data_length];
+// } Finished;
+//
+// verifyDataLen is not a field in the TLS struct, but we add it here so
+// that calling code can tell us how much data to expect when we marshal /
+// unmarshal.  (We could add this to the marshal/unmarshal methods, but let's
+// try to keep the signature consistent for now.)
+type finishedBody struct {
+	verifyDataLen int
+	verifyData    []byte
+}
+
+func (fin finishedBody) Marshal() ([]byte, error) {
+	if len(fin.verifyData) != fin.verifyDataLen {
+		return nil, fmt.Errorf("tls.finished: data length mismatch")
+	}
+
+	body := make([]byte, len(fin.verifyData))
+	copy(body, fin.verifyData)
+	return body, nil
+}
+
+func (fin *finishedBody) Unmarshal(data []byte) (int, error) {
+	if len(data) < fin.verifyDataLen {
+		return 0, fmt.Errorf("tls.finished: Malformed finished; too short")
+	}
+
+	fin.verifyData = make([]byte, fin.verifyDataLen)
+	copy(fin.verifyData, data[:fin.verifyDataLen])
+	return fin.verifyDataLen, nil
+}

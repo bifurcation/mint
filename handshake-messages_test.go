@@ -68,6 +68,13 @@ var (
 	shValidHex    = "0304" + hex.EncodeToString(helloRandom[:]) + "0001" + extListValidHex
 	shEmptyHex    = "0304" + hex.EncodeToString(helloRandom[:]) + "0001"
 	shOverflowHex = "0304" + hex.EncodeToString(helloRandom[:]) + "0001" + extListOverflowOuterHex
+
+	// Finished test cases
+	finValidIn = finishedBody{
+		verifyDataLen: len(helloRandom),
+		verifyData:    helloRandom[:],
+	}
+	finValidHex = hex.EncodeToString(helloRandom[:])
 )
 
 func TestExtensionMarshalUnmarshal(t *testing.T) {
@@ -291,4 +298,33 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 	// Test unmarshal failure on extension list unmarshal failure
 	shLen, err = sh.Unmarshal(shOverflow)
 	assertError(t, err, "Unmarshaled a ServerHello with invalid extensions")
+}
+
+func TestFinishedMarshalUnmarshal(t *testing.T) {
+	finValid, _ := hex.DecodeString(finValidHex)
+
+	// Test successful marshal
+	out, err := finValidIn.Marshal()
+	assertNotError(t, err, "Failed to marshal a valid Finished")
+	assertByteEquals(t, out, finValid)
+
+	// Test marshal failure on incorrect data length
+	finValidIn.verifyDataLen -= 1
+	out, err = finValidIn.Marshal()
+	assertError(t, err, "Marshaled a Finished with the wrong data length")
+	finValidIn.verifyDataLen += 1
+
+	// Test successful unmarshal
+	var fin finishedBody
+	fin.verifyDataLen = len(finValid)
+	finLen, err := fin.Unmarshal(finValid)
+	assertNotError(t, err, "Failed to unmarshal a valid Finished")
+	assertEquals(t, finLen, len(finValid))
+	assertDeepEquals(t, fin, finValidIn)
+
+	// Test unmarshal failure on insufficient data
+	fin.verifyDataLen += 1
+	finLen, err = fin.Unmarshal(finValid)
+	assertError(t, err, "Unmarshaled a Finished with too little data")
+	fin.verifyDataLen -= 1
 }
