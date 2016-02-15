@@ -42,3 +42,13 @@ func assertDeepEquals(t *testing.T, a interface{}, b interface{}) {
 		assert(t, false, fmt.Sprintf("%v != %v", a, b))
 	}
 }
+
+type errorReadWriter struct{}
+
+func (e errorReadWriter) Read(p []byte) (n int, err error) {
+	return 0, fmt.Errorf("Unkonwn read error")
+}
+
+func (ew errorReadWriter) Write(p []byte) (n int, err error) {
+	return 0, fmt.Errorf("Unkonwn write error")
+}

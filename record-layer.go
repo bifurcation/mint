@@ -13,6 +13,12 @@ const (
 	maxFragmentLen    = 1 << 14 // max number of bytes in a record
 )
 
+// struct {
+//     ContentType type;
+//     ProtocolVersion record_version = { 3, 1 };    /* TLS v1.x */
+//     uint16 length;
+//     opaque fragment[TLSPlaintext.length];
+// } TLSPlaintext;
 type tlsPlaintext struct {
 	// Omitted: record_version (static)
 	// Omitted: length         (computed from fragment)
