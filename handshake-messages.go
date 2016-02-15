@@ -5,11 +5,12 @@ import (
 )
 
 const (
-	fixedHelloBodyLength = 39
-	maxCipherSuites      = 1 << 15
-	extensionHeaderLen   = 4
-	maxExtensionDataLen  = (1 << 16) - 1
-	maxExtensionsLen     = (1 << 16) - 1
+	fixedClientHelloBodyLen = 39
+	fixedServerHelloBodyLen = 36
+	maxCipherSuites         = 1 << 15
+	extensionHeaderLen      = 4
+	maxExtensionDataLen     = (1 << 16) - 1
+	maxExtensionsLen        = (1 << 16) - 1
 )
 
 type Marshaler interface {
@@ -126,8 +127,8 @@ type clientHelloBody struct {
 }
 
 func (ch clientHelloBody) Marshal() ([]byte, error) {
-	baseBodyLength := fixedHelloBodyLength + 2*len(ch.cipherSuites)
-	body := make([]byte, baseBodyLength)
+	baseBodyLen := fixedClientHelloBodyLen + 2*len(ch.cipherSuites)
+	body := make([]byte, baseBodyLen)
 	for i := range body {
 		body[i] = 0
 	}
@@ -161,7 +162,7 @@ func (ch clientHelloBody) Marshal() ([]byte, error) {
 }
 
 func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
-	if len(data) < fixedHelloBodyLength {
+	if len(data) < fixedClientHelloBodyLen {
 		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; too short")
 	}
 
@@ -203,4 +204,72 @@ func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
 	ch.extensions = extensions
 
 	return 37 + cipherSuitesLen + 2 + extLen, nil
+}
+
+// struct {
+//     ProtocolVersion server_version;
+//     Random random;
+//     CipherSuite cipher_suite;
+//     select (extensions_present) {
+//         case false:
+//             struct {};
+//         case true:
+//             Extension extensions<0..2^16-1>;
+//     };
+// } ServerHello;
+type serverHelloBody struct {
+	// Omitted: server_version
+	random      [32]byte
+	cipherSuite cipherSuite
+	extensions  []extension
+}
+
+func (sh serverHelloBody) Marshal() ([]byte, error) {
+	body := make([]byte, fixedServerHelloBodyLen)
+
+	body[0] = 0x03
+	body[1] = 0x04
+
+	copy(body[2:34], sh.random[:])
+
+	body[34] = byte(sh.cipherSuite >> 8)
+	body[35] = byte(sh.cipherSuite)
+
+	if len(sh.extensions) > 0 {
+		extensions, err := marshalExtensionList(sh.extensions)
+		if err != nil {
+			return nil, err
+		}
+		body = append(body, extensions...)
+	}
+
+	return body, nil
+}
+
+func (sh *serverHelloBody) Unmarshal(data []byte) (int, error) {
+	if len(data) < fixedServerHelloBodyLen {
+		return 0, fmt.Errorf("tls.serverhello: Malformed ServerHello; too short")
+	}
+
+	if data[0] != 0x03 || data[1] != 0x04 {
+		return 0, fmt.Errorf("tls.serverhello: Malformed ServerHello; unsupported version")
+	}
+
+	copy(sh.random[:], data[2:34])
+	sh.cipherSuite = (cipherSuite(data[34]) << 8) + cipherSuite(data[35])
+
+	read := fixedServerHelloBodyLen
+	if len(data) > fixedServerHelloBodyLen {
+		extensions, extLen, err := unmarshalExtensionList(data[fixedServerHelloBodyLen:])
+		if err != nil {
+			return 0, err
+		}
+
+		sh.extensions = extensions
+		read += extLen
+	} else {
+		sh.extensions = []extension{}
+	}
+
+	return read, nil
 }
