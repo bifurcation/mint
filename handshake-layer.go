@@ -22,6 +22,18 @@ type handshakeMessage struct {
 	body    []byte
 }
 
+func handshakeMessageFromBody(body handshakeMessageBody) (*handshakeMessage, error) {
+	data, err := body.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	return &handshakeMessage{
+		msgType: body.Type(),
+		body:    data,
+	}, nil
+}
+
 type handshakeLayer struct {
 	conn   *recordLayer // Used for reading/writing records
 	buffer []byte       // Read buffer
@@ -72,12 +84,31 @@ func (h *handshakeLayer) ReadMessage() (*handshakeMessage, error) {
 	return hm, nil
 }
 
-// Write a single handshake message in a record
+func (h *handshakeLayer) ReadMessageBody(body handshakeMessageBody) error {
+	hm, err := h.ReadMessage()
+	if err != nil {
+		return err
+	}
+
+	if hm.msgType != body.Type() {
+		return fmt.Errorf("tls.handshakelayer: Unexpected message type %v", hm.msgType)
+	}
+
+	read, err := body.Unmarshal(hm.body)
+	if err != nil {
+		return err
+	}
+
+	if read < len(hm.body) {
+		return fmt.Errorf("tls.handshakelayer: Extra data in message (%d)", len(hm.body)-read)
+	}
+	return nil
+}
+
 func (h *handshakeLayer) WriteMessage(hm *handshakeMessage) error {
 	return h.WriteMessages([]*handshakeMessage{hm})
 }
 
-// Write a bundle of handhsake messages, packed into as few records as possible
 func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 	// Write out headers and bodies
 	buffer := []byte{}
@@ -117,4 +148,21 @@ func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 		}
 	}
 	return nil
+}
+
+func (h *handshakeLayer) WriteMessageBody(body handshakeMessageBody) error {
+	return h.WriteMessageBodies([]handshakeMessageBody{body})
+}
+
+func (h *handshakeLayer) WriteMessageBodies(bodies []handshakeMessageBody) error {
+	hms := make([]*handshakeMessage, len(bodies))
+	for i, body := range bodies {
+		hm, err := handshakeMessageFromBody(body)
+		if err != nil {
+			return err
+		}
+		hms[i] = hm
+	}
+
+	return h.WriteMessages(hms)
 }

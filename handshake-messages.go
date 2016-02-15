@@ -109,6 +109,12 @@ func unmarshalExtensionList(data []byte) ([]extension, int, error) {
 	return extensions, 2 + extLen, nil
 }
 
+type handshakeMessageBody interface {
+	Type() handshakeType
+	Marshal() ([]byte, error)
+	Unmarshal(data []byte) (int, error)
+}
+
 // struct {
 //     ProtocolVersion client_version = { 3, 4 };    /* TLS v1.3 */
 //     Random random;
@@ -124,6 +130,10 @@ type clientHelloBody struct {
 	random       [32]byte
 	cipherSuites []cipherSuite
 	extensions   []extension
+}
+
+func (ch clientHelloBody) Type() handshakeType {
+	return handshakeTypeClientHello
 }
 
 func (ch clientHelloBody) Marshal() ([]byte, error) {
@@ -224,6 +234,10 @@ type serverHelloBody struct {
 	extensions  []extension
 }
 
+func (sh serverHelloBody) Type() handshakeType {
+	return handshakeTypeServerHello
+}
+
 func (sh serverHelloBody) Marshal() ([]byte, error) {
 	body := make([]byte, fixedServerHelloBodyLen)
 
@@ -285,6 +299,10 @@ func (sh *serverHelloBody) Unmarshal(data []byte) (int, error) {
 type finishedBody struct {
 	verifyDataLen int
 	verifyData    []byte
+}
+
+func (fin finishedBody) Type() handshakeType {
+	return handshakeTypeFinished
 }
 
 func (fin finishedBody) Marshal() ([]byte, error) {

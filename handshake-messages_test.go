@@ -168,6 +168,9 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	chValid, _ := hex.DecodeString(chValidHex)
 	chOverflow, _ := hex.DecodeString(chOverflowHex)
 
+	// Test correctness of handshake type
+	assertEquals(t, (clientHelloBody{}).Type(), handshakeTypeClientHello)
+
 	// Test successful marshal
 	out, err := chValidIn.Marshal()
 	assertNotError(t, err, "Failed to marshal a valid ClientHello")
@@ -254,6 +257,9 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 	shEmpty, _ := hex.DecodeString(shEmptyHex)
 	shOverflow, _ := hex.DecodeString(shOverflowHex)
 
+	// Test correctness of handshake type
+	assertEquals(t, (serverHelloBody{}).Type(), handshakeTypeServerHello)
+
 	// Test successful marshal
 	out, err := shValidIn.Marshal()
 	assertNotError(t, err, "Failed to marshal a valid ServerHello")
@@ -302,6 +308,9 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 
 func TestFinishedMarshalUnmarshal(t *testing.T) {
 	finValid, _ := hex.DecodeString(finValidHex)
+
+	// Test correctness of handshake type
+	assertEquals(t, (finishedBody{}).Type(), handshakeTypeFinished)
 
 	// Test successful marshal
 	out, err := finValidIn.Marshal()
