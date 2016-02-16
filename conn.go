@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"encoding/hex"
 	"fmt"
 )
 
@@ -14,11 +15,39 @@ func (c *Conn) ClientHandshake() {
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
 
+	// Generate, construct, and marshal key share
+	config_keyShareGroups := []namedGroup{namedGroupP256, namedGroupP384, namedGroupP521}
+	privateKeys := map[namedGroup][]byte{}
+	ks := &keyShareExtension{
+		roleIsServer: false,
+		shares:       make([]keyShare, len(config_keyShareGroups)),
+	}
+	for i, group := range config_keyShareGroups {
+		pub, priv, err := newKeyShare(group)
+		if err != nil {
+			panic(err) // XXX
+		}
+
+		ks.shares[i].group = group
+		ks.shares[i].keyExchange = pub
+		privateKeys[group] = priv
+	}
+	keyShareBytes, err := ks.Marshal()
+	if err != nil {
+		panic(err)
+	}
+
 	// Construct and write ClientHello
 	ch := &clientHelloBody{
 		cipherSuites: []cipherSuite{0x0000}, // XXX
+		extensions: []extension{
+			extension{
+				extensionType: extensionTypeKeyShare,
+				extensionData: keyShareBytes,
+			},
+		},
 	}
-	err := hOut.WriteMessageBody(ch)
+	err = hOut.WriteMessageBody(ch)
 	if err != nil {
 		panic(err) // XXX Do something better
 	}
@@ -29,6 +58,36 @@ func (c *Conn) ClientHandshake() {
 	if err != nil {
 		panic(err) // XXX Do something better
 	}
+
+	// Read the key_share extension and do key agreement
+	foundKeyShare := false
+	serverKeyShares := keyShareExtension{roleIsServer: true}
+	for _, ext := range sh.extensions {
+		if ext.extensionType == extensionTypeKeyShare {
+			_, err := serverKeyShares.Unmarshal(ext.extensionData)
+			foundKeyShare = (err == nil)
+			if foundKeyShare {
+				break
+			}
+		}
+	}
+	if !foundKeyShare {
+		panic("No client key share")
+	}
+	if len(serverKeyShares.shares) != 1 {
+		panic("Server provided empty key_shares") // XXX should check in Unmarshal
+	}
+	sks := serverKeyShares.shares[0]
+	priv, ok := privateKeys[sks.group]
+	if !ok {
+		panic("Server sent a private key for a group we didn't send")
+	}
+	ES, err := keyAgreement(sks.group, sks.keyExchange, priv)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("ES_client:", hex.EncodeToString(ES))
 
 	// Read Finished
 	serverFin := new(finishedBody)
@@ -62,9 +121,61 @@ func (c *Conn) ServerHandshake() {
 		panic(err) // XXX Do something better
 	}
 
+	// Find key_share extension and do key agreement
+	config_supportedGroup := map[namedGroup]bool{
+		namedGroupP384: true,
+		namedGroupP521: true,
+	}
+	foundKeyShare := false
+	clientKeyShares := keyShareExtension{roleIsServer: false}
+	for _, ext := range ch.extensions {
+		if ext.extensionType == extensionTypeKeyShare {
+			_, err := clientKeyShares.Unmarshal(ext.extensionData)
+			foundKeyShare = (err == nil)
+			if foundKeyShare {
+				break
+			}
+		}
+	}
+	if !foundKeyShare {
+		panic("No client key share")
+	}
+	var keyShareBytes []byte
+	var ES []byte
+	for _, share := range clientKeyShares.shares {
+		if config_supportedGroup[share.group] {
+			pub, priv, err := newKeyShare(share.group)
+			if err != nil {
+				panic(err) // XXX
+			}
+
+			ES, err = keyAgreement(share.group, share.keyExchange, priv)
+			ks := keyShareExtension{
+				roleIsServer: true,
+				shares:       []keyShare{keyShare{group: share.group, keyExchange: pub}},
+			}
+			keyShareBytes, err = ks.Marshal()
+			if err != nil {
+				panic(err)
+			}
+			break
+		}
+	}
+	if len(keyShareBytes) == 0 || len(ES) == 0 {
+		panic("key agreement failed")
+	}
+
+	fmt.Println("ES_server:", hex.EncodeToString(ES))
+
 	// Create and write ServerHello
 	sh := &serverHelloBody{
 		cipherSuite: 0x0000,
+		extensions: []extension{
+			extension{
+				extensionType: extensionTypeKeyShare,
+				extensionData: keyShareBytes,
+			},
+		},
 	}
 	err = hOut.WriteMessageBody(sh)
 	if err != nil {

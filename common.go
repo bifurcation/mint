@@ -38,7 +38,7 @@ const (
 type helloExtensionType uint16
 
 const (
-// TODO
+	extensionTypeKeyShare helloExtensionType = 0xff00 // TBD
 )
 
 // enum {...} NamedGroup
