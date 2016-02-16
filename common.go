@@ -40,3 +40,25 @@ type helloExtensionType uint16
 const (
 // TODO
 )
+
+// enum {...} NamedGroup
+type namedGroup uint16
+
+const (
+	// Elliptic Curve Groups.
+	namedGroupP256 namedGroup = 23
+	namedGroupP384 namedGroup = 24
+	namedGroupP521 namedGroup = 25
+	// ECDH functions.
+	namedGroupX25519 namedGroup = 29
+	namedGroupX448   namedGroup = 30
+	// Signature-only curves.
+	namedGroupEd25519 namedGroup = 31
+	namedGroupEd448   namedGroup = 32
+	// Finite field groups.
+	namedGroupFF2048 namedGroup = 256
+	namedGroupFF3072 namedGroup = 257
+	namedGroupFF4096 namedGroup = 258
+	namedGroupFF6144 namedGroup = 259
+	namedGroupFF8192 namedGroup = 250
+)
