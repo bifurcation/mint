@@ -39,12 +39,14 @@ func (ext *extension) Unmarshal(data []byte) (int, error) {
 	return extensionHeaderLen + extDataLen, nil
 }
 
+type extensionList []extension
+
 // NB: Can't be generic, but use this as a pattern for marshaling
 // vectors of things as required.
-func marshalExtensionList(extensions []extension) ([]byte, error) {
+func (el extensionList) Marshal() ([]byte, error) {
 	data := []byte{0x00, 0x00}
 
-	for _, ext := range extensions {
+	for _, ext := range el {
 		extBytes, err := ext.Marshal()
 		if err != nil {
 			return nil, err
@@ -65,31 +67,54 @@ func marshalExtensionList(extensions []extension) ([]byte, error) {
 
 // NB: Can't be generic, but use this as a pattern for unmarshaling
 // vectors of things as required.
-func unmarshalExtensionList(data []byte) ([]extension, int, error) {
+func (el *extensionList) Unmarshal(data []byte) (int, error) {
 	if len(data) < 2 {
-		return nil, 0, fmt.Errorf("tls.extensionlist: Malformed extension list; too short")
+		return 0, fmt.Errorf("tls.extensionlist: Malformed extension list; too short")
 	}
 	extLen := (int(data[0]) << 8) + int(data[1])
 
 	if len(data) < 2+extLen {
-		return nil, 0, fmt.Errorf("tls.extensionlist: Malformed extension list; incorrect extensions length")
+		return 0, fmt.Errorf("tls.extensionlist: Malformed extension list; incorrect extensions length")
 	}
 	extData := data[2 : extLen+2]
 
 	var ext extension
-	extensions := []extension{}
+	*el = []extension{}
 	read := 0
 	for read < extLen {
 		n, err := ext.Unmarshal(extData[read:])
 		if err != nil {
-			return nil, 0, err
+			return 0, err
 		}
 
-		extensions = append(extensions, ext)
+		*el = append(*el, ext)
 		read += n
 	}
 
-	return extensions, 2 + extLen, nil
+	return 2 + extLen, nil
+}
+
+func (el *extensionList) Add(extType helloExtensionType, src marshaler) error {
+	data, err := src.Marshal()
+	if err != nil {
+		return err
+	}
+
+	*el = append(*el, extension{
+		extensionType: extType,
+		extensionData: data,
+	})
+	return nil
+}
+
+func (el extensionList) Find(target helloExtensionType, dst unmarshaler) bool {
+	for _, ext := range el {
+		if ext.extensionType == target {
+			_, err := dst.Unmarshal(ext.extensionData)
+			return err == nil
+		}
+	}
+	return false
 }
 
 // struct {

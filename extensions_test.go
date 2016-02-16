@@ -30,9 +30,9 @@ var (
 		extensionType: helloExtensionType(0x000a),
 		extensionData: bytes.Repeat([]byte{0}, (maxExtensionDataLen/2)+1),
 	}
-	extListValidIn          = []extension{extValidIn, extEmptyIn}
-	extListSingleTooLongIn  = []extension{extTooLongIn, extEmptyIn}
-	extListTooLongIn        = []extension{extHalfLengthPlus, extHalfLengthPlus}
+	extListValidIn          = extensionList{extValidIn, extEmptyIn}
+	extListSingleTooLongIn  = extensionList{extTooLongIn, extEmptyIn}
+	extListTooLongIn        = extensionList{extHalfLengthPlus, extHalfLengthPlus}
 	extListValidHex         = "000d000a0005f0f1f2f3f4000a0000"
 	extListEmptyHex         = "0000"
 	extListNoHeaderHex      = "00"
@@ -65,6 +65,22 @@ var (
 		"00190085" + hex.EncodeToString(p521)
 	keyShareServerHex  = "00170041" + hex.EncodeToString(p256)
 	keyShareInvalidHex = "0017000100"
+
+	// Add/Find test cases
+	keyShareServerRaw, _  = hex.DecodeString(keyShareServerHex)
+	keyShareInvalidRaw, _ = hex.DecodeString(keyShareInvalidHex)
+	extListKeyShareIn     = extensionList{
+		extension{
+			extensionType: extensionTypeKeyShare,
+			extensionData: keyShareServerRaw,
+		},
+	}
+	extListInvalidIn = extensionList{
+		extension{
+			extensionType: extensionTypeKeyShare,
+			extensionData: keyShareInvalidRaw,
+		},
+	}
 )
 
 func TestExtensionMarshalUnmarshal(t *testing.T) {
@@ -116,42 +132,70 @@ func TestExtensionListMarshalUnmarshal(t *testing.T) {
 	extListOverflowInner, _ := hex.DecodeString(extListOverflowInnerHex)
 
 	// Test successful marshal
-	out, err := marshalExtensionList(extListValidIn)
+	out, err := extListValidIn.Marshal()
 	assertNotError(t, err, "Failed to marshal valid extension list")
 	assertByteEquals(t, out, extListValid)
 
 	// Test marshal failiure on a single extension too long
-	out, err = marshalExtensionList(extListSingleTooLongIn)
+	out, err = extListSingleTooLongIn.Marshal()
 	assertError(t, err, "Marshaled an extension list with a too-long extension")
 
 	// Test marshal failure on extensions data too long
-	out, err = marshalExtensionList(extListTooLongIn)
+	out, err = extListTooLongIn.Marshal()
 	assertError(t, err, "Marshaled an extension list that's too long")
 
 	// Test successful unmarshal
-	extList, extLen, err := unmarshalExtensionList(extListValid)
+	var extList extensionList
+	extLen, err := extList.Unmarshal(extListValid)
 	assertNotError(t, err, "Failed to unmarshal a valid extension list")
 	assertEquals(t, extLen, len(extListValid))
 	assertDeepEquals(t, extList, extListValidIn)
 
 	// Test successful marshal of the empty list
-	extList, extLen, err = unmarshalExtensionList(extListEmpty)
+	extLen, err = extList.Unmarshal(extListEmpty)
 	assertNotError(t, err, "Failed to unmarshal a valid extension list")
 	assertEquals(t, extLen, len(extListEmpty))
-	assertDeepEquals(t, extList, []extension{})
+	assertDeepEquals(t, extList, extensionList{})
 
 	// Test unmarshal failure on no header
-	extList, extLen, err = unmarshalExtensionList(extListNoHeader)
+	extLen, err = extList.Unmarshal(extListNoHeader)
 	assertError(t, err, "Unmarshaled a list with no header")
 
 	// Test unmarshal failure on incorrect outer length
-	extList, extLen, err = unmarshalExtensionList(extListOverflowOuter)
+	extLen, err = extList.Unmarshal(extListOverflowOuter)
 	assertError(t, err, "Unmarshaled a list a too-long outer length")
 
 	// Test unmarhsal failure on incorrect inner length
-	extList, extLen, err = unmarshalExtensionList(extListOverflowInner)
+	extLen, err = extList.Unmarshal(extListOverflowInner)
 	assertError(t, err, "Unmarshaled a list a too-long inner length")
+}
 
+func TestExtensionAdd(t *testing.T) {
+	// Test successful add
+	el := extensionList{}
+	err := el.Add(extensionTypeKeyShare, keyShareServerIn)
+	assertNotError(t, err, "Failed to add valid extension")
+	assertDeepEquals(t, el, extListKeyShareIn)
+
+	// Test add failure on marshal failure
+	el = extensionList{}
+	err = el.Add(extensionTypeKeyShare, keyShareInvalidIn)
+	assertError(t, err, "Added an invalid extension")
+}
+
+func TestExtensionFind(t *testing.T) {
+	// Test successful find
+	var ks keyShareExtension
+	found := extListKeyShareIn.Find(extensionTypeKeyShare, &ks)
+	assert(t, found, "Failed to find a valid extension")
+
+	// Test find failure on absent extension
+	found = extListKeyShareIn.Find(extensionTypeUnknown, &ks)
+	assert(t, !found, "Found an extension that's not present")
+
+	// Test find failure on unmarshal failure
+	found = extListInvalidIn.Find(extensionTypeKeyShare, &ks)
+	assert(t, !found, "Found an extension that's not valid")
 }
 
 func TestKeyShareMarshalUnmarshal(t *testing.T) {

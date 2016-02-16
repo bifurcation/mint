@@ -38,6 +38,7 @@ const (
 type helloExtensionType uint16
 
 const (
+	extensionTypeUnknown  helloExtensionType = 0
 	extensionTypeKeyShare helloExtensionType = 0xff00 // TBD
 )
 
@@ -45,6 +46,7 @@ const (
 type namedGroup uint16
 
 const (
+	namedGroupUnknown namedGroup = 0
 	// Elliptic Curve Groups.
 	namedGroupP256 namedGroup = 23
 	namedGroupP384 namedGroup = 24
@@ -62,3 +64,11 @@ const (
 	namedGroupFF6144 namedGroup = 259
 	namedGroupFF8192 namedGroup = 250
 )
+
+type marshaler interface {
+	Marshal() ([]byte, error)
+}
+
+type unmarshaler interface {
+	Unmarshal([]byte) (int, error)
+}

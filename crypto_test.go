@@ -37,7 +37,7 @@ func TestNewKeyShare(t *testing.T) {
 	prng = originalPRNG
 
 	// Test failure case for an unknown group
-	_, _, err = newKeyShare(namedGroup(0))
+	_, _, err = newKeyShare(namedGroupUnknown)
 	assertError(t, err, "Generated a key for an unsupported group")
 }
 
@@ -72,7 +72,7 @@ func TestKeyAgreement(t *testing.T) {
 	assertError(t, err, "Performed key agreement with a truncated public key")
 
 	// Test failure case for an unknown group
-	_, err = keyAgreement(namedGroup(0), shortKeyPub, shortKeyPriv)
+	_, err = keyAgreement(namedGroupUnknown, shortKeyPub, shortKeyPriv)
 	assertError(t, err, "Performed key agreement with an unsupported group")
 
 }

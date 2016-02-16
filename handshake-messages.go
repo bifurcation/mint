@@ -33,7 +33,7 @@ type clientHelloBody struct {
 	// Omitted: legacyCompressionMethods
 	random       [32]byte
 	cipherSuites []cipherSuite
-	extensions   []extension
+	extensions   extensionList
 }
 
 func (ch clientHelloBody) Type() handshakeType {
@@ -67,7 +67,7 @@ func (ch clientHelloBody) Marshal() ([]byte, error) {
 	}
 	body[37+cipherSuitesLen] = 0x01
 
-	extensions, err := marshalExtensionList(ch.extensions)
+	extensions, err := ch.extensions.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -111,11 +111,10 @@ func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
 		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; incorrect compression methods")
 	}
 
-	extensions, extLen, err := unmarshalExtensionList(data[37+cipherSuitesLen+2:])
+	extLen, err := ch.extensions.Unmarshal(data[37+cipherSuitesLen+2:])
 	if err != nil {
 		return 0, err
 	}
-	ch.extensions = extensions
 
 	return 37 + cipherSuitesLen + 2 + extLen, nil
 }
@@ -135,7 +134,7 @@ type serverHelloBody struct {
 	// Omitted: server_version
 	random      [32]byte
 	cipherSuite cipherSuite
-	extensions  []extension
+	extensions  extensionList
 }
 
 func (sh serverHelloBody) Type() handshakeType {
@@ -154,7 +153,7 @@ func (sh serverHelloBody) Marshal() ([]byte, error) {
 	body[35] = byte(sh.cipherSuite)
 
 	if len(sh.extensions) > 0 {
-		extensions, err := marshalExtensionList(sh.extensions)
+		extensions, err := sh.extensions.Marshal()
 		if err != nil {
 			return nil, err
 		}
@@ -178,15 +177,14 @@ func (sh *serverHelloBody) Unmarshal(data []byte) (int, error) {
 
 	read := fixedServerHelloBodyLen
 	if len(data) > fixedServerHelloBodyLen {
-		extensions, extLen, err := unmarshalExtensionList(data[fixedServerHelloBodyLen:])
+		extLen, err := sh.extensions.Unmarshal(data[fixedServerHelloBodyLen:])
 		if err != nil {
 			return 0, err
 		}
 
-		sh.extensions = extensions
 		read += extLen
 	} else {
-		sh.extensions = []extension{}
+		sh.extensions = extensionList{}
 	}
 
 	return read, nil
