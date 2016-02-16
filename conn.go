@@ -32,22 +32,13 @@ func (c *Conn) ClientHandshake() {
 		ks.shares[i].keyExchange = pub
 		privateKeys[group] = priv
 	}
-	keyShareBytes, err := ks.Marshal()
-	if err != nil {
-		panic(err)
-	}
 
 	// Construct and write ClientHello
 	ch := &clientHelloBody{
 		cipherSuites: []cipherSuite{0x0000}, // XXX
-		extensions: []extension{
-			extension{
-				extensionType: extensionTypeKeyShare,
-				extensionData: keyShareBytes,
-			},
-		},
 	}
-	err = hOut.WriteMessageBody(ch)
+	ch.extensions.Add(extensionTypeKeyShare, ks)
+	err := hOut.WriteMessageBody(ch)
 	if err != nil {
 		panic(err) // XXX Do something better
 	}
@@ -126,21 +117,12 @@ func (c *Conn) ServerHandshake() {
 		namedGroupP384: true,
 		namedGroupP521: true,
 	}
-	foundKeyShare := false
-	clientKeyShares := keyShareExtension{roleIsServer: false}
-	for _, ext := range ch.extensions {
-		if ext.extensionType == extensionTypeKeyShare {
-			_, err := clientKeyShares.Unmarshal(ext.extensionData)
-			foundKeyShare = (err == nil)
-			if foundKeyShare {
-				break
-			}
-		}
+	clientKeyShares := &keyShareExtension{roleIsServer: false}
+	found := ch.extensions.Find(extensionTypeKeyShare, clientKeyShares)
+	if !found {
+		panic("No client key shares")
 	}
-	if !foundKeyShare {
-		panic("No client key share")
-	}
-	var keyShareBytes []byte
+	var serverKeyShare *keyShareExtension
 	var ES []byte
 	for _, share := range clientKeyShares.shares {
 		if config_supportedGroup[share.group] {
@@ -150,18 +132,14 @@ func (c *Conn) ServerHandshake() {
 			}
 
 			ES, err = keyAgreement(share.group, share.keyExchange, priv)
-			ks := keyShareExtension{
+			serverKeyShare = &keyShareExtension{
 				roleIsServer: true,
 				shares:       []keyShare{keyShare{group: share.group, keyExchange: pub}},
-			}
-			keyShareBytes, err = ks.Marshal()
-			if err != nil {
-				panic(err)
 			}
 			break
 		}
 	}
-	if len(keyShareBytes) == 0 || len(ES) == 0 {
+	if serverKeyShare == nil || len(ES) == 0 {
 		panic("key agreement failed")
 	}
 
@@ -170,13 +148,8 @@ func (c *Conn) ServerHandshake() {
 	// Create and write ServerHello
 	sh := &serverHelloBody{
 		cipherSuite: 0x0000,
-		extensions: []extension{
-			extension{
-				extensionType: extensionTypeKeyShare,
-				extensionData: keyShareBytes,
-			},
-		},
 	}
+	sh.extensions.Add(extensionTypeKeyShare, serverKeyShare)
 	err = hOut.WriteMessageBody(sh)
 	if err != nil {
 		panic(err) // XXX Do something better
