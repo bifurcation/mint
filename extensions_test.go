@@ -40,21 +40,31 @@ var (
 	extListOverflowInnerHex = "0012000a0005f0f1f2f3f4000a0010f0f1f2f3f4"
 
 	// KeyShare test cases
+	p256             = bytes.Repeat([]byte{0}, keyExchangeSizeFromNamedGroup(namedGroupP256))
+	p521             = bytes.Repeat([]byte{0}, keyExchangeSizeFromNamedGroup(namedGroupP521))
 	keyShareClientIn = &keyShareExtension{
 		roleIsServer: false,
 		shares: []keyShare{
-			keyShare{group: namedGroupP256, keyExchange: []byte{0, 1, 2, 3}},
-			keyShare{group: namedGroupP521, keyExchange: []byte{4, 5, 6, 7}},
+			keyShare{group: namedGroupP256, keyExchange: p256},
+			keyShare{group: namedGroupP521, keyExchange: p521},
 		},
 	}
 	keyShareServerIn = &keyShareExtension{
 		roleIsServer: true,
 		shares: []keyShare{
-			keyShare{group: namedGroupP256, keyExchange: []byte{0, 1, 2, 3}},
+			keyShare{group: namedGroupP256, keyExchange: p256},
 		},
 	}
-	keyShareClientHex = "0010" + "0017000400010203" + "0019000404050607"
-	keyShareServerHex = "0017000400010203"
+	keyShareInvalidIn = &keyShareExtension{
+		roleIsServer: true,
+		shares: []keyShare{
+			keyShare{group: namedGroupP256, keyExchange: []byte{0}},
+		},
+	}
+	keyShareClientHex = "00ce" + "00170041" + hex.EncodeToString(p256) +
+		"00190085" + hex.EncodeToString(p521)
+	keyShareServerHex  = "00170041" + hex.EncodeToString(p256)
+	keyShareInvalidHex = "0017000100"
 )
 
 func TestExtensionMarshalUnmarshal(t *testing.T) {
@@ -147,6 +157,7 @@ func TestExtensionListMarshalUnmarshal(t *testing.T) {
 func TestKeyShareMarshalUnmarshal(t *testing.T) {
 	keyShareClient, _ := hex.DecodeString(keyShareClientHex)
 	keyShareServer, _ := hex.DecodeString(keyShareServerHex)
+	keyShareInvalid, _ := hex.DecodeString(keyShareInvalidHex)
 
 	// Test successful marshal (client side)
 	out, err := keyShareClientIn.Marshal()
@@ -163,6 +174,10 @@ func TestKeyShareMarshalUnmarshal(t *testing.T) {
 	out, err = keyShareClientIn.Marshal()
 	assertError(t, err, "Marshaled multiple key shares for server")
 	keyShareClientIn.roleIsServer = !keyShareClientIn.roleIsServer
+
+	// Test marshal failure on an incorrect key share size
+	out, err = keyShareInvalidIn.Marshal()
+	assertError(t, err, "Marshaled a key share with a wrong-size key")
 
 	// Test successful unmarshal (client side)
 	ks := keyShareExtension{roleIsServer: false}
@@ -192,4 +207,9 @@ func TestKeyShareMarshalUnmarshal(t *testing.T) {
 	ks = keyShareExtension{roleIsServer: false}
 	read, err = ks.Unmarshal(keyShareClient[:7])
 	assertError(t, err, "Unmarshaled a KeyShare without a truncated key share value")
+
+	// Test marshal failure on an incorrect key share size
+	ks = keyShareExtension{roleIsServer: true}
+	read, err = ks.Unmarshal(keyShareInvalid)
+	assertError(t, err, "Unmarshaled a key share with a wrong-size key")
 }

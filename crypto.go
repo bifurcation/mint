@@ -22,6 +22,19 @@ func curveFromNamedGroup(group namedGroup) (crv elliptic.Curve) {
 	return
 }
 
+func keyExchangeSizeFromNamedGroup(group namedGroup) (size int) {
+	size = 0
+	switch group {
+	case namedGroupP256:
+		size = 65
+	case namedGroupP384:
+		size = 97
+	case namedGroupP521:
+		size = 133
+	}
+	return
+}
+
 func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 	switch group {
 	case namedGroupP256, namedGroupP384, namedGroupP521:
@@ -43,6 +56,10 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 	switch group {
 	case namedGroupP256, namedGroupP384, namedGroupP521:
+		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
+			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
+		}
+
 		crv := curveFromNamedGroup(group)
 		pubX, pubY := elliptic.Unmarshal(crv, pub)
 		x, _ := crv.Params().ScalarMult(pubX, pubY, priv)

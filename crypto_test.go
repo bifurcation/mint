@@ -67,12 +67,12 @@ func TestKeyAgreement(t *testing.T) {
 	assertNotError(t, err, "Failed to complete short key agreement")
 	assertEquals(t, len(x), curveSize)
 
+	// Test failure case for a too-short public key
+	_, err = keyAgreement(namedGroupP256, shortKeyPub[:5], shortKeyPriv)
+	assertError(t, err, "Performed key agreement with a truncated public key")
+
 	// Test failure case for an unknown group
-	pubA, _, err := newKeyShare(namedGroupP256)
-	assertNotError(t, err, "Failed to generate new key pair (A)")
-	_, privB, err := newKeyShare(namedGroupP256)
-	assertNotError(t, err, "Failed to generate new key pair (B)")
-	_, err = keyAgreement(namedGroup(0), pubA, privB)
+	_, err = keyAgreement(namedGroup(0), shortKeyPub, shortKeyPriv)
 	assertError(t, err, "Performed key agreement with an unsupported group")
 
 }

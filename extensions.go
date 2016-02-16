@@ -127,6 +127,11 @@ func (ks keyShareExtension) Marshal() ([]byte, error) {
 	shares := []byte{}
 	for _, share := range ks.shares {
 		keyLen := len(share.keyExchange)
+		keyLenForGroup := keyExchangeSizeFromNamedGroup(share.group)
+		if keyLenForGroup > 0 && keyLen != keyLenForGroup {
+			return nil, fmt.Errorf("tls.keyshare: Key exchange value has the wrong size")
+		}
+
 		header := []byte{byte(share.group >> 8), byte(share.group), byte(keyLen >> 8), byte(keyLen)}
 		shares = append(shares, header...)
 		shares = append(shares, share.keyExchange...)
@@ -162,6 +167,11 @@ func (ks *keyShareExtension) Unmarshal(data []byte) (int, error) {
 		keyLen := (int(data[read+2]) << 8) + int(data[read+3])
 		if len(data[read+4:]) < keyLen {
 			return 0, fmt.Errorf("tls.keyshare: Key share extension too short for key")
+		}
+
+		keyLenForGroup := keyExchangeSizeFromNamedGroup(share.group)
+		if keyLenForGroup > 0 && keyLen != keyLenForGroup {
+			return 0, fmt.Errorf("tls.keyshare: Key exchange value has the wrong size")
 		}
 
 		share.keyExchange = make([]byte, keyLen)
