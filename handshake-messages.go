@@ -1,16 +1,18 @@
 package mint
 
 import (
+	"crypto/x509"
 	"fmt"
 )
 
 const (
-	fixedClientHelloBodyLen = 39
-	fixedServerHelloBodyLen = 36
-	maxCipherSuites         = 1 << 15
-	extensionHeaderLen      = 4
-	maxExtensionDataLen     = (1 << 16) - 1
-	maxExtensionsLen        = (1 << 16) - 1
+	fixedClientHelloBodyLen  = 39
+	fixedServerHelloBodyLen  = 36
+	maxCipherSuites          = 1 << 15
+	extensionHeaderLen       = 4
+	maxExtensionDataLen      = (1 << 16) - 1
+	maxExtensionsLen         = (1 << 16) - 1
+	maxCertRequestContextLen = 255
 )
 
 type handshakeMessageBody interface {
@@ -225,4 +227,158 @@ func (fin *finishedBody) Unmarshal(data []byte) (int, error) {
 	fin.verifyData = make([]byte, fin.verifyDataLen)
 	copy(fin.verifyData, data[:fin.verifyDataLen])
 	return fin.verifyDataLen, nil
+}
+
+// struct {
+//     Extension extensions<0..2^16-1>;
+// } EncryptedExtensions;
+//
+// Marshal() and Unmarshal() are handled by extensionList
+type encryptedExtensionsBody extensionList
+
+func (ee encryptedExtensionsBody) Type() handshakeType {
+	return handshakeTypeEncryptedExtensions
+}
+
+func (ee encryptedExtensionsBody) Marshal() ([]byte, error) {
+	return extensionList(ee).Marshal()
+}
+
+func (ee *encryptedExtensionsBody) Unmarshal(data []byte) (int, error) {
+	var el extensionList
+	read, err := el.Unmarshal(data)
+	if err == nil {
+		*ee = encryptedExtensionsBody(el)
+	}
+	return read, err
+}
+
+// opaque ASN1Cert<1..2^24-1>;
+//
+// struct {
+//     opaque certificate_request_context<0..255>;
+//     ASN1Cert certificate_list<0..2^24-1>;
+// } Certificate;
+type certificateBody struct {
+	certificateRequestContext []byte
+	certificateList           []*x509.Certificate
+}
+
+func (c certificateBody) Type() handshakeType {
+	return handshakeTypeCertificate
+}
+
+func (c certificateBody) Marshal() ([]byte, error) {
+	if len(c.certificateRequestContext) > maxCertRequestContextLen {
+		return nil, fmt.Errorf("tls.certificate: Request context too long")
+	}
+
+	contextLen := len(c.certificateRequestContext)
+	certsLen := 0
+	for _, cert := range c.certificateList {
+		if len(cert.Raw) == 0 {
+			return nil, fmt.Errorf("tls:certificate: Unmarshaled certificate")
+		}
+		certsLen += len(cert.Raw)
+	}
+
+	data := make([]byte, 1+contextLen+3+certsLen)
+	data[0] = byte(contextLen)
+	copy(data[1:1+contextLen], c.certificateRequestContext)
+	start := 1 + contextLen
+	data[start] = byte(certsLen >> 16)
+	data[start+1] = byte(certsLen >> 8)
+	data[start+2] = byte(certsLen)
+	start += 3
+	for _, cert := range c.certificateList {
+		copy(data[start:], cert.Raw)
+		start += len(cert.Raw)
+	}
+	return data, nil
+}
+
+func (c *certificateBody) Unmarshal(data []byte) (int, error) {
+	if len(data) < 1 {
+		return 0, fmt.Errorf("tls:certificate: Message too short for context length")
+	}
+
+	contextLen := int(data[0])
+	if len(data) < 1+contextLen+3 {
+		return 0, fmt.Errorf("tls:certificate: Message too short for context")
+	}
+	c.certificateRequestContext = make([]byte, contextLen)
+	copy(c.certificateRequestContext, data[1:1+contextLen])
+
+	certsLen := (int(data[1+contextLen]) << 16) + (int(data[1+contextLen+1]) << 8) + int(data[1+contextLen+2])
+	if len(data) < 1+contextLen+3+certsLen {
+		return 0, fmt.Errorf("tls:certificate: Message too short for certificates")
+	}
+
+	certificates, err := x509.ParseCertificates(data[1+contextLen+3:])
+	if err != nil {
+		return 0, err
+	}
+	c.certificateList = certificates
+
+	return 1 + contextLen + 3 + certsLen, nil
+}
+
+// CertificateVerify
+//
+// enum {... (255)} HashAlgorithm
+// enum {... (255)} SignatureAlgorithm
+//
+// struct {
+//     HashAlgorithm hash;
+//     SignatureAlgorithm signature;
+// } SignatureAndHashAlgorithm;
+//
+// struct {
+//    SignatureAndHashAlgorithm algorithm;
+//    opaque signature<0..2^16-1>;
+// } DigitallySigned;
+//
+// struct {
+//      digitally-signed struct {
+//         opaque hashed_data[hash_length];
+//      };
+// } CertificateVerify;
+type certificateVerifyBody struct {
+	alg       signatureAndHashAlgorithm
+	signature []byte
+}
+
+func (cv certificateVerifyBody) Type() handshakeType {
+	return handshakeTypeCertificateVerify
+}
+
+func (cv certificateVerifyBody) Marshal() ([]byte, error) {
+	sigLen := len(cv.signature)
+	data := make([]byte, 2+2+sigLen)
+
+	data[0] = byte(cv.alg.hash)
+	data[1] = byte(cv.alg.signature)
+	data[2] = byte(sigLen >> 8)
+	data[3] = byte(sigLen)
+	copy(data[4:], cv.signature)
+
+	return data, nil
+}
+
+func (cv *certificateVerifyBody) Unmarshal(data []byte) (int, error) {
+	if len(data) < 4 {
+		return 0, fmt.Errorf("tls:certificateverify: Message too short for header")
+	}
+
+	sigLen := (int(data[2]) << 8) + int(data[3])
+	if len(data) < 4+sigLen {
+		return 0, fmt.Errorf("tls:certificateverify: Message too short for signature")
+	}
+
+	cv.alg.hash = hashAlgorithm(data[0])
+	cv.alg.signature = signatureAlgorithm(data[1])
+	cv.signature = make([]byte, sigLen)
+	copy(cv.signature, data[4:])
+
+	return 4 + sigLen, nil
 }

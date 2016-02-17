@@ -41,8 +41,6 @@ func (ext *extension) Unmarshal(data []byte) (int, error) {
 
 type extensionList []extension
 
-// NB: Can't be generic, but use this as a pattern for marshaling
-// vectors of things as required.
 func (el extensionList) Marshal() ([]byte, error) {
 	data := []byte{0x00, 0x00}
 
@@ -65,8 +63,6 @@ func (el extensionList) Marshal() ([]byte, error) {
 	return data, nil
 }
 
-// NB: Can't be generic, but use this as a pattern for unmarshaling
-// vectors of things as required.
 func (el *extensionList) Unmarshal(data []byte) (int, error) {
 	if len(data) < 2 {
 		return 0, fmt.Errorf("tls.extensionlist: Malformed extension list; too short")
@@ -211,4 +207,86 @@ func (ks *keyShareExtension) Unmarshal(data []byte) (int, error) {
 	}
 
 	return read, nil
+}
+
+// struct {
+//     NamedGroup named_group_list<1..2^16-1>;
+// } NamedGroupList;
+type supportedGroupsExtension struct {
+	groups []namedGroup
+}
+
+func (sg supportedGroupsExtension) Marshal() ([]byte, error) {
+	listLen := 2 * len(sg.groups)
+
+	data := make([]byte, 2+listLen)
+	data[0] = byte(listLen >> 8)
+	data[1] = byte(listLen)
+	for i, group := range sg.groups {
+		data[2*i+2] = byte(group >> 8)
+		data[2*i+3] = byte(group)
+	}
+
+	return data, nil
+}
+
+func (sg *supportedGroupsExtension) Unmarshal(data []byte) (int, error) {
+	if len(data) < 2 {
+		return 0, fmt.Errorf("tls.supportedgroups: Too short for length")
+	}
+
+	listLen := (int(data[0]) << 8) + int(data[1])
+	if len(data) < 2+listLen {
+		return 0, fmt.Errorf("tls.supportedgroups: Too short for list")
+	}
+	if listLen%2 == 1 {
+		return 0, fmt.Errorf("tls.supportedgroups: Odd list length")
+	}
+	sg.groups = make([]namedGroup, listLen/2)
+	for i := range sg.groups {
+		sg.groups[i] = (namedGroup(data[2*i+2]) << 8) + namedGroup(data[2*i+3])
+	}
+
+	return 2 + listLen, nil
+}
+
+// SignatureAndHashAlgorithm
+//   supported_signature_algorithms<2..2^16-2>;
+type signatureAlgorithmsExtension struct {
+	algorithms []signatureAndHashAlgorithm
+}
+
+func (sa signatureAlgorithmsExtension) Marshal() ([]byte, error) {
+	listLen := 2 * len(sa.algorithms)
+
+	data := make([]byte, 2+listLen)
+	data[0] = byte(listLen >> 8)
+	data[1] = byte(listLen)
+	for i, alg := range sa.algorithms {
+		data[2*i+2] = byte(alg.hash)
+		data[2*i+3] = byte(alg.signature)
+	}
+
+	return data, nil
+}
+
+func (sa *signatureAlgorithmsExtension) Unmarshal(data []byte) (int, error) {
+	if len(data) < 2 {
+		return 0, fmt.Errorf("tls.supportedgroups: Too short for length")
+	}
+
+	listLen := (int(data[0]) << 8) + int(data[1])
+	if len(data) < 2+listLen {
+		return 0, fmt.Errorf("tls.supportedgroups: Too short for list")
+	}
+	if listLen%2 == 1 {
+		return 0, fmt.Errorf("tls.supportedgroups: Odd list length")
+	}
+	sa.algorithms = make([]signatureAndHashAlgorithm, listLen/2)
+	for i := range sa.algorithms {
+		sa.algorithms[i].hash = hashAlgorithm(data[2*i+2])
+		sa.algorithms[i].signature = signatureAlgorithm(data[2*i+3])
+	}
+
+	return 2 + listLen, nil
 }

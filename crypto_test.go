@@ -2,7 +2,9 @@ package mint
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rsa"
 	"encoding/hex"
 	"testing"
 )
@@ -74,5 +76,44 @@ func TestKeyAgreement(t *testing.T) {
 	// Test failure case for an unknown group
 	_, err = keyAgreement(namedGroupUnknown, shortKeyPub, shortKeyPriv)
 	assertError(t, err, "Performed key agreement with an unsupported group")
+}
 
+func TestNewSigningKey(t *testing.T) {
+	// Test RSA success
+	privRSA, err := newSigningKey(signatureAlgorithmRSA)
+	assertNotError(t, err, "failed to generate RSA private key")
+	_, ok := privRSA.(*rsa.PrivateKey)
+	assert(t, ok, "New RSA key was not actually an RSA key")
+
+	// Test ECDSA success
+	privECDSA, err := newSigningKey(signatureAlgorithmECDSA)
+	assertNotError(t, err, "failed to generate RSA private key")
+	_, ok = privECDSA.(*ecdsa.PrivateKey)
+	assert(t, ok, "New RSA key was not actually an RSA key")
+
+	// Test unsupported algorithm
+	_, err = newSigningKey(signatureAlgorithmEdDSA)
+	assertError(t, err, "Created a private key for an unsupported algorithm")
+}
+
+func TestSelfSigned(t *testing.T) {
+	priv, err := newSigningKey(signatureAlgorithmECDSA)
+	assertNotError(t, err, "Failed to create private key")
+
+	// Test success
+	alg := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmECDSA}
+	cert, err := newSelfSigned("example.com", alg, priv)
+	assertNotError(t, err, "Failed to sign certificate")
+	assert(t, len(cert.Raw) > 0, "Certificate had empty raw value")
+	assertEquals(t, cert.SignatureAlgorithm, x509AlgMap[alg.signature][alg.hash])
+
+	// Test failure on unknown signature algorithm
+	alg = signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSAPSS}
+	_, err = newSelfSigned("example.com", alg, priv)
+	assertError(t, err, "Signed with an unsupported algorithm")
+
+	// Test failure on certificate signing failure (due to algorithm mismatch)
+	alg = signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}
+	_, err = newSelfSigned("example.com", alg, priv)
+	assertError(t, err, "Signed with a mismatched algorithm")
 }

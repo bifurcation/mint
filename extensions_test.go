@@ -81,6 +81,27 @@ var (
 			extensionData: keyShareInvalidRaw,
 		},
 	}
+
+	// SupportedGroups test cases
+	supportedGroupsIn = supportedGroupsExtension{
+		groups: []namedGroup{namedGroupP256, namedGroupP384},
+	}
+	supportedGroupsHex = "000400170018"
+
+	// SignatureAlgorithms test cases
+	signatureAlgorithmsIn = signatureAlgorithmsExtension{
+		algorithms: []signatureAndHashAlgorithm{
+			signatureAndHashAlgorithm{
+				hash:      hashAlgorithmSHA256,
+				signature: signatureAlgorithmRSAPSS,
+			},
+			signatureAndHashAlgorithm{
+				hash:      hashAlgorithmSHA512,
+				signature: signatureAlgorithmECDSA,
+			},
+		},
+	}
+	signatureAlgorithmsHex = "000404040603"
 )
 
 func TestExtensionMarshalUnmarshal(t *testing.T) {
@@ -237,23 +258,89 @@ func TestKeyShareMarshalUnmarshal(t *testing.T) {
 	assertDeepEquals(t, &ks, keyShareServerIn)
 	assertEquals(t, read, len(keyShareServer))
 
-	// Test marshal failure on truncated length (client)
+	// Test unmarshal failure on truncated length (client)
 	ks = keyShareExtension{roleIsServer: false}
 	read, err = ks.Unmarshal(keyShareClient[:1])
 	assertError(t, err, "Unmarshaled a KeyShare without a length")
 
-	// Test marshal failure on truncated keyShare length
+	// Test unmarshal failure on truncated keyShare length
 	ks = keyShareExtension{roleIsServer: false}
 	read, err = ks.Unmarshal(keyShareClient[:5])
 	assertError(t, err, "Unmarshaled a KeyShare without a key share length")
 
-	// Test marshal failure on truncated keyShare value
+	// Test unmarshal failure on truncated keyShare value
 	ks = keyShareExtension{roleIsServer: false}
 	read, err = ks.Unmarshal(keyShareClient[:7])
 	assertError(t, err, "Unmarshaled a KeyShare without a truncated key share value")
 
-	// Test marshal failure on an incorrect key share size
+	// Test unmarshal failure on an incorrect key share size
 	ks = keyShareExtension{roleIsServer: true}
 	read, err = ks.Unmarshal(keyShareInvalid)
 	assertError(t, err, "Unmarshaled a key share with a wrong-size key")
+}
+
+func TestSupportedGroupsMarshalUnmarshal(t *testing.T) {
+	supportedGroups, _ := hex.DecodeString(supportedGroupsHex)
+
+	// Test successful marshal
+	out, err := supportedGroupsIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid SupportedGroups")
+	assertByteEquals(t, out, supportedGroups)
+
+	// Test successful unmarshal
+	sg := supportedGroupsExtension{}
+	read, err := sg.Unmarshal(supportedGroups)
+	assertNotError(t, err, "Failed to unmarshal valid SupportedGroups")
+	assertDeepEquals(t, sg, supportedGroupsIn)
+	assertEquals(t, read, len(supportedGroups))
+
+	// Test unmarshal failure on truncated length
+	sg = supportedGroupsExtension{}
+	read, err = sg.Unmarshal(supportedGroups[:1])
+	assertError(t, err, "Unmarshaled a SupportedGroups without a length")
+
+	// Test unmarshal failure on truncated list
+	sg = supportedGroupsExtension{}
+	read, err = sg.Unmarshal(supportedGroups[:3])
+	assertError(t, err, "Unmarshaled a SupportedGroups without a key share length")
+
+	// Test unmarshal failure on odd list length
+	supportedGroups[1] -= 1
+	sg = supportedGroupsExtension{}
+	read, err = sg.Unmarshal(supportedGroups)
+	assertError(t, err, "Unmarshaled a SupportedGroups with an odd-length list")
+	supportedGroups[1] += 1
+}
+
+func TestSignatureAlgorithmsMarshalUnmarshal(t *testing.T) {
+	signatureAlgorithms, _ := hex.DecodeString(signatureAlgorithmsHex)
+
+	// Test successful marshal
+	out, err := signatureAlgorithmsIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid SignatureAlgorithms")
+	assertByteEquals(t, out, signatureAlgorithms)
+
+	// Test successful unmarshal
+	sg := signatureAlgorithmsExtension{}
+	read, err := sg.Unmarshal(signatureAlgorithms)
+	assertNotError(t, err, "Failed to unmarshal valid SignatureAlgorithms")
+	assertDeepEquals(t, sg, signatureAlgorithmsIn)
+	assertEquals(t, read, len(signatureAlgorithms))
+
+	// Test unmarshal failure on truncated length
+	sg = signatureAlgorithmsExtension{}
+	read, err = sg.Unmarshal(signatureAlgorithms[:1])
+	assertError(t, err, "Unmarshaled a SignatureAlgorithms without a length")
+
+	// Test unmarshal failure on truncated list
+	sg = signatureAlgorithmsExtension{}
+	read, err = sg.Unmarshal(signatureAlgorithms[:3])
+	assertError(t, err, "Unmarshaled a SignatureAlgorithms without a key share length")
+
+	// Test unmarshal failure on odd list length
+	signatureAlgorithms[1] -= 1
+	sg = signatureAlgorithmsExtension{}
+	read, err = sg.Unmarshal(signatureAlgorithms)
+	assertError(t, err, "Unmarshaled a SignatureAlgorithms with an odd-length list")
+	signatureAlgorithms[1] += 1
 }
