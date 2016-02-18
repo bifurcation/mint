@@ -276,7 +276,7 @@ func (c certificateBody) Marshal() ([]byte, error) {
 	contextLen := len(c.certificateRequestContext)
 	certsLen := 0
 	for _, cert := range c.certificateList {
-		if len(cert.Raw) == 0 {
+		if cert == nil || len(cert.Raw) == 0 {
 			return nil, fmt.Errorf("tls:certificate: Unmarshaled certificate")
 		}
 		certsLen += len(cert.Raw)

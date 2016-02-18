@@ -25,6 +25,10 @@ func assertNotError(t *testing.T, err error, msg string) {
 	assert(t, err == nil, msg)
 }
 
+func assertNotNil(t *testing.T, x interface{}, msg string) {
+	assert(t, x != nil, msg)
+}
+
 func assertEquals(t *testing.T, a interface{}, b interface{}) {
 	if a != b {
 		assert(t, false, fmt.Sprintf("%v != %v", a, b))

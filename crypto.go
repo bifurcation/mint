@@ -245,6 +245,8 @@ type keySet struct {
 
 // XXX: This might be specific to 1xRTT; we'll figure out how to adapt later
 type cryptoContext struct {
+	initialized bool
+
 	suite  cipherSuite
 	params cipherSuiteParams
 
@@ -327,10 +329,15 @@ func (c *cryptoContext) Init(ch *clientHelloBody, sh *serverHelloBody, SS, ES []
 	context := c.marshalTranscript()
 	c.handshakeKeys = c.makeTrafficKeys(c.xES, phaseHandshake, context)
 
+	c.initialized = true
 	return nil
 }
 
 func (c *cryptoContext) Update(bodies []handshakeMessageBody) error {
+	if !c.initialized {
+		return fmt.Errorf("tls.updatecontext: Called on uninitialized context")
+	}
+
 	// Add messages to transcript
 	for _, msg := range bodies {
 		err := c.addToTranscript(msg)
@@ -368,10 +375,7 @@ func (c *cryptoContext) Update(bodies []handshakeMessageBody) error {
 		verifyDataLen: L,
 		verifyData:    c.serverFinishedData,
 	}
-	err := c.addToTranscript(c.serverFinished)
-	if err != nil {
-		return err
-	}
+	c.addToTranscript(c.serverFinished)
 
 	// Compute client_finished_key
 	handshakeThroughFinished := c.marshalTranscript()

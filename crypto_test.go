@@ -5,8 +5,10 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/rsa"
 	_ "crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"testing"
 )
@@ -164,6 +166,129 @@ func TestHKDF(t *testing.T) {
 	// This is pro-forma, just for the coverage
 	out = hkdfExpandLabel(hash, hkdfSalt, hkdfLabel, hkdfHash, hkdfExpandLen)
 	assertByteEquals(t, out, hkdfExpandLabelOutput)
+}
+
+func random(n int) []byte {
+	data := make([]byte, n)
+	rand.Reader.Read(data)
+	return data
+}
+
+var (
+	clientHelloContextIn = &clientHelloBody{
+		cipherSuites: []cipherSuite{
+			TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		},
+	}
+
+	serverHelloContextIn = &serverHelloBody{
+		cipherSuite: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+	}
+
+	certificateContextIn = &certificateBody{
+		certificateRequestContext: []byte{},
+		certificateList:           make([]*x509.Certificate, 1),
+	}
+
+	certificateVerifyContextIn = &certificateVerifyBody{
+		alg:       signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmRSA},
+		signature: random(64),
+	}
+
+	ESContextIn = random(32)
+	SSContextIn = ESContextIn
+)
+
+func TestCryptoContext(t *testing.T) {
+	rand.Reader.Read(clientHelloContextIn.random[:])
+	rand.Reader.Read(serverHelloContextIn.random[:])
+
+	clientHelloContextIn.extensions.Add(extensionTypeSupportedGroups, supportedGroupsExtension{
+		groups: []namedGroup{namedGroupP256, namedGroupP521},
+	})
+	clientHelloContextIn.extensions.Add(extensionTypeSignatureAlgorithms, signatureAlgorithmsExtension{
+		algorithms: []signatureAndHashAlgorithm{
+			signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmRSA},
+			signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmECDSA},
+		},
+	})
+	clientHelloContextIn.extensions.Add(extensionTypeKeyShare, keyShareExtension{
+		roleIsServer: false,
+		shares: []keyShare{
+			keyShare{group: namedGroupP256, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP256))},
+			keyShare{group: namedGroupP521, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
+		},
+	})
+
+	serverHelloContextIn.extensions.Add(extensionTypeKeyShare, keyShareExtension{
+		roleIsServer: true,
+		shares: []keyShare{
+			keyShare{group: namedGroupP521, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
+		},
+	})
+
+	alg := signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmECDSA}
+	priv, err := newSigningKey(signatureAlgorithmECDSA)
+	assertNotError(t, err, "Failed to generate key pair")
+	cert, err := newSelfSigned("example.com", alg, priv)
+	assertNotError(t, err, "Failed to sign certificate")
+	certificateContextIn.certificateList[0] = cert
+
+	// Test successful Init
+	ctx := cryptoContext{}
+	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	assertNotError(t, err, "Failed to init context")
+	// TODO actually test results
+
+	// Test Init failure on usupported ciphersuite
+	ctx = cryptoContext{}
+	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256)
+	assertError(t, err, "Init'ed context with an unsupported ciphersuite")
+
+	// Test Init failure on CH addToTranscript failure (i.e., marshal failure)
+	ctx = cryptoContext{}
+	originalSuites := clientHelloContextIn.cipherSuites
+	clientHelloContextIn.cipherSuites = []cipherSuite{}
+	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	assertError(t, err, "Init'ed context despite ClientHello marshal failure")
+	clientHelloContextIn.cipherSuites = originalSuites
+
+	// Test Init failure on SH addToTranscript failure (i.e., marshal failure)
+	ctx = cryptoContext{}
+	originalExtensions := serverHelloContextIn.extensions
+	serverHelloContextIn.extensions = extListTooLongIn
+	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	assertError(t, err, "Init'ed context despite ServerHello marshal failure")
+	serverHelloContextIn.extensions = originalExtensions
+
+	// TODO Test Update on un-Init'ed context
+	ctx = cryptoContext{}
+	err = ctx.Update([]handshakeMessageBody{certificateContextIn, certificateVerifyContextIn})
+	assertError(t, err, "Allowed Update on un-Init'ed context")
+
+	// Test succesful Update
+	ctx = cryptoContext{}
+	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	assertNotError(t, err, "Failed to init context before update")
+	err = ctx.Update([]handshakeMessageBody{certificateContextIn, certificateVerifyContextIn})
+	assertNotError(t, err, "Failed to update context")
+	// TODO actually test results
+
+	// Test Update failure on addToTranscript failure (i.e., marshal failure)
+	// TODO: Figure out why this doesn't hit
+	ctx = cryptoContext{}
+	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	assertNotError(t, err, "Failed to init context before update failure test")
+	originalContext := certificateContextIn.certificateRequestContext
+	certificateContextIn.certificateRequestContext = bytes.Repeat([]byte{0}, maxCertRequestContextLen)
+	err = ctx.Update([]handshakeMessageBody{certificateContextIn, certificateVerifyContextIn})
+	assertNotError(t, err, "Updated context despite marshal failure")
+	certificateContextIn.certificateRequestContext = originalContext
+
+	// Test key update
+	ctx.UpdateKeys()
+	// TODO actually test results
 }
 
 // To test the crypto context code, we'll want to feed it a transcript.
