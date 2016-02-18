@@ -33,6 +33,33 @@ func (hm handshakeMessage) Marshal() []byte {
 	return data
 }
 
+func (hm handshakeMessage) toBody() (handshakeMessageBody, error) {
+	var body handshakeMessageBody
+	switch hm.msgType {
+	case handshakeTypeClientHello:
+		body = new(clientHelloBody)
+	case handshakeTypeServerHello:
+		body = new(serverHelloBody)
+	case handshakeTypeEncryptedExtensions:
+		body = new(encryptedExtensionsBody)
+	case handshakeTypeCertificate:
+		body = new(certificateBody)
+	case handshakeTypeCertificateVerify:
+		body = new(certificateVerifyBody)
+	case handshakeTypeFinished:
+		body = new(finishedBody)
+	default:
+		return body, fmt.Errorf("tls.handshakemessage: Unsupported body type")
+	}
+
+	_, err := body.Unmarshal(hm.body)
+	if err != nil {
+		return body, err
+	}
+
+	return body, nil
+}
+
 func handshakeMessageFromBody(body handshakeMessageBody) (*handshakeMessage, error) {
 	data, err := body.Marshal()
 	if err != nil {

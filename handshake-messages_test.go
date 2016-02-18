@@ -50,6 +50,71 @@ var (
 	encExtValidIn  = encryptedExtensionsBody(extListValidIn)
 	encExtValidHex = extListValidHex
 
+	// Certificate test cases
+	cert1Hex = "308201653082010ba003020102020500a0a0a0a0300a0608" +
+		"2a8648ce3d0403023017311530130603550403130c657861" +
+		"6d706c65312e636f6d3022180f3030303130313031303030" +
+		"3030305a180f30303031303130313030303030305a301731" +
+		"1530130603550403130c6578616d706c65312e636f6d3059" +
+		"301306072a8648ce3d020106082a8648ce3d030107034200" +
+		"044460e6de2a170e0c7c8d1306c82386db31980bd76647bd" +
+		"e9b96055d075fc64ea7d8d3864afcf0ff16da73c68df6880" +
+		"a597303243410016ef2e36f5962584d187a340303e300e06" +
+		"03551d0f0101ff0404030203a830130603551d25040c300a" +
+		"06082b0601050507030130170603551d110410300e820c65" +
+		"78616d706c65312e636f6d300a06082a8648ce3d04030203" +
+		"48003045022005937d0bf7a7cb4589715bb83dddd2505335" +
+		"829e6305b75cfeae6f2dcc2230b6022100f6f0e75436cd59" +
+		"b94ceedffb18bcf5bb2f161260a282f7b63d1376e5805c51" +
+		"b6"
+	cert2Hex = "308201643082010ba003020102020500a0a0a0a0300a0608" +
+		"2a8648ce3d0403043017311530130603550403130c657861" +
+		"6d706c65322e636f6d3022180f3030303130313031303030" +
+		"3030305a180f30303031303130313030303030305a301731" +
+		"1530130603550403130c6578616d706c65322e636f6d3059" +
+		"301306072a8648ce3d020106082a8648ce3d030107034200" +
+		"044460e6de2a170e0c7c8d1306c82386db31980bd76647bd" +
+		"e9b96055d075fc64ea7d8d3864afcf0ff16da73c68df6880" +
+		"a597303243410016ef2e36f5962584d187a340303e300e06" +
+		"03551d0f0101ff0404030203a830130603551d25040c300a" +
+		"06082b0601050507030130170603551d110410300e820c65" +
+		"78616d706c65322e636f6d300a06082a8648ce3d04030403" +
+		"470030440220718254f2b3c1cc0fa4c53bf43182f8acbc19" +
+		"04e45ee1a3abdc8bc50a155712b4022010664cc29b80fae9" +
+		"150027726da5b144df764a76007eee2a52b6ae0c995395fb"
+	certValidIn  = certificateBody{certificateRequestContext: []byte{0, 0, 0, 0}}
+	certValidHex = "04000000000002d1308201653082010ba003020102020500" +
+		"a0a0a0a0300a06082a8648ce3d0403023017311530130603" +
+		"550403130c6578616d706c65312e636f6d3022180f303030" +
+		"31303130313030303030305a180f30303031303130313030" +
+		"303030305a3017311530130603550403130c6578616d706c" +
+		"65312e636f6d3059301306072a8648ce3d020106082a8648" +
+		"ce3d030107034200044460e6de2a170e0c7c8d1306c82386" +
+		"db31980bd76647bde9b96055d075fc64ea7d8d3864afcf0f" +
+		"f16da73c68df6880a597303243410016ef2e36f5962584d1" +
+		"87a340303e300e0603551d0f0101ff0404030203a8301306" +
+		"03551d25040c300a06082b0601050507030130170603551d" +
+		"110410300e820c6578616d706c65312e636f6d300a06082a" +
+		"8648ce3d0403020348003045022005937d0bf7a7cb458971" +
+		"5bb83dddd2505335829e6305b75cfeae6f2dcc2230b60221" +
+		"00f6f0e75436cd59b94ceedffb18bcf5bb2f161260a282f7" +
+		"b63d1376e5805c51b6308201643082010ba0030201020205" +
+		"00a0a0a0a0300a06082a8648ce3d04030430173115301306" +
+		"03550403130c6578616d706c65322e636f6d3022180f3030" +
+		"3031303130313030303030305a180f303030313031303130" +
+		"30303030305a3017311530130603550403130c6578616d70" +
+		"6c65322e636f6d3059301306072a8648ce3d020106082a86" +
+		"48ce3d030107034200044460e6de2a170e0c7c8d1306c823" +
+		"86db31980bd76647bde9b96055d075fc64ea7d8d3864afcf" +
+		"0ff16da73c68df6880a597303243410016ef2e36f5962584" +
+		"d187a340303e300e0603551d0f0101ff0404030203a83013" +
+		"0603551d25040c300a06082b060105050703013017060355" +
+		"1d110410300e820c6578616d706c65322e636f6d300a0608" +
+		"2a8648ce3d04030403470030440220718254f2b3c1cc0fa4" +
+		"c53bf43182f8acbc1904e45ee1a3abdc8bc50a155712b402" +
+		"2010664cc29b80fae9150027726da5b144df764a76007eee" +
+		"2a52b6ae0c995395fb"
+
 	// CertificateVerify test cases
 	certVerifyValidIn = certificateVerifyBody{
 		alg: signatureAndHashAlgorithm{
@@ -266,30 +331,12 @@ func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 
 func TestCertificateMarshalUnmarshal(t *testing.T) {
 	// Create a couple of certificates and manually encode
-	priv, err := newSigningKey(signatureAlgorithmECDSA)
-	assertNotError(t, err, "Failed to create signing key")
-
-	alg := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmECDSA}
-	cert1, err := newSelfSigned("example1.com", alg, priv)
-	assertNotError(t, err, "Failed to sign first certificate")
-	certsLen := len(cert1.Raw)
-
-	alg = signatureAndHashAlgorithm{hashAlgorithmSHA512, signatureAlgorithmECDSA}
-	cert2, err := newSelfSigned("example2.com", alg, priv)
-	assertNotError(t, err, "Failed to sign second certificate")
-	certsLen += len(cert2.Raw)
-
-	certValidIn := certificateBody{
-		certificateRequestContext: []byte{0, 0, 0, 0},
-		certificateList:           []*x509.Certificate{cert1, cert2},
-	}
-	certValid := []byte{
-		byte(len(certValidIn.certificateRequestContext)),
-		0, 0, 0, 0,
-		byte(certsLen >> 16), byte(certsLen >> 8), byte(certsLen),
-	}
-	certValid = append(certValid, cert1.Raw...)
-	certValid = append(certValid, cert2.Raw...)
+	certValid, _ := hex.DecodeString(certValidHex)
+	cert1Bytes, _ := hex.DecodeString(cert1Hex)
+	cert2Bytes, _ := hex.DecodeString(cert2Hex)
+	cert1, _ := x509.ParseCertificate(cert1Bytes)
+	cert2, _ := x509.ParseCertificate(cert2Bytes)
+	certValidIn.certificateList = []*x509.Certificate{cert1, cert2}
 
 	// Test correctness of handshake type
 	assertEquals(t, (certificateBody{}).Type(), handshakeTypeCertificate)

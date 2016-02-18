@@ -86,6 +86,57 @@ func TestMessageMarshal(t *testing.T) {
 	assertByteEquals(t, out, tinyMessage)
 }
 
+func TestMessageToBody(t *testing.T) {
+	// Borrowing serialized bodies from handshake-messages_test.go
+	chValid, _ := hex.DecodeString(chValidHex)
+	shValid, _ := hex.DecodeString(shValidHex)
+	finValid, _ := hex.DecodeString(finValidHex)
+	encExtValid, _ := hex.DecodeString(encExtValidHex)
+	certValid, _ := hex.DecodeString(certValidHex)
+	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
+
+	// Test successful marshal of ClientHello
+	hm := handshakeMessage{handshakeTypeClientHello, chValid}
+	_, err := hm.toBody()
+	assertNotError(t, err, "Failed to convert ClientHello body")
+
+	// Test successful marshal of ServerHello
+	hm = handshakeMessage{handshakeTypeServerHello, shValid}
+	_, err = hm.toBody()
+	assertNotError(t, err, "Failed to convert ServerHello body")
+
+	// Test successful marshal of EncryptedExtensions
+	hm = handshakeMessage{handshakeTypeEncryptedExtensions, encExtValid}
+	_, err = hm.toBody()
+	assertNotError(t, err, "Failed to convert EncryptedExtensions body")
+
+	// Test successful marshal of Certificate
+	hm = handshakeMessage{handshakeTypeCertificate, certValid}
+	_, err = hm.toBody()
+	assertNotError(t, err, "Failed to convert Certificate body")
+
+	// Test successful marshal of CertificateVerify
+	hm = handshakeMessage{handshakeTypeCertificateVerify, certVerifyValid}
+	_, err = hm.toBody()
+	assertNotError(t, err, "Failed to convert CertificateVerify body")
+
+	// Test successful marshal of Finished
+	hm = handshakeMessage{handshakeTypeFinished, finValid}
+	_, err = hm.toBody()
+	assertNotError(t, err, "Failed to convert Finished body")
+
+	// Test failure on unsupported body type
+	hm = handshakeMessage{handshakeTypeSessionTicket, []byte{}}
+	_, err = hm.toBody()
+	assertError(t, err, "Converted an empty message")
+
+	// Test failure on marshal failure
+	hm = handshakeMessage{handshakeTypeClientHello, []byte{}}
+	_, err = hm.toBody()
+	assertError(t, err, "Converted an empty message")
+
+}
+
 func TestMessageFromBody(t *testing.T) {
 	chValid, _ := hex.DecodeString(chValidHex)
 

@@ -302,6 +302,7 @@ func (c *cryptoContext) Init(ch *clientHelloBody, sh *serverHelloBody, SS, ES []
 	if !ok {
 		return fmt.Errorf("tls.cryptoinit: Unsupported ciphersuite")
 	}
+	c.suite = suite
 	c.params = params
 
 	// Set up transcript and initialize transcript hash

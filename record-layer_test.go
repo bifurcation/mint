@@ -2,8 +2,6 @@ package mint
 
 import (
 	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	"encoding/hex"
 	"net"
 	"testing"
@@ -22,6 +20,26 @@ const (
 	ciphertext2Hex = "170301001a1da650d5da822b7f4eba67f954767fcbbbd4c4bc7f1c61daf701"
 )
 
+func TestRekey(t *testing.T) {
+	key, _ := hex.DecodeString(keyHex)
+	iv, _ := hex.DecodeString(ivHex)
+
+	// Test a succesful rekey
+	r := newRecordLayer(bytes.NewBuffer(nil))
+	err := r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
+	assertNotError(t, err, "Failed to rekey")
+
+	// Test rekey failure on wrong-size IV
+	r = newRecordLayer(bytes.NewBuffer(nil))
+	err = r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv[:2])
+	assertError(t, err, "Failed to rekey")
+
+	// Test rekey failure on unknown ciphersuite
+	r = newRecordLayer(bytes.NewBuffer(nil))
+	err = r.Rekey(TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, key, iv)
+	assertError(t, err, "Failed to rekey")
+}
+
 func TestSequenceNumberRollover(t *testing.T) {
 	defer func() {
 		r := recover()
@@ -30,11 +48,9 @@ func TestSequenceNumberRollover(t *testing.T) {
 
 	key, _ := hex.DecodeString(keyHex)
 	iv, _ := hex.DecodeString(ivHex)
-	aes, _ := aes.NewCipher(key)
-	gcm, _ := cipher.NewGCMWithNonceSize(aes, len(iv))
 
 	r := newRecordLayer(bytes.NewBuffer(nil))
-	r.ChangeCipher(gcm, iv)
+	r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 
 	for i := 0; i < sequenceNumberLen; i++ {
 		r.seq[r.ivLength-i-1] = 0xFF
@@ -122,12 +138,9 @@ func TestDecryptRecord(t *testing.T) {
 	ciphertext1, _ := hex.DecodeString(ciphertext1Hex)
 	ciphertext2, _ := hex.DecodeString(ciphertext2Hex)
 
-	aes, _ := aes.NewCipher(key)
-	gcm, _ := cipher.NewGCMWithNonceSize(aes, len(iv))
-
 	// Test successful decrypt
 	r := newRecordLayer(bytes.NewBuffer(ciphertext1))
-	r.ChangeCipher(gcm, iv)
+	r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 	pt, err := r.ReadRecord()
 	assertNotError(t, err, "Failed to decrypt valid record")
 	assertEquals(t, pt.contentType, recordTypeAlert)
@@ -135,7 +148,7 @@ func TestDecryptRecord(t *testing.T) {
 
 	// Test successful decrypt after sequence number change
 	r = newRecordLayer(bytes.NewBuffer(ciphertext2))
-	r.ChangeCipher(gcm, iv)
+	r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 	for i := 0; i < sequenceChange; i++ {
 		r.incrementSequenceNumber()
 	}
@@ -147,7 +160,7 @@ func TestDecryptRecord(t *testing.T) {
 	// Test failure on decrypt failure
 	ciphertext1[7] ^= 0xFF
 	r = newRecordLayer(bytes.NewBuffer(ciphertext1))
-	r.ChangeCipher(gcm, iv)
+	r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject invalid record")
 	ciphertext1[7] ^= 0xFF
@@ -161,13 +174,10 @@ func TestEncryptRecord(t *testing.T) {
 	ciphertext1, _ := hex.DecodeString(ciphertext1Hex)
 	ciphertext2, _ := hex.DecodeString(ciphertext2Hex)
 
-	aes, _ := aes.NewCipher(key)
-	gcm, _ := cipher.NewGCMWithNonceSize(aes, len(iv))
-
 	// Test successful encrypt
 	b := bytes.NewBuffer(nil)
 	r := newRecordLayer(b)
-	r.ChangeCipher(gcm, iv)
+	r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 	pt := &tlsPlaintext{
 		contentType: recordType(plaintext[0]),
 		fragment:    plaintext[5:],
@@ -179,7 +189,7 @@ func TestEncryptRecord(t *testing.T) {
 	// Test successful encrypt with padding
 	b.Truncate(0)
 	r = newRecordLayer(b)
-	r.ChangeCipher(gcm, iv)
+	r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 	pt = &tlsPlaintext{
 		contentType: recordType(plaintext[0]),
 		fragment:    plaintext[5:],
@@ -191,7 +201,7 @@ func TestEncryptRecord(t *testing.T) {
 	// Test successful enc after sequence number change
 	b.Truncate(0)
 	r = newRecordLayer(b)
-	r.ChangeCipher(gcm, iv)
+	r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 	for i := 0; i < sequenceChange; i++ {
 		r.incrementSequenceNumber()
 	}
@@ -206,7 +216,7 @@ func TestEncryptRecord(t *testing.T) {
 	// Test failure on size too big after encrypt
 	b.Truncate(0)
 	r = newRecordLayer(b)
-	r.ChangeCipher(gcm, iv)
+	r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 	pt = &tlsPlaintext{
 		contentType: recordType(plaintext[0]),
 		fragment:    bytes.Repeat([]byte{0}, maxFragmentLen-paddingLength),
@@ -219,9 +229,6 @@ func TestReadWrite(t *testing.T) {
 	key, _ := hex.DecodeString(keyHex)
 	iv, _ := hex.DecodeString(ivHex)
 	plaintext, _ := hex.DecodeString(plaintextHex)
-
-	aes, _ := aes.NewCipher(key)
-	gcm, _ := cipher.NewGCMWithNonceSize(aes, len(iv))
 
 	b := bytes.NewBuffer(nil)
 	out := newRecordLayer(b)
@@ -240,8 +247,8 @@ func TestReadWrite(t *testing.T) {
 	assertByteEquals(t, ptIn.fragment, ptOut.fragment)
 
 	// Encrypted
-	in.ChangeCipher(gcm, iv)
-	out.ChangeCipher(gcm, iv)
+	in.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
+	out.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 	err = out.WriteRecord(ptIn)
 	assertNotError(t, err, "Failed to write record")
 	ptOut, err = in.ReadRecord()
@@ -254,9 +261,6 @@ func TestOverSocket(t *testing.T) {
 	key, _ := hex.DecodeString(keyHex)
 	iv, _ := hex.DecodeString(ivHex)
 	plaintext, _ := hex.DecodeString(plaintextHex)
-
-	aes, _ := aes.NewCipher(key)
-	gcm, _ := cipher.NewGCMWithNonceSize(aes, len(iv))
 
 	socketReady := make(chan bool)
 	done := make(chan tlsPlaintext, 1)
@@ -277,7 +281,7 @@ func TestOverSocket(t *testing.T) {
 		defer conn.Close()
 
 		in := newRecordLayer(conn)
-		in.ChangeCipher(gcm, iv)
+		in.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 		pt, err := in.ReadRecord()
 		assertNotError(t, err, "Unable to read record")
 
@@ -289,7 +293,7 @@ func TestOverSocket(t *testing.T) {
 	assertNotError(t, err, "Unable to dial")
 
 	out := newRecordLayer(conn)
-	out.ChangeCipher(gcm, iv)
+	out.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv)
 	err = out.WriteRecord(&ptIn)
 	assertNotError(t, err, "Unable to write record")
 
