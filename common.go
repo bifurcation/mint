@@ -78,7 +78,8 @@ type signatureAndHashAlgorithm struct {
 type helloExtensionType uint16
 
 const (
-	extensionTypeUnknown             helloExtensionType = 0
+	extensionTypeUnknown             helloExtensionType = 0xffff
+	extensionTypeServerName          helloExtensionType = 0
 	extensionTypeSupportedGroups     helloExtensionType = 10
 	extensionTypeSignatureAlgorithms helloExtensionType = 13
 	extensionTypeEarlyData           helloExtensionType = 0xff00 // TBD

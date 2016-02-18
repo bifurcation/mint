@@ -204,16 +204,16 @@ func TestCryptoContext(t *testing.T) {
 	rand.Reader.Read(clientHelloContextIn.random[:])
 	rand.Reader.Read(serverHelloContextIn.random[:])
 
-	clientHelloContextIn.extensions.Add(extensionTypeSupportedGroups, supportedGroupsExtension{
+	clientHelloContextIn.extensions.Add(&supportedGroupsExtension{
 		groups: []namedGroup{namedGroupP256, namedGroupP521},
 	})
-	clientHelloContextIn.extensions.Add(extensionTypeSignatureAlgorithms, signatureAlgorithmsExtension{
+	clientHelloContextIn.extensions.Add(&signatureAlgorithmsExtension{
 		algorithms: []signatureAndHashAlgorithm{
 			signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmRSA},
 			signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmECDSA},
 		},
 	})
-	clientHelloContextIn.extensions.Add(extensionTypeKeyShare, keyShareExtension{
+	clientHelloContextIn.extensions.Add(&keyShareExtension{
 		roleIsServer: false,
 		shares: []keyShare{
 			keyShare{group: namedGroupP256, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP256))},
@@ -221,7 +221,7 @@ func TestCryptoContext(t *testing.T) {
 		},
 	})
 
-	serverHelloContextIn.extensions.Add(extensionTypeKeyShare, keyShareExtension{
+	serverHelloContextIn.extensions.Add(&keyShareExtension{
 		roleIsServer: true,
 		shares: []keyShare{
 			keyShare{group: namedGroupP521, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},

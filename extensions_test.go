@@ -102,6 +102,11 @@ var (
 		},
 	}
 	signatureAlgorithmsHex = "000404040603"
+
+	// SNI test cases
+	serverNameRaw = "example.com"
+	serverNameIn  = serverNameExtension(serverNameRaw)
+	serverNameHex = "000e00000b" + hex.EncodeToString([]byte(serverNameRaw))
 )
 
 func TestExtensionMarshalUnmarshal(t *testing.T) {
@@ -194,35 +199,78 @@ func TestExtensionListMarshalUnmarshal(t *testing.T) {
 func TestExtensionAdd(t *testing.T) {
 	// Test successful add
 	el := extensionList{}
-	err := el.Add(extensionTypeKeyShare, keyShareServerIn)
+	err := el.Add(keyShareServerIn)
 	assertNotError(t, err, "Failed to add valid extension")
 	assertDeepEquals(t, el, extListKeyShareIn)
 
 	// Test add failure on marshal failure
 	el = extensionList{}
-	err = el.Add(extensionTypeKeyShare, keyShareInvalidIn)
+	err = el.Add(keyShareInvalidIn)
 	assertError(t, err, "Added an invalid extension")
 }
 
 func TestExtensionFind(t *testing.T) {
 	// Test successful find
 	var ks keyShareExtension
-	found := extListKeyShareIn.Find(extensionTypeKeyShare, &ks)
+	found := extListKeyShareIn.Find(&ks)
 	assert(t, found, "Failed to find a valid extension")
 
 	// Test find failure on absent extension
-	found = extListKeyShareIn.Find(extensionTypeUnknown, &ks)
+	var sg supportedGroupsExtension
+	found = extListKeyShareIn.Find(&sg)
 	assert(t, !found, "Found an extension that's not present")
 
 	// Test find failure on unmarshal failure
-	found = extListInvalidIn.Find(extensionTypeKeyShare, &ks)
+	found = extListInvalidIn.Find(&ks)
 	assert(t, !found, "Found an extension that's not valid")
+}
+
+func TestServerNameMarshalUnmarshal(t *testing.T) {
+	serverName, _ := hex.DecodeString(serverNameHex)
+
+	// Test extension type
+	assertEquals(t, serverNameExtension("").Type(), extensionTypeServerName)
+
+	// Test successful marshal
+	out, err := serverNameIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid ServerName")
+	assertByteEquals(t, out, serverName)
+
+	// Test successful unmarshal
+	var sni serverNameExtension
+	read, err := sni.Unmarshal(serverName)
+	assertNotError(t, err, "Failed to unmarshal valid ServerName")
+	assertDeepEquals(t, sni, serverNameIn)
+	assertEquals(t, read, len(serverName))
+
+	// Test unmarshal failure on truncated header
+	read, err = sni.Unmarshal(serverName[:4])
+	assertError(t, err, "Unmarshaled a ServerName without a header")
+
+	// Test unmarshal failure on truncated name
+	read, err = sni.Unmarshal(serverName[:7])
+	assertError(t, err, "Unmarshaled a ServerName without a full name")
+
+	// Test unmarshal failure on length mismatch
+	serverName[4] += 1
+	read, err = sni.Unmarshal(serverName)
+	assertError(t, err, "Unmarshaled a ServerName with inconsistent lengths")
+	serverName[4] -= 1
+
+	// Test unmarshal failure on odd list length
+	serverName[2] += 1
+	read, err = sni.Unmarshal(serverName)
+	assertError(t, err, "Unmarshaled a ServerName that was not a host_name")
+	serverName[2] -= 1
 }
 
 func TestKeyShareMarshalUnmarshal(t *testing.T) {
 	keyShareClient, _ := hex.DecodeString(keyShareClientHex)
 	keyShareServer, _ := hex.DecodeString(keyShareServerHex)
 	keyShareInvalid, _ := hex.DecodeString(keyShareInvalidHex)
+
+	// Test extension type
+	assertEquals(t, keyShareExtension{}.Type(), extensionTypeKeyShare)
 
 	// Test successful marshal (client side)
 	out, err := keyShareClientIn.Marshal()
@@ -282,6 +330,9 @@ func TestKeyShareMarshalUnmarshal(t *testing.T) {
 func TestSupportedGroupsMarshalUnmarshal(t *testing.T) {
 	supportedGroups, _ := hex.DecodeString(supportedGroupsHex)
 
+	// Test extension type
+	assertEquals(t, supportedGroupsExtension{}.Type(), extensionTypeSupportedGroups)
+
 	// Test successful marshal
 	out, err := supportedGroupsIn.Marshal()
 	assertNotError(t, err, "Failed to marshal valid SupportedGroups")
@@ -314,6 +365,9 @@ func TestSupportedGroupsMarshalUnmarshal(t *testing.T) {
 
 func TestSignatureAlgorithmsMarshalUnmarshal(t *testing.T) {
 	signatureAlgorithms, _ := hex.DecodeString(signatureAlgorithmsHex)
+
+	// Test extension type
+	assertEquals(t, signatureAlgorithmsExtension{}.Type(), extensionTypeSignatureAlgorithms)
 
 	// Test successful marshal
 	out, err := signatureAlgorithmsIn.Marshal()

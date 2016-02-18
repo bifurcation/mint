@@ -37,7 +37,7 @@ func (c *Conn) ClientHandshake() {
 	ch := &clientHelloBody{
 		cipherSuites: []cipherSuite{0x0000}, // XXX
 	}
-	ch.extensions.Add(extensionTypeKeyShare, ks)
+	ch.extensions.Add(ks)
 	err := hOut.WriteMessageBody(ch)
 	if err != nil {
 		panic(err) // XXX Do something better
@@ -118,7 +118,7 @@ func (c *Conn) ServerHandshake() {
 		namedGroupP521: true,
 	}
 	clientKeyShares := &keyShareExtension{roleIsServer: false}
-	found := ch.extensions.Find(extensionTypeKeyShare, clientKeyShares)
+	found := ch.extensions.Find(clientKeyShares)
 	if !found {
 		panic("No client key shares")
 	}
@@ -149,7 +149,7 @@ func (c *Conn) ServerHandshake() {
 	sh := &serverHelloBody{
 		cipherSuite: 0x0000,
 	}
-	sh.extensions.Add(extensionTypeKeyShare, serverKeyShare)
+	sh.extensions.Add(serverKeyShare)
 	err = hOut.WriteMessageBody(sh)
 	if err != nil {
 		panic(err) // XXX Do something better

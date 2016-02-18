@@ -4,6 +4,12 @@ import (
 	"fmt"
 )
 
+type extensionBody interface {
+	Type() helloExtensionType
+	Marshal() ([]byte, error)
+	Unmarshal(data []byte) (int, error)
+}
+
 // struct {
 //     ExtensionType extension_type;
 //     opaque extension_data<0..2^16-1>;
@@ -90,27 +96,100 @@ func (el *extensionList) Unmarshal(data []byte) (int, error) {
 	return 2 + extLen, nil
 }
 
-func (el *extensionList) Add(extType helloExtensionType, src marshaler) error {
+func (el *extensionList) Add(src extensionBody) error {
 	data, err := src.Marshal()
 	if err != nil {
 		return err
 	}
 
 	*el = append(*el, extension{
-		extensionType: extType,
+		extensionType: src.Type(),
 		extensionData: data,
 	})
 	return nil
 }
 
-func (el extensionList) Find(target helloExtensionType, dst unmarshaler) bool {
+func (el extensionList) Find(dst extensionBody) bool {
 	for _, ext := range el {
-		if ext.extensionType == target {
+		if ext.extensionType == dst.Type() {
 			_, err := dst.Unmarshal(ext.extensionData)
 			return err == nil
 		}
 	}
 	return false
+}
+
+const (
+	fixedKeyShareLen   = 4
+	fixedServerNameLen = 5
+)
+
+// struct {
+//     NameType name_type;
+//     select (name_type) {
+//         case host_name: HostName;
+//     } name;
+// } ServerName;
+//
+// enum {
+//     host_name(0), (255)
+// } NameType;
+//
+// opaque HostName<1..2^16-1>;
+//
+// struct {
+//     ServerName server_name_list<1..2^16-1>
+// } ServerNameList;
+//
+// But we only care about the case where there's a single DNS hostname.  We
+// will never create anything else, and throw if we receive something else
+//
+//      2         1          2
+// | listLen | NameType | nameLen | name |
+type serverNameExtension string
+
+func (sni serverNameExtension) Type() helloExtensionType {
+	return extensionTypeServerName
+}
+
+func (sni serverNameExtension) Marshal() ([]byte, error) {
+	nameLen := len(sni)
+	listLen := 3 + nameLen
+	data := make([]byte, 2+1+2+nameLen)
+
+	data[0] = byte(listLen >> 8)
+	data[1] = byte(listLen)
+	data[2] = 0x00 // host_name
+	data[3] = byte(nameLen >> 8)
+	data[4] = byte(nameLen)
+	copy(data[5:], []byte(sni))
+
+	return data, nil
+}
+
+func (sni *serverNameExtension) Unmarshal(data []byte) (int, error) {
+	if len(data) < fixedServerNameLen {
+		return 0, fmt.Errorf("tls.servername: Too short for header")
+	}
+
+	listLen := (int(data[0]) << 8) + int(data[1])
+	nameLen := (int(data[3]) << 8) + int(data[4])
+	nameType := data[2]
+
+	if listLen != nameLen+3 {
+		return 0, fmt.Errorf("tls.servername: Length mismatch")
+	}
+
+	if nameType != 0x00 {
+		return 0, fmt.Errorf("tls.servername: Unsupported name type")
+	}
+
+	if len(data) < fixedServerNameLen+nameLen {
+		return 0, fmt.Errorf("tls.servername: Too short for name")
+	}
+
+	*sni = serverNameExtension(data[5 : 5+nameLen])
+	return 5 + nameLen, nil
 }
 
 // struct {
@@ -136,9 +215,9 @@ type keyShareExtension struct {
 	shares       []keyShare
 }
 
-const (
-	fixedKeyShareLen = 4
-)
+func (ks keyShareExtension) Type() helloExtensionType {
+	return extensionTypeKeyShare
+}
 
 func (ks keyShareExtension) Marshal() ([]byte, error) {
 	if ks.roleIsServer && len(ks.shares) > 1 {
@@ -216,6 +295,10 @@ type supportedGroupsExtension struct {
 	groups []namedGroup
 }
 
+func (sg supportedGroupsExtension) Type() helloExtensionType {
+	return extensionTypeSupportedGroups
+}
+
 func (sg supportedGroupsExtension) Marshal() ([]byte, error) {
 	listLen := 2 * len(sg.groups)
 
@@ -254,6 +337,10 @@ func (sg *supportedGroupsExtension) Unmarshal(data []byte) (int, error) {
 //   supported_signature_algorithms<2..2^16-2>;
 type signatureAlgorithmsExtension struct {
 	algorithms []signatureAndHashAlgorithm
+}
+
+func (sa signatureAlgorithmsExtension) Type() helloExtensionType {
+	return extensionTypeSignatureAlgorithms
 }
 
 func (sa signatureAlgorithmsExtension) Marshal() ([]byte, error) {
