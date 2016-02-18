@@ -200,6 +200,13 @@ var (
 	SSContextIn = ESContextIn
 )
 
+func keySetEmpty(k keySet) bool {
+	return len(k.clientWriteKey) == 0 &&
+		len(k.serverWriteKey) == 0 &&
+		len(k.clientWriteIV) == 0 &&
+		len(k.serverWriteIV) == 0
+}
+
 func TestCryptoContext(t *testing.T) {
 	rand.Reader.Read(clientHelloContextIn.random[:])
 	rand.Reader.Read(serverHelloContextIn.random[:])
@@ -239,7 +246,13 @@ func TestCryptoContext(t *testing.T) {
 	ctx := cryptoContext{}
 	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
 	assertNotError(t, err, "Failed to init context")
-	// TODO actually test results
+	assert(t, ctx.initialized, "Context not marked as initialized after Init")
+	assert(t, len(ctx.transcript) == 2, "Transcript not populated after Init")
+	assert(t, len(ctx.ES) > 0, "ES not populated after Init")
+	assert(t, len(ctx.SS) > 0, "SS not populated after Init")
+	assert(t, len(ctx.xES) > 0, "xES not populated after Init")
+	assert(t, len(ctx.xES) > 0, "xSS not populated after Init")
+	assert(t, !keySetEmpty(ctx.handshakeKeys), "HandshakeKeys not populated after Init")
 
 	// Test Init failure on usupported ciphersuite
 	ctx = cryptoContext{}
@@ -262,7 +275,7 @@ func TestCryptoContext(t *testing.T) {
 	assertError(t, err, "Init'ed context despite ServerHello marshal failure")
 	serverHelloContextIn.extensions = originalExtensions
 
-	// TODO Test Update on un-Init'ed context
+	// Test that Update failes on un-Init'ed context
 	ctx = cryptoContext{}
 	err = ctx.Update([]handshakeMessageBody{certificateContextIn, certificateVerifyContextIn})
 	assertError(t, err, "Allowed Update on un-Init'ed context")
@@ -273,63 +286,36 @@ func TestCryptoContext(t *testing.T) {
 	assertNotError(t, err, "Failed to init context before update")
 	err = ctx.Update([]handshakeMessageBody{certificateContextIn, certificateVerifyContextIn})
 	assertNotError(t, err, "Failed to update context")
-	// TODO actually test results
+	assert(t, len(ctx.mES) > 0, "mES not populated after Update")
+	assert(t, len(ctx.mSS) > 0, "mSS not populated after Update")
+	assert(t, len(ctx.masterSecret) > 0, "Master secret not populated after Update")
+	assert(t, len(ctx.serverFinishedKey) > 0, "Server finished key not populated after Update")
+	assert(t, len(ctx.serverFinishedData) > 0, "Server finished data not populated after Update")
+	assert(t, ctx.serverFinished != nil, "Server finished not populated after Update")
+	assert(t, len(ctx.clientFinishedKey) > 0, "Client finished key not populated after Update")
+	assert(t, len(ctx.clientFinishedData) > 0, "Client finished data not populated after Update")
+	assert(t, ctx.clientFinished != nil, "Client finished not populated after Update")
+	assert(t, len(ctx.trafficSecret) > 0, "Traffic secret not populated after Update")
+	assert(t, !keySetEmpty(ctx.applicationKeys), "Application keys not populated after Update")
 
 	// Test Update failure on addToTranscript failure (i.e., marshal failure)
-	// TODO: Figure out why this doesn't hit
 	ctx = cryptoContext{}
 	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
 	assertNotError(t, err, "Failed to init context before update failure test")
+
 	originalContext := certificateContextIn.certificateRequestContext
-	certificateContextIn.certificateRequestContext = bytes.Repeat([]byte{0}, maxCertRequestContextLen)
+	certificateContextIn.certificateRequestContext = bytes.Repeat([]byte{0}, maxCertRequestContextLen+1)
+
 	err = ctx.Update([]handshakeMessageBody{certificateContextIn, certificateVerifyContextIn})
-	assertNotError(t, err, "Updated context despite marshal failure")
+	assertError(t, err, "Updated context despite marshal failure")
 	certificateContextIn.certificateRequestContext = originalContext
 
 	// Test key update
+	oldKeys := ctx.applicationKeys
 	ctx.UpdateKeys()
-	// TODO actually test results
+	newKeys := ctx.applicationKeys
+	assert(t, !bytes.Equal(oldKeys.clientWriteKey, newKeys.clientWriteKey), "Client write key didn't change")
+	assert(t, !bytes.Equal(oldKeys.serverWriteKey, newKeys.serverWriteKey), "Server write key didn't change")
+	assert(t, !bytes.Equal(oldKeys.clientWriteIV, newKeys.clientWriteIV), "Client write IV didn't change")
+	assert(t, !bytes.Equal(oldKeys.serverWriteIV, newKeys.serverWriteIV), "Server write IV didn't change")
 }
-
-// To test the crypto context code, we'll want to feed it a transcript.
-// Let's make it as realistic as possible!
-//
-// Pre-computed:
-// * client random
-// * server random
-// * client key shares
-// * server key share
-// * server certificate
-//
-// ClientHello {
-//  random: [precomputed]
-//  ciphersuites: [
-//    TLS_ECDHE_ECDSA_WITH_AES_128_GCM,
-//    TLS_ECDHE_RSA_WITH_AES_128_GCM
-//  ],
-//  extensions: {
-//    server_name: "example.com",
-//    supported_groups: [P256, P384, P512],
-//    signature_algorithms: [rsa, ecdsa, rsapss],
-//    key_shares: [precomputed]
-//  ]
-// }
-//
-// ServerHello {
-//  random: [precomputed],
-//  ciphersuite: TLS_ECDHE_ECDSA_WITH_AES_128_GCM,
-//  extensions: [
-//    key_share: [precomputed]
-//  ]
-// }
-//
-// EncryptedExtensions?
-//
-// Certificate {
-//  context: []
-//  certList: [precomputed]
-// }
-//
-// CertificateVerify{
-//  [precomputed]
-// }
