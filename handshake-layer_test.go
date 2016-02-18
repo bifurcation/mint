@@ -12,12 +12,19 @@ func recordHeaderHex(data []byte) string {
 }
 
 var (
+	messageType = handshakeTypeClientHello
+
+	tinyMessageIn = &handshakeMessage{
+		msgType: messageType,
+		body:    []byte{0, 0, 0, 0},
+	}
+	tinyMessageHex = "0100000400000000"
+
 	// short: 0x000040
 	// long:  0x007fe0 = 0x4000 + 0x3fe0
 	shortMessageLen = 64
 	longMessageLen  = 2*maxFragmentLen - (shortMessageLen / 2)
 
-	messageType           = handshakeTypeClientHello
 	shortMessageHeader    = []byte{byte(messageType), 0x00, 0x00, byte(shortMessageLen)}
 	shortMessageBody      = bytes.Repeat([]byte{0xab}, shortMessageLen)
 	shortMessage          = append(shortMessageHeader, shortMessageBody...)
@@ -71,6 +78,13 @@ var (
 	chshValidMessageHex = "16030100" + chshRecordLenHex + chMessageHeaderHex + chValidHex +
 		shMessageHeaderHex + shValidHex
 )
+
+func TestMessageMarshal(t *testing.T) {
+	tinyMessage, _ := hex.DecodeString(tinyMessageHex)
+
+	out := tinyMessageIn.Marshal()
+	assertByteEquals(t, out, tinyMessage)
+}
 
 func TestMessageFromBody(t *testing.T) {
 	chValid, _ := hex.DecodeString(chValidHex)

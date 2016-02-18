@@ -22,6 +22,17 @@ type handshakeMessage struct {
 	body    []byte
 }
 
+func (hm handshakeMessage) Marshal() []byte {
+	msgLen := len(hm.body)
+	data := make([]byte, 4+len(hm.body))
+	data[0] = byte(hm.msgType)
+	data[1] = byte(msgLen >> 16)
+	data[2] = byte(msgLen >> 8)
+	data[3] = byte(msgLen)
+	copy(data[4:], hm.body)
+	return data
+}
+
 func handshakeMessageFromBody(body handshakeMessageBody) (*handshakeMessage, error) {
 	data, err := body.Marshal()
 	if err != nil {
@@ -118,9 +129,7 @@ func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 			return fmt.Errorf("tls.handshakelayer: Message too large to send")
 		}
 
-		header := []byte{byte(msg.msgType), byte(msgLen >> 16), byte(msgLen >> 8), byte(msgLen)}
-		buffer = append(buffer, header...)
-		buffer = append(buffer, msg.body...)
+		buffer = append(buffer, msg.Marshal()...)
 	}
 
 	// Send full-size fragments

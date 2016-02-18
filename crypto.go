@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -14,6 +15,55 @@ import (
 )
 
 var prng = rand.Reader
+
+type cipherSuiteParams struct {
+	hash   crypto.Hash // Hash function
+	keyLen int         // Key length in octets
+	ivLen  int         // IV length in octets
+}
+
+var (
+	cipherSuiteMap = map[cipherSuite]cipherSuiteParams{
+		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			hash:   crypto.SHA256,
+			keyLen: 16,
+			ivLen:  12,
+		},
+		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			hash:   crypto.SHA256,
+			keyLen: 16,
+			ivLen:  12,
+		},
+		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			hash:   crypto.SHA256,
+			keyLen: 32,
+			ivLen:  12,
+		},
+		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			hash:   crypto.SHA256,
+			keyLen: 32,
+			ivLen:  12,
+		},
+	}
+
+	x509AlgMap = map[signatureAlgorithm]map[hashAlgorithm]x509.SignatureAlgorithm{
+		signatureAlgorithmRSA: map[hashAlgorithm]x509.SignatureAlgorithm{
+			hashAlgorithmSHA1:   x509.SHA1WithRSA,
+			hashAlgorithmSHA256: x509.SHA256WithRSA,
+			hashAlgorithmSHA384: x509.SHA384WithRSA,
+			hashAlgorithmSHA512: x509.SHA512WithRSA,
+		},
+		signatureAlgorithmECDSA: map[hashAlgorithm]x509.SignatureAlgorithm{
+			hashAlgorithmSHA1:   x509.ECDSAWithSHA1,
+			hashAlgorithmSHA256: x509.ECDSAWithSHA256,
+			hashAlgorithmSHA384: x509.ECDSAWithSHA384,
+			hashAlgorithmSHA512: x509.ECDSAWithSHA512,
+		},
+	}
+
+	defaultRSAKeySize = 2048
+	defaultECDSACurve = elliptic.P256()
+)
 
 func curveFromNamedGroup(group namedGroup) (crv elliptic.Curve) {
 	switch group {
@@ -81,26 +131,6 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 	}
 }
 
-var (
-	x509AlgMap = map[signatureAlgorithm]map[hashAlgorithm]x509.SignatureAlgorithm{
-		signatureAlgorithmRSA: map[hashAlgorithm]x509.SignatureAlgorithm{
-			hashAlgorithmSHA1:   x509.SHA1WithRSA,
-			hashAlgorithmSHA256: x509.SHA256WithRSA,
-			hashAlgorithmSHA384: x509.SHA384WithRSA,
-			hashAlgorithmSHA512: x509.SHA512WithRSA,
-		},
-		signatureAlgorithmECDSA: map[hashAlgorithm]x509.SignatureAlgorithm{
-			hashAlgorithmSHA1:   x509.ECDSAWithSHA1,
-			hashAlgorithmSHA256: x509.ECDSAWithSHA256,
-			hashAlgorithmSHA384: x509.ECDSAWithSHA384,
-			hashAlgorithmSHA512: x509.ECDSAWithSHA512,
-		},
-	}
-
-	defaultRSAKeySize = 2048
-	defaultECDSACurve = elliptic.P256()
-)
-
 func newSigningKey(sig signatureAlgorithm) (crypto.Signer, error) {
 	switch sig {
 	case signatureAlgorithmRSA:
@@ -136,10 +166,9 @@ func newSelfSigned(name string, alg signatureAndHashAlgorithm, priv crypto.Signe
 	return cert, nil
 }
 
-/*
 // From RFC 5869
 // PRK = HMAC-Hash(salt, IKM)
-func hkdfExtract(hash crypto.Hash, saltIn []byte, input []byte) []byte {
+func hkdfExtract(hash crypto.Hash, saltIn, input []byte) []byte {
 	salt := saltIn
 
 	// if [salt is] not provided, it is set to a string of HashLen zeros
@@ -161,9 +190,9 @@ func hkdfEncodeLabel(labelIn string, hashValue []byte, outLen int) []byte {
 	hkdfLabel[0] = byte(outLen >> 8)
 	hkdfLabel[1] = byte(outLen)
 	hkdfLabel[2] = byte(labelLen)
-	copy(hkdfLabel[3:3+labelLen], label)
+	copy(hkdfLabel[3:3+labelLen], []byte(label))
 	hkdfLabel[3+labelLen] = byte(hashLen)
-	copy(hkdfLabel[3+labelLen+1:], hash)
+	copy(hkdfLabel[3+labelLen+1:], hashValue)
 	return hkdfLabel
 }
 
@@ -172,7 +201,7 @@ func hkdfExpand(hash crypto.Hash, prk, info []byte, outLen int) []byte {
 	T := []byte{}
 	i := byte(1)
 	for len(out) < outLen {
-		block := append(T, hkdfLabel...)
+		block := append(T, info...)
 		block = append(block, i)
 
 		h := hmac.New(hash.New, prk)
@@ -185,13 +214,16 @@ func hkdfExpand(hash crypto.Hash, prk, info []byte, outLen int) []byte {
 	return out[:outLen]
 }
 
-func hkdfExpandLabel(hash crypto.Hash, secret, label, hashValue []byte, outLen int) []byte {
-	return hkdfExpand(hash, hkdfEncodeLabel(secret, label), outLen)
+func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []byte, outLen int) []byte {
+	return hkdfExpand(hash, secret, hkdfEncodeLabel(label, hashValue, outLen), outLen)
 }
 
 const (
-	labelXSS = "expanded static secret"
-	labelXES = "expanded ephemeral secret"
+	labelXSS            = "expanded static secret"
+	labelXES            = "expanded ephemeral secret"
+	labelTrafficSecret  = "traffic secret"
+	labelServerFinished = "server finished"
+	labelClientFinished = "client finished"
 
 	phaseEarlyHandshake = "early handshake key expansion"
 	phaseEarlyData      = "early application data key expansion"
@@ -200,22 +232,9 @@ const (
 
 	purposeClientWriteKey = "client write key"
 	purposeServerWriteKey = "server write key"
-	purposeServerWriteIV  = "client write IV"
+	purposeClientWriteIV  = "client write IV"
 	purposeServerWriteIV  = "server write IV"
 )
-
-func computeMasterSecret(hash crypto.Hash, SS, ES, handshakeHash []byte) []byte {
-	L := hash.Size()
-
-	xSS := hkdfExtract(hash, nil, SS)
-	xES := hkdfExtract(hash, nil, ES)
-
-	mSS := hkdfExpandLabel(hash, xSS, labelXSS, handshakeHash, L)
-	mES := hkdfExpandLabel(hash, xES, labelXES, handshakeHash, L)
-
-	masterSecret := hkdfExtract(hash, mSS, mES)
-	return masterSecret
-}
 
 type keySet struct {
 	clientWriteKey []byte
@@ -227,12 +246,9 @@ type keySet struct {
 // XXX: This might be specific to 1xRTT; we'll figure out how to adapt later
 type cryptoContext struct {
 	suite  cipherSuite
-	hash   crypto.Hash
-	keyLen int
-	ivLen  int
+	params cipherSuiteParams
 
-	transcript     []*handshakeMessage
-	transcriptHash []byte
+	transcript []*handshakeMessage
 
 	ES, SS        []byte
 	xES, xSS      []byte
@@ -242,12 +258,14 @@ type cryptoContext struct {
 	masterSecret       []byte
 	serverFinishedKey  []byte
 	serverFinishedData []byte
+	serverFinished     *finishedBody
 
 	clientFinishedKey  []byte
 	clientFinishedData []byte
+	clientFinished     *finishedBody
 
 	trafficSecret   []byte
-	application_key keySet
+	applicationKeys keySet
 }
 
 func (c *cryptoContext) addToTranscript(body handshakeMessageBody) error {
@@ -255,54 +273,125 @@ func (c *cryptoContext) addToTranscript(body handshakeMessageBody) error {
 	if err != nil {
 		return err
 	}
-
-	data, err := msg.Marshal()
-	if err != nil {
-		return err
-	}
-
 	c.transcript = append(c.transcript, msg)
-	c.transcriptHash.Write(data)
+	return nil
 }
 
-func (c *cryptoContext) makeTrafficKeys(secret []byte, phase string) keySet {
-
+func (c *cryptoContext) marshalTranscript() []byte {
+	data := []byte{}
+	for _, msg := range c.transcript {
+		data = append(data, msg.Marshal()...)
+	}
+	return data
 }
 
-func (c *cryptoContext) Init(ch *clientHelloBody, sh *serverHelloBody, ES []byte, suite cipherSuite) error {
+func (c *cryptoContext) makeTrafficKeys(secret []byte, phase string, context []byte) keySet {
+	return keySet{
+		clientWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeClientWriteKey, context, c.params.keyLen),
+		serverWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeServerWriteKey, context, c.params.keyLen),
+		clientWriteIV:  hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeClientWriteIV, context, c.params.ivLen),
+		serverWriteIV:  hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeServerWriteIV, context, c.params.ivLen),
+	}
+}
+
+func (c *cryptoContext) Init(ch *clientHelloBody, sh *serverHelloBody, SS, ES []byte, suite cipherSuite) error {
 	// Configure based on cipherSuite
-	c.hash, c.keyLen, c.ivLen = cipherSuiteDetails(suite)
+	params, ok := cipherSuiteMap[suite]
+	if !ok {
+		return fmt.Errorf("tls.cryptoinit: Unsupported ciphersuite")
+	}
+	c.params = params
 
 	// Set up transcript and initialize transcript hash
 	c.transcript = []*handshakeMessage{}
-	c.transcriptHash = hash.New()
 
 	// Add ClientHello, ServerHello to transcript
 	err := c.addToTranscript(ch)
 	if err != nil {
 		return err
 	}
-	err := c.addToTranscript(sh)
+	err = c.addToTranscript(sh)
 	if err != nil {
 		return err
 	}
 
-	// Compute xES = HKDF-Extract(0, ES)
+	// Compute xSS, xES = HKDF-Extract(0, ES)
+	c.SS = make([]byte, len(SS))
 	c.ES = make([]byte, len(ES))
-	c.SS = make([]byte, len(ES))
 	copy(c.ES, ES)
 	copy(c.SS, ES)
-	c.xES = hkdfExtract(c.hash, nil, c.ES)
-	c.xSS = hkdfExtract(c.hash, nil, c.SS)
+	c.xSS = hkdfExtract(c.params.hash, nil, c.SS)
+	c.xES = hkdfExtract(c.params.hash, nil, c.ES)
 
-	// TODO Compute handshakeKeys
+	// Compute handshakeKeys
+	context := c.marshalTranscript()
+	c.handshakeKeys = c.makeTrafficKeys(c.xES, phaseHandshake, context)
+
+	return nil
 }
 
-func (c *cryptoContext) Update(bodies []handshakeMessageBody) {
+func (c *cryptoContext) Update(bodies []handshakeMessageBody) error {
 	// Add messages to transcript
-	// Compute mES, master_secret, traffic_secret_0, server_finished_key
-	// Compute ServerFinished
-	// Add ServerFinished to transcript
-	// Compute client_finished_key, application_key_0
+	for _, msg := range bodies {
+		err := c.addToTranscript(msg)
+		if err != nil {
+			return err
+		}
+	}
+	handshakeSoFar := c.marshalTranscript()
+
+	// Compute handshake hash
+	h := c.params.hash.New()
+	h.Write(handshakeSoFar)
+	handshakeHash := h.Sum(nil)
+
+	// Compute mSS, mES = HKDF-Expand-Label(xSS, label, handshake_hash, L)
+	L := c.params.hash.Size()
+	c.mSS = hkdfExpandLabel(c.params.hash, c.xSS, labelXSS, handshakeHash, L)
+	c.mES = hkdfExpandLabel(c.params.hash, c.xSS, labelXES, handshakeHash, L)
+
+	// Compute master_secret, traffic_secret_0
+	c.masterSecret = hkdfExtract(c.params.hash, c.mSS, c.mES)
+
+	// Compute traffic_secret_0
+	c.trafficSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelTrafficSecret, handshakeHash, L)
+
+	// Compute client and server Finished keys
+	c.serverFinishedKey = hkdfExpandLabel(c.params.hash, c.masterSecret, labelServerFinished, []byte{}, L)
+	c.clientFinishedKey = hkdfExpandLabel(c.params.hash, c.masterSecret, labelClientFinished, []byte{}, L)
+
+	// Compute ServerFinished and add to transcript
+	serverFinishedMAC := hmac.New(c.params.hash.New, c.serverFinishedKey)
+	serverFinishedMAC.Write(handshakeSoFar)
+	c.serverFinishedData = serverFinishedMAC.Sum(nil)
+	c.serverFinished = &finishedBody{
+		verifyDataLen: L,
+		verifyData:    c.serverFinishedData,
+	}
+	err := c.addToTranscript(c.serverFinished)
+	if err != nil {
+		return err
+	}
+
+	// Compute client_finished_key
+	handshakeThroughFinished := c.marshalTranscript()
+	clientFinishedMAC := hmac.New(c.params.hash.New, c.clientFinishedKey)
+	clientFinishedMAC.Write(handshakeSoFar)
+	c.clientFinishedData = clientFinishedMAC.Sum(nil)
+	c.clientFinished = &finishedBody{
+		verifyDataLen: L,
+		verifyData:    c.clientFinishedData,
+	}
+
+	// application_key_0
+	c.applicationKeys = c.makeTrafficKeys(c.trafficSecret, phaseApplication, handshakeThroughFinished)
+
+	return nil
 }
-*/
+
+func (c *cryptoContext) UpdateKeys() {
+	// XXX: Assumes that nothing further has been added after the ServerFinished
+	handshakeThroughFinished := c.marshalTranscript()
+	c.trafficSecret = hkdfExpandLabel(c.params.hash, c.trafficSecret, labelTrafficSecret, []byte{}, c.params.hash.Size())
+	c.applicationKeys = c.makeTrafficKeys(c.trafficSecret, phaseApplication, handshakeThroughFinished)
+}

@@ -2,9 +2,11 @@ package mint
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
+	_ "crypto/sha256"
 	"encoding/hex"
 	"testing"
 )
@@ -16,6 +18,19 @@ var (
 		"0ffcb9fa31cdfd385c8727b222f9a6091e442e48f32ba145" +
 		"bd3d68c0631b0ed8faf298c40c404bf59"
 	shortKeyPrivHex = "6f28e305a0975ead3b95c228082adcae852fca6af0c9385f670531657966cd6a"
+
+	// Test vectors from RFC 5869
+	hkdfSaltHex              = "000102030405060708090a0b0c"
+	hkdfInputHex             = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+	hkdfInfoHex              = "f0f1f2f3f4f5f6f7f8f9"
+	hkdfExtractOutputHex     = "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5"
+	hkdfExtractZeroOutputHex = "19ef24a32c717b167f33a91d6f648bdf96596776afdb6377ac434c1c293ccb04"
+	hkdfExpandOutputHex      = "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"
+	hkdfExpandLen            = 42
+	hkdfLabel                = "test"
+	hkdfHashHex              = "f9a54250131c827542664bcad131b87c09cdd92f0d5f84db3680ee4c0c0f8ed6" // random
+	hkdfEncodedLabelHex      = "002a" + "0c" + hex.EncodeToString([]byte("TLS 1.3,"+hkdfLabel)) + "20" + hkdfHashHex
+	hkdfExpandLabelOutputHex = "cca90009033b529a7fd768fc49e111aacb04dd4f86f309ed4a7faf4c91ee14bda45f4f1d300c3ec01ab2"
 )
 
 func TestNewKeyShare(t *testing.T) {
@@ -117,3 +132,79 @@ func TestSelfSigned(t *testing.T) {
 	_, err = newSelfSigned("example.com", alg, priv)
 	assertError(t, err, "Signed with a mismatched algorithm")
 }
+
+func TestHKDF(t *testing.T) {
+	hash := crypto.SHA256
+	hkdfInput, _ := hex.DecodeString(hkdfInputHex)
+	hkdfSalt, _ := hex.DecodeString(hkdfSaltHex)
+	hkdfInfo, _ := hex.DecodeString(hkdfInfoHex)
+	hkdfExtractOutput, _ := hex.DecodeString(hkdfExtractOutputHex)
+	hkdfExtractZeroOutput, _ := hex.DecodeString(hkdfExtractZeroOutputHex)
+	hkdfExpandOutput, _ := hex.DecodeString(hkdfExpandOutputHex)
+	hkdfHash, _ := hex.DecodeString(hkdfHashHex)
+	hkdfEncodedLabel, _ := hex.DecodeString(hkdfEncodedLabelHex)
+	hkdfExpandLabelOutput, _ := hex.DecodeString(hkdfExpandLabelOutputHex)
+
+	// Test hkdfExtract is correct with salt
+	out := hkdfExtract(hash, hkdfSalt, hkdfInput)
+	assertByteEquals(t, out, hkdfExtractOutput)
+
+	// Test hkdfExtract is correct without salt
+	out = hkdfExtract(hash, nil, hkdfInput)
+	assertByteEquals(t, out, hkdfExtractZeroOutput)
+
+	// Test hkdfExpand is correct
+	out = hkdfExpand(hash, hkdfExtractOutput, hkdfInfo, hkdfExpandLen)
+	assertByteEquals(t, out, hkdfExpandOutput)
+
+	// Test hkdfEncodeLabel is correct
+	out = hkdfEncodeLabel(hkdfLabel, hkdfHash, hkdfExpandLen)
+	assertByteEquals(t, out, hkdfEncodedLabel)
+
+	// This is pro-forma, just for the coverage
+	out = hkdfExpandLabel(hash, hkdfSalt, hkdfLabel, hkdfHash, hkdfExpandLen)
+	assertByteEquals(t, out, hkdfExpandLabelOutput)
+}
+
+// To test the crypto context code, we'll want to feed it a transcript.
+// Let's make it as realistic as possible!
+//
+// Pre-computed:
+// * client random
+// * server random
+// * client key shares
+// * server key share
+// * server certificate
+//
+// ClientHello {
+//  random: [precomputed]
+//  ciphersuites: [
+//    TLS_ECDHE_ECDSA_WITH_AES_128_GCM,
+//    TLS_ECDHE_RSA_WITH_AES_128_GCM
+//  ],
+//  extensions: {
+//    server_name: "example.com",
+//    supported_groups: [P256, P384, P512],
+//    signature_algorithms: [rsa, ecdsa, rsapss],
+//    key_shares: [precomputed]
+//  ]
+// }
+//
+// ServerHello {
+//  random: [precomputed],
+//  ciphersuite: TLS_ECDHE_ECDSA_WITH_AES_128_GCM,
+//  extensions: [
+//    key_share: [precomputed]
+//  ]
+// }
+//
+// EncryptedExtensions?
+//
+// Certificate {
+//  context: []
+//  certList: [precomputed]
+// }
+//
+// CertificateVerify{
+//  [precomputed]
+// }
