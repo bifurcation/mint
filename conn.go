@@ -3,16 +3,109 @@ package mint
 import (
 	"bytes"
 	"fmt"
+	"net"
+	"time"
 )
 
+type Config struct {
+	// TODO
+}
+
+// Conn implements the net.Conn interface, as with "crypto/tls"
+// * Read, Write, and Close are provided locally
+// * LocalAddr, RemoteAddr, and Set*Deadline are forwarded to the inner Conn
 type Conn struct {
+	isClient bool
+
+	handshakeErr      error
+	handshakeComplete bool
+
+	conn    net.Conn
 	in, out *recordLayer
 	context cryptoContext
 }
 
-const verifyDataLen = 20 // XXX
+// Read application data until the buffer is full.  Handshake and alert records
+// are consumed by the Conn object directly.
+func (c *Conn) Read(b []byte) (int, error) {
+	// TODO
+	// Handshake if necessary
+	// Lock the input channel
+	// While the buffer isn't full
+	// * Read record
+	// * application data => buffer
+	// * alert => error
+	// * handshake => process locally
+	//
+	// *** Need to understand the race condition in the crypto/tls code
+	return 0, nil
+}
 
-func (c *Conn) ClientHandshake() error {
+// Write application data
+func (c *Conn) Write(b []byte) (int, error) {
+	// TODO
+	// Lock the output channel
+	// Write records
+	return 0, nil
+}
+
+// Close closes the connection.
+func (c *Conn) Close() error {
+	// TODO
+	// Look at the special mojo in crypto/tls
+	// Send closeNotify alert
+	// Close the connection
+	return nil
+}
+
+// LocalAddr returns the local network address.
+func (c *Conn) LocalAddr() net.Addr {
+	return c.conn.LocalAddr()
+}
+
+// RemoteAddr returns the remote network address.
+func (c *Conn) RemoteAddr() net.Addr {
+	return c.conn.RemoteAddr()
+}
+
+// SetDeadline sets the read and write deadlines associated with the connection.
+// A zero value for t means Read and Write will not time out.
+// After a Write has timed out, the TLS state is corrupt and all future writes will return the same error.
+func (c *Conn) SetDeadline(t time.Time) error {
+	return c.conn.SetDeadline(t)
+}
+
+// SetReadDeadline sets the read deadline on the underlying connection.
+// A zero value for t means Read will not time out.
+func (c *Conn) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
+}
+
+// SetWriteDeadline sets the write deadline on the underlying connection.
+// A zero value for t means Write will not time out.
+// After a Write has timed out, the TLS state is corrupt and all future writes will return the same error.
+func (c *Conn) SetWriteDeadline(t time.Time) error {
+	return c.conn.SetWriteDeadline(t)
+}
+
+func (c *Conn) Handshake() error {
+	// TODO Lock handshakeMutex
+	if err := c.handshakeErr; err != nil {
+		return err
+	}
+	if c.handshakeComplete {
+		return nil
+	}
+
+	if c.isClient {
+		c.handshakeErr = c.clientHandshake()
+	} else {
+		c.handshakeErr = c.serverHandshake()
+	}
+	return c.handshakeErr
+}
+
+func (c *Conn) clientHandshake() error {
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
 
@@ -152,7 +245,7 @@ func (c *Conn) ClientHandshake() error {
 	return nil
 }
 
-func (c *Conn) ServerHandshake() error {
+func (c *Conn) serverHandshake() error {
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
 
