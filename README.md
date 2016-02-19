@@ -1,3 +1,5 @@
+![A lock with a mint leaf](https://ipv.sx/mint/mint.svg)
+
 mint - A Minimal TLS 1.3 stack
 ==============================
 
