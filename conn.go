@@ -2,6 +2,7 @@ package mint
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"time"
@@ -120,6 +121,7 @@ func (c *Conn) clientHandshake() error {
 		signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmRSA},
 		signatureAndHashAlgorithm{hash: hashAlgorithmSHA384, signature: signatureAlgorithmECDSA},
 	}
+	config_authenticationCallback := func(chain []*x509.Certificate) error { return nil }
 
 	// Construct some extensions
 	privateKeys := map[namedGroup][]byte{}
@@ -209,7 +211,35 @@ func (c *Conn) clientHandshake() error {
 		transcript = append(transcript, body)
 	}
 
-	// TODO: Find and verify Certificate/CertificateVerify
+	// Verify the server's certificate if required
+	if config_authenticationCallback != nil {
+		transcriptLen := len(transcript)
+		if transcriptLen < 2 {
+			return fmt.Errorf("tls.client: No authentication data provided (%d)")
+		}
+
+		cert, ok := transcript[transcriptLen-2].(*certificateBody)
+		if !ok {
+			return fmt.Errorf("tls.client: Certificate message not found")
+		}
+
+		certVerify, ok := transcript[transcriptLen-1].(*certificateVerifyBody)
+		if !ok {
+			return fmt.Errorf("tls.client: CertificateVerify message not found")
+		}
+
+		// TODO Verify signature over handshake context
+		serverPublicKey := cert.certificateList[0].PublicKey
+		transcriptForCertVerify := []handshakeMessageBody{ch, sh}
+		transcriptForCertVerify = append(transcriptForCertVerify, transcript[:transcriptLen-2]...)
+		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify); err != nil {
+			return err
+		}
+
+		if err = config_authenticationCallback(cert.certificateList); err != nil {
+			return err
+		}
+	}
 
 	// Update the crypto context with all but the Finished
 	ctx.Update(transcript)
@@ -258,6 +288,9 @@ func (c *Conn) serverHandshake() error {
 		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
 		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
 	}
+	config_privateKey, _ := newSigningKey(signatureAlgorithmRSA)
+	config_serverCertificate, _ := newSelfSigned("example.com",
+		signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}, config_privateKey)
 
 	// Read ClientHello and extract extensions
 	ch := new(clientHelloBody)
@@ -336,11 +369,29 @@ func (c *Conn) serverHandshake() error {
 		return err
 	}
 
-	// TODO Create and send Certificate, CertificateVerify
-	transcript := []handshakeMessageBody{}
-	ctx.Update(transcript)
+	// Create and send Certificate, CertificateVerify
+	// TODO Certificate selection based on ClientHello
+	certificate := &certificateBody{
+		certificateList: []*x509.Certificate{config_serverCertificate},
+	}
+	certificateVerify := &certificateVerifyBody{
+		alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
+	}
+	err = certificateVerify.Sign(config_privateKey, []handshakeMessageBody{ch, sh})
+	if err != nil {
+		return err
+	}
+	err = hOut.WriteMessageBody(certificate)
+	if err != nil {
+		return err
+	}
+	err = hOut.WriteMessageBody(certificateVerify)
+	if err != nil {
+		return err
+	}
 
 	// Update the crypto context
+	ctx.Update([]handshakeMessageBody{certificate, certificateVerify})
 
 	// Create and write server Finished
 	err = hOut.WriteMessageBody(ctx.serverFinished)

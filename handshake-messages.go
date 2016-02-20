@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"crypto"
 	"crypto/x509"
 	"fmt"
 )
@@ -318,6 +319,9 @@ func (c *certificateBody) Unmarshal(data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if len(certificates) == 0 {
+		return 0, fmt.Errorf("No certificates provided")
+	}
 	c.certificateList = certificates
 
 	return 1 + contextLen + 3 + certsLen, nil
@@ -381,4 +385,45 @@ func (cv *certificateVerifyBody) Unmarshal(data []byte) (int, error) {
 	copy(cv.signature, data[4:])
 
 	return 4 + sigLen, nil
+}
+
+func (cv *certificateVerifyBody) computeContext(transcript []handshakeMessageBody) (hash crypto.Hash, hashed []byte, err error) {
+	handshakeContext := []byte{}
+	var msg *handshakeMessage
+	for _, body := range transcript {
+		msg, err = handshakeMessageFromBody(body)
+		if err != nil {
+			return
+		}
+		handshakeContext = append(handshakeContext, msg.Marshal()...)
+	}
+
+	hash, ok := hashMap[cv.alg.hash]
+	if !ok {
+		err = fmt.Errorf("Unsupported hash algorithm")
+		return
+	}
+	h := hash.New()
+	h.Write(handshakeContext)
+	hashed = h.Sum(nil)
+	return
+}
+
+func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []handshakeMessageBody) error {
+	hash, hashedData, err := cv.computeContext(transcript)
+	if err != nil {
+		return err
+	}
+
+	cv.alg.signature, cv.signature, err = sign(hash, privateKey, hashedData)
+	return err
+}
+
+func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []handshakeMessageBody) error {
+	_, hashedData, err := cv.computeContext(transcript)
+	if err != nil {
+		return err
+	}
+
+	return verify(cv.alg, publicKey, hashedData, cv.signature)
 }

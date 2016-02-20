@@ -10,8 +10,13 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"fmt"
 	"math/big"
+
+	_ "crypto/sha1"
+	_ "crypto/sha256"
+	_ "crypto/sha512"
 )
 
 var prng = rand.Reader
@@ -23,6 +28,13 @@ type cipherSuiteParams struct {
 }
 
 var (
+	hashMap = map[hashAlgorithm]crypto.Hash{
+		hashAlgorithmSHA1:   crypto.SHA1,
+		hashAlgorithmSHA256: crypto.SHA256,
+		hashAlgorithmSHA384: crypto.SHA384,
+		hashAlgorithmSHA512: crypto.SHA512,
+	}
+
 	cipherSuiteMap = map[cipherSuite]cipherSuiteParams{
 		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
 			hash:   crypto.SHA256,
@@ -164,6 +176,61 @@ func newSelfSigned(name string, alg signatureAndHashAlgorithm, priv crypto.Signe
 	// It is safe to ignore the error here because we're parsing known-good data
 	cert, _ := x509.ParseCertificate(der)
 	return cert, nil
+}
+
+// XXX(rlb): Copied from crypto/x509
+type ecdsaSignature struct {
+	R, S *big.Int
+}
+
+func sign(hash crypto.Hash, privateKey crypto.Signer, digest []byte) (signatureAlgorithm, []byte, error) {
+	var opts crypto.SignerOpts
+	var sigAlg signatureAlgorithm
+
+	switch privateKey.(type) {
+	case *rsa.PrivateKey:
+		sigAlg = signatureAlgorithmRSAPSS
+		opts = &rsa.PSSOptions{SaltLength: hash.Size(), Hash: hash}
+	case *ecdsa.PrivateKey:
+		sigAlg = signatureAlgorithmECDSA
+	}
+
+	sig, err := privateKey.Sign(prng, digest, opts)
+	return sigAlg, sig, err
+}
+
+func verify(alg signatureAndHashAlgorithm, publicKey crypto.PublicKey, digest []byte, sig []byte) error {
+	hash := hashMap[alg.hash]
+
+	switch pub := publicKey.(type) {
+	case *rsa.PublicKey:
+		if alg.signature != signatureAlgorithmRSAPSS {
+			return fmt.Errorf("tls.verify: Unsupported algorithm for RSA key")
+		}
+
+		opts := &rsa.PSSOptions{SaltLength: hash.Size(), Hash: hash}
+		return rsa.VerifyPSS(pub, hash, digest, sig, opts)
+	case *ecdsa.PublicKey:
+		if alg.signature != signatureAlgorithmECDSA {
+			return fmt.Errorf("tls.verify: Unsupported algorithm for ECDSA key")
+		}
+
+		ecdsaSig := new(ecdsaSignature)
+		if rest, err := asn1.Unmarshal(sig, ecdsaSig); err != nil {
+			return err
+		} else if len(rest) != 0 {
+			return fmt.Errorf("tls.verify: trailing data after ECDSA signature")
+		}
+		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
+			return fmt.Errorf("tls.verify: ECDSA signature contained zero or negative values")
+		}
+		if !ecdsa.Verify(pub, digest, ecdsaSig.R, ecdsaSig.S) {
+			return fmt.Errorf("tls.verify: ECDSA verification failure")
+		}
+		return nil
+	default:
+		return fmt.Errorf("tls.verify: Unsupported key type")
+	}
 }
 
 // From RFC 5869

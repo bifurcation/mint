@@ -39,12 +39,12 @@ func TestBasicFlow(t *testing.T) {
 
 	done := make(chan bool)
 	go func(t *testing.T) {
-		err := server.ServerHandshake()
+		err := server.serverHandshake()
 		assertNotError(t, err, "Server failed handshake")
 		done <- true
 	}(t)
 
-	err := client.ClientHandshake()
+	err := client.clientHandshake()
 	assertNotError(t, err, "Client failed handshake")
 
 	<-done
