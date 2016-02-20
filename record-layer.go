@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"fmt"
 	"io"
+	"sync"
 )
 
 const (
@@ -28,6 +29,8 @@ type tlsPlaintext struct {
 }
 
 type recordLayer struct {
+	sync.Mutex
+
 	conn   io.ReadWriter // The underlying connection
 	buffer []byte        // The next record to send
 

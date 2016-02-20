@@ -5,58 +5,169 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 )
 
 type Config struct {
 	// TODO
+	ServerName string
 }
+
+func (c Config) ValidForServer() bool {
+	// TODO
+	return true
+}
+
+func (c Config) ValidForClient() bool {
+	// TODO
+	return true
+}
+
+func defaultConfig() *Config {
+	// TODO
+	return &Config{}
+}
+
+var (
+	supportedCipherSuites = []cipherSuite{
+		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+	}
+
+	supportedGroups = []namedGroup{
+		namedGroupP256,
+		namedGroupP384,
+		namedGroupP521,
+	}
+
+	signatureAlgorithms = []signatureAndHashAlgorithm{
+		signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
+		signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmECDSA},
+		signatureAndHashAlgorithm{hashAlgorithmSHA384, signatureAlgorithmRSA},
+		signatureAndHashAlgorithm{hashAlgorithmSHA384, signatureAlgorithmECDSA},
+		signatureAndHashAlgorithm{hashAlgorithmSHA512, signatureAlgorithmRSA},
+		signatureAndHashAlgorithm{hashAlgorithmSHA512, signatureAlgorithmECDSA},
+	}
+)
 
 // Conn implements the net.Conn interface, as with "crypto/tls"
 // * Read, Write, and Close are provided locally
 // * LocalAddr, RemoteAddr, and Set*Deadline are forwarded to the inner Conn
 type Conn struct {
+	config   *Config
+	conn     net.Conn
 	isClient bool
 
+	handshakeMutex    sync.Mutex
 	handshakeErr      error
 	handshakeComplete bool
 
-	conn    net.Conn
-	in, out *recordLayer
-	context cryptoContext
+	readBuffer        []byte
+	in, out           *recordLayer
+	inMutex, outMutex sync.Mutex
+	context           cryptoContext
+}
+
+func (c *Conn) extendBuffer(n int) error {
+	// XXX: crypto/tls bounds the number of empty records that can be read.  Should we?
+	for len(c.readBuffer) < n {
+		pt, err := c.in.ReadRecord()
+		if err != nil {
+			return err
+		}
+
+		switch pt.contentType {
+		case recordTypeHandshake:
+			// TODO: Handle post-handshake handshake messages
+		case recordTypeAlert:
+			// TODO: Handle alerts
+		case recordTypeApplicationData:
+			c.readBuffer = append(c.readBuffer, pt.fragment...)
+		}
+	}
+	return nil
 }
 
 // Read application data until the buffer is full.  Handshake and alert records
 // are consumed by the Conn object directly.
-func (c *Conn) Read(b []byte) (int, error) {
-	// TODO
-	// Handshake if necessary
+func (c *Conn) Read(buffer []byte) (int, error) {
+	if err := c.Handshake(); err != nil {
+		return 0, err
+	}
+
 	// Lock the input channel
-	// While the buffer isn't full
-	// * Read record
-	// * application data => buffer
-	// * alert => error
-	// * handshake => process locally
-	//
-	// *** Need to understand the race condition in the crypto/tls code
-	return 0, nil
+	c.in.Lock()
+	defer c.in.Unlock()
+
+	n := cap(buffer)
+	err := c.extendBuffer(n)
+	var read int
+	if len(c.readBuffer) < n {
+		copy(buffer[:0], c.readBuffer)
+		c.readBuffer = c.readBuffer[:0]
+		read = len(c.readBuffer)
+	} else {
+		copy(buffer[:0], c.readBuffer[:n])
+		c.readBuffer = c.readBuffer[n:]
+		read = n
+	}
+
+	return read, err
 }
 
 // Write application data
-func (c *Conn) Write(b []byte) (int, error) {
-	// TODO
+func (c *Conn) Write(buffer []byte) (int, error) {
+	// XXX crypto/tls has an interlock with Close here.  Do we need that?
+	if err := c.Handshake(); err != nil {
+		return 0, err
+	}
+
 	// Lock the output channel
-	// Write records
-	return 0, nil
+	c.out.Lock()
+	defer c.out.Unlock()
+
+	// Send full-size fragments
+	var start int
+	sent := 0
+	for start = 0; len(buffer)-start >= maxFragmentLen; start += maxFragmentLen {
+		err := c.out.WriteRecord(&tlsPlaintext{
+			contentType: recordTypeApplicationData,
+			fragment:    buffer[start : start+maxFragmentLen],
+		})
+
+		if err != nil {
+			return sent, err
+		}
+		sent += maxFragmentLen
+	}
+
+	// Send a final partial fragment if necessary
+	if start < len(buffer) {
+		err := c.out.WriteRecord(&tlsPlaintext{
+			contentType: recordTypeApplicationData,
+			fragment:    buffer[start:],
+		})
+
+		if err != nil {
+			return sent, err
+		}
+		sent += len(buffer[start:])
+	}
+	return sent, nil
 }
 
 // Close closes the connection.
 func (c *Conn) Close() error {
-	// TODO
-	// Look at the special mojo in crypto/tls
-	// Send closeNotify alert
-	// Close the connection
-	return nil
+	// XXX crypto/tls has an interlock with Write here.  Do we need that?
+
+	c.handshakeMutex.Lock()
+	defer c.handshakeMutex.Unlock()
+
+	// TODO Send closeNotify alert
+	return c.conn.Close()
 }
 
 // LocalAddr returns the local network address.
