@@ -9,7 +9,9 @@ import (
 	"crypto/rsa"
 	_ "crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/hex"
+	"math/big"
 	"testing"
 )
 
@@ -133,6 +135,69 @@ func TestSelfSigned(t *testing.T) {
 	alg = signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}
 	_, err = newSelfSigned("example.com", alg, priv)
 	assertError(t, err, "Signed with a mismatched algorithm")
+}
+
+func TestSignVerify(t *testing.T) {
+	data := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+		10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+		20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+		30, 31}
+
+	privRSA, err := newSigningKey(signatureAlgorithmRSA)
+	assertNotError(t, err, "failed to generate RSA private key")
+	privECDSA, err := newSigningKey(signatureAlgorithmECDSA)
+	assertNotError(t, err, "failed to generate RSA private key")
+
+	// Test successful signing
+	sigAlgRSA, sigRSA, err := sign(crypto.SHA256, privRSA, data)
+	assertNotError(t, err, "Failed to generate RSA signature")
+	assertEquals(t, sigAlgRSA, signatureAlgorithmRSAPSS)
+
+	sigAlgECDSA, sigECDSA, err := sign(crypto.SHA256, privECDSA, data)
+	assertNotError(t, err, "Failed to generate ECDSA signature")
+	assertEquals(t, sigAlgECDSA, signatureAlgorithmECDSA)
+
+	// Test successful verification
+	algRSAPSS := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSAPSS}
+	err = verify(algRSAPSS, privRSA.Public(), data, sigRSA)
+	assertNotError(t, err, "Failed to verify a valid RSA-PSS signature")
+
+	algECDSA := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmECDSA}
+	err = verify(algECDSA, privECDSA.Public(), data, sigECDSA)
+	assertNotError(t, err, "Failed to verify a valid ECDSA signature")
+
+	// Test RSA verify failure on bad algorithm
+	algRSA := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}
+	err = verify(algRSA, privRSA.Public(), data, sigRSA)
+	assertError(t, err, "Verified RSA with something other than PSS")
+
+	// Test ECDSA verify failure on bad algorithm
+	err = verify(algRSAPSS, privECDSA.Public(), data, sigECDSA)
+	assertError(t, err, "Verified ECDSA with a bad algorithm")
+
+	// Test ECDSA verify failure on ASN.1 unmarshal failure
+	err = verify(algECDSA, privECDSA.Public(), data, sigECDSA[:8])
+	assertError(t, err, "Verified ECDSA with a bad ASN.1")
+
+	// Test ECDSA verify failure on trailing data
+	err = verify(algECDSA, privECDSA.Public(), data, append(sigECDSA, data...))
+	assertError(t, err, "Verified ECDSA with a trailing ASN.1")
+
+	// Test ECDSA verify failure on zero / negative values
+	zeroSigIn := ecdsaSignature{big.NewInt(0), big.NewInt(0)}
+	zeroSig, err := asn1.Marshal(zeroSigIn)
+	err = verify(algECDSA, privECDSA.Public(), data, zeroSig)
+	assertError(t, err, "Verified ECDSA with zero signature")
+
+	// Test ECDSA verify failure on signature validation failure
+	sigECDSA[7] ^= 0xFF
+	err = verify(algECDSA, privECDSA.Public(), data, sigECDSA)
+	assertError(t, err, "Verified ECDSA with corrupted signature")
+	sigECDSA[7] ^= 0xFF
+
+	// Test verify failure on unknown public key type
+	err = verify(algECDSA, struct{}{}, data, sigECDSA)
+	assertError(t, err, "Verified with invalid public key type")
 }
 
 func TestHKDF(t *testing.T) {

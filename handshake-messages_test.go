@@ -114,6 +114,7 @@ var (
 		"c53bf43182f8acbc1904e45ee1a3abdc8bc50a155712b402" +
 		"2010664cc29b80fae9150027726da5b144df764a76007eee" +
 		"2a52b6ae0c995395fb"
+	certEmptyHex = "00000000"
 
 	// CertificateVerify test cases
 	certVerifyValidIn = certificateVerifyBody{
@@ -332,6 +333,7 @@ func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 func TestCertificateMarshalUnmarshal(t *testing.T) {
 	// Create a couple of certificates and manually encode
 	certValid, _ := hex.DecodeString(certValidHex)
+	certEmpty, _ := hex.DecodeString(certEmptyHex)
 	cert1Bytes, _ := hex.DecodeString(cert1Hex)
 	cert2Bytes, _ := hex.DecodeString(cert2Hex)
 	cert1, _ := x509.ParseCertificate(cert1Bytes)
@@ -384,10 +386,17 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	_, err = cert.Unmarshal(certValid)
 	assertError(t, err, "Unmarshaled a Certificate with truncated certificates")
 	certValid[8] ^= 0xFF
+
+	// Test unmarshal failure on no certificates
+	_, err = cert.Unmarshal(certEmpty)
+	assertError(t, err, "Unmarshaled a Certificate with no certificates")
 }
 
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
+	transcript := []handshakeMessageBody{&chValidIn, &shValidIn}
+	privRSA, err := newSigningKey(signatureAlgorithmRSA)
+	assertNotError(t, err, "failed to generate RSA private key")
 
 	// Test correctness of handshake type
 	assertEquals(t, (certificateVerifyBody{}).Type(), handshakeTypeCertificateVerify)
@@ -411,4 +420,32 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	// Test unmarshal failure on truncated signature
 	_, err = cv.Unmarshal(certVerifyValid[:5])
 	assertError(t, err, "Unmarshaled a CertificateVerify with no header")
+
+	// Test successful sign
+	err = certVerifyValidIn.Sign(privRSA, transcript)
+	assertNotError(t, err, "Failed to sign CertificateVerify")
+
+	// Test sign failure on handshake marshal failure
+	chValidIn.extensions = extListSingleTooLongIn
+	err = certVerifyValidIn.Sign(privRSA, transcript)
+	assertError(t, err, "Signed CertificateVerify despite unmarshal failure")
+	chValidIn.extensions = extListValidIn
+
+	// Test sign failure on bad hash algorithm
+	certVerifyValidIn.alg.hash = hashAlgorithm(0)
+	err = certVerifyValidIn.Sign(privRSA, transcript)
+	assertError(t, err, "Signed CertificateVerify despite bad hash algorithm")
+	certVerifyValidIn.alg.hash = hashAlgorithmSHA256
+
+	// Test successful verify
+	err = certVerifyValidIn.Sign(privRSA, transcript)
+	assertNotError(t, err, "Failed to sign CertificateVerify")
+	err = certVerifyValidIn.Verify(privRSA.Public(), transcript)
+	assertNotError(t, err, "Failed to verify CertificateVerify")
+
+	// Test verify failure on bad hash algorithm
+	certVerifyValidIn.alg.hash = hashAlgorithm(0)
+	err = certVerifyValidIn.Verify(privRSA.Public(), transcript)
+	assertError(t, err, "Signed CertificateVerify despite bad hash algorithm")
+	certVerifyValidIn.alg.hash = hashAlgorithmSHA256
 }
