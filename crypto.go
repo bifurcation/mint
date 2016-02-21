@@ -12,6 +12,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"fmt"
+	"log"
 	"math/big"
 
 	_ "crypto/sha1"
@@ -206,7 +207,7 @@ func verify(alg signatureAndHashAlgorithm, publicKey crypto.PublicKey, digest []
 
 	switch pub := publicKey.(type) {
 	case *rsa.PublicKey:
-		if alg.signature != signatureAlgorithmRSAPSS {
+		if alg.signature != signatureAlgorithmRSA && alg.signature != signatureAlgorithmRSAPSS {
 			return fmt.Errorf("tls.verify: Unsupported algorithm for RSA key")
 		}
 
@@ -291,12 +292,20 @@ func hkdfExpand(hash crypto.Hash, prk, info []byte, outLen int) []byte {
 
 func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []byte, outLen int) []byte {
 	info := hkdfEncodeLabel(label, hashValue, outLen)
-	return hkdfExpand(hash, secret, info, outLen)
+	derived := hkdfExpand(hash, secret, info, outLen)
+
+	log.Printf("HKDF Expand: label=[TLS 1.3, ] + '%s',requested length=%d\n", label, outLen)
+	log.Printf("PRK [%d]: %x\n", len(secret), secret)
+	log.Printf("Hash [%d]: %x\n", len(hashValue), hashValue)
+	log.Printf("Info [%d]: %x\n", len(info), info)
+	log.Printf("Derived key [%d]: %x\n", len(derived), derived)
+
+	return derived
 }
 
 const (
-	labelXSS            = "expanded static secret"
-	labelXES            = "expanded ephemeral secret"
+	labelMSS            = "expanded static secret"
+	labelMES            = "expanded ephemeral secret"
 	labelTrafficSecret  = "traffic secret"
 	labelServerFinished = "server finished"
 	labelClientFinished = "client finished"
@@ -346,18 +355,11 @@ type cryptoContext struct {
 	applicationKeys keySet
 }
 
-func (c *cryptoContext) addToTranscript(body handshakeMessageBody) error {
-	msg, err := handshakeMessageFromBody(body)
-	if err != nil {
-		return err
-	}
-	c.transcript = append(c.transcript, msg)
-	return nil
-}
-
 func (c *cryptoContext) marshalTranscript() []byte {
 	data := []byte{}
+	log.Printf("Marshaling handshake transcript:")
 	for _, msg := range c.transcript {
+		log.Printf("  %d [%d] %x", msg.msgType, len(msg.body), msg.body)
 		data = append(data, msg.Marshal()...)
 	}
 	return data
@@ -376,7 +378,7 @@ func (c *cryptoContext) makeTrafficKeys(secret []byte, phase string, context []b
 	}
 }
 
-func (c *cryptoContext) Init(ch *clientHelloBody, sh *serverHelloBody, SS, ES []byte, suite cipherSuite) error {
+func (c *cryptoContext) Init(ch, sh *handshakeMessage, SS, ES []byte, suite cipherSuite) error {
 	// Configure based on cipherSuite
 	params, ok := cipherSuiteMap[suite]
 	if !ok {
@@ -389,14 +391,7 @@ func (c *cryptoContext) Init(ch *clientHelloBody, sh *serverHelloBody, SS, ES []
 	c.transcript = []*handshakeMessage{}
 
 	// Add ClientHello, ServerHello to transcript
-	err := c.addToTranscript(ch)
-	if err != nil {
-		return err
-	}
-	err = c.addToTranscript(sh)
-	if err != nil {
-		return err
-	}
+	c.transcript = append(c.transcript, []*handshakeMessage{ch, sh}...)
 
 	// Compute xSS, xES = HKDF-Extract(0, ES)
 	c.SS = make([]byte, len(SS))
@@ -414,18 +409,13 @@ func (c *cryptoContext) Init(ch *clientHelloBody, sh *serverHelloBody, SS, ES []
 	return nil
 }
 
-func (c *cryptoContext) Update(bodies []handshakeMessageBody) error {
+func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	if !c.initialized {
 		return fmt.Errorf("tls.updatecontext: Called on uninitialized context")
 	}
 
 	// Add messages to transcript
-	for _, msg := range bodies {
-		err := c.addToTranscript(msg)
-		if err != nil {
-			return err
-		}
-	}
+	c.transcript = append(c.transcript, messages...)
 	handshakeSoFar := c.marshalTranscript()
 
 	// Compute handshake hash
@@ -435,8 +425,8 @@ func (c *cryptoContext) Update(bodies []handshakeMessageBody) error {
 
 	// Compute mSS, mES = HKDF-Expand-Label(xSS, label, handshake_hash, L)
 	L := c.params.hash.Size()
-	c.mSS = hkdfExpandLabel(c.params.hash, c.xSS, labelXSS, handshakeHash, L)
-	c.mES = hkdfExpandLabel(c.params.hash, c.xSS, labelXES, handshakeHash, L)
+	c.mSS = hkdfExpandLabel(c.params.hash, c.xSS, labelMSS, handshakeHash, L)
+	c.mES = hkdfExpandLabel(c.params.hash, c.xSS, labelMES, handshakeHash, L)
 
 	// Compute master_secret, traffic_secret_0
 	c.masterSecret = hkdfExtract(c.params.hash, c.mSS, c.mES)
@@ -450,18 +440,26 @@ func (c *cryptoContext) Update(bodies []handshakeMessageBody) error {
 
 	// Compute ServerFinished and add to transcript
 	serverFinishedMAC := hmac.New(c.params.hash.New, c.serverFinishedKey)
-	serverFinishedMAC.Write(handshakeSoFar)
+	serverFinishedMAC.Write(handshakeHash)
 	c.serverFinishedData = serverFinishedMAC.Sum(nil)
 	c.serverFinished = &finishedBody{
 		verifyDataLen: L,
 		verifyData:    c.serverFinishedData,
 	}
-	c.addToTranscript(c.serverFinished)
 
-	// Compute client_finished_key
+	finishedMessage, err := handshakeMessageFromBody(c.serverFinished)
+	if err != nil {
+		return err
+	}
+	c.transcript = append(c.transcript, finishedMessage)
+
+	// Compute client_finished_key and client Finished
 	handshakeThroughFinished := c.marshalTranscript()
+	h = c.params.hash.New()
+	h.Write(handshakeThroughFinished)
+	handshakeHash = h.Sum(nil)
 	clientFinishedMAC := hmac.New(c.params.hash.New, c.clientFinishedKey)
-	clientFinishedMAC.Write(handshakeSoFar)
+	clientFinishedMAC.Write(handshakeHash)
 	c.clientFinishedData = clientFinishedMAC.Sum(nil)
 	c.clientFinished = &finishedBody{
 		verifyDataLen: L,

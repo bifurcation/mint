@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"fmt"
 	"io"
+	"log"
 	"sync"
 )
 
@@ -199,6 +200,8 @@ func (r *recordLayer) ReadRecord() (*tlsPlaintext, error) {
 			return nil, err
 		}
 	}
+
+	log.Printf("recordLayer.ReadRecord [%d] [%x]", pt.contentType, pt.fragment)
 
 	r.incrementSequenceNumber()
 	return pt, nil

@@ -2,6 +2,7 @@ package mint
 
 import (
 	"fmt"
+	"log"
 )
 
 const (
@@ -34,6 +35,8 @@ func (hm handshakeMessage) Marshal() []byte {
 }
 
 func (hm handshakeMessage) toBody() (handshakeMessageBody, error) {
+	log.Printf("handshakeMessage.toBody [%d] [%x]", hm.msgType, hm.body)
+
 	var body handshakeMessageBody
 	switch hm.msgType {
 	case handshakeTypeClientHello:
@@ -122,25 +125,25 @@ func (h *handshakeLayer) ReadMessage() (*handshakeMessage, error) {
 	return hm, nil
 }
 
-func (h *handshakeLayer) ReadMessageBody(body handshakeMessageBody) error {
+func (h *handshakeLayer) ReadMessageBody(body handshakeMessageBody) (*handshakeMessage, error) {
 	hm, err := h.ReadMessage()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if hm.msgType != body.Type() {
-		return fmt.Errorf("tls.handshakelayer: Unexpected message type %v", hm.msgType)
+		return nil, fmt.Errorf("tls.handshakelayer: Unexpected message type %v", hm.msgType)
 	}
 
 	read, err := body.Unmarshal(hm.body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if read < len(hm.body) {
-		return fmt.Errorf("tls.handshakelayer: Extra data in message (%d)", len(hm.body)-read)
+		return nil, fmt.Errorf("tls.handshakelayer: Extra data in message (%d)", len(hm.body)-read)
 	}
-	return nil
+	return hm, nil
 }
 
 func (h *handshakeLayer) WriteMessage(hm *handshakeMessage) error {
@@ -186,19 +189,26 @@ func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 	return nil
 }
 
-func (h *handshakeLayer) WriteMessageBody(body handshakeMessageBody) error {
-	return h.WriteMessageBodies([]handshakeMessageBody{body})
+func (h *handshakeLayer) WriteMessageBody(body handshakeMessageBody) (*handshakeMessage, error) {
+	hms, err := h.WriteMessageBodies([]handshakeMessageBody{body})
+	if err != nil {
+		return nil, err
+	}
+	if len(hms) < 1 {
+		return nil, fmt.Errorf("tls.writemessagebody: No handshake message returned")
+	}
+	return hms[0], nil
 }
 
-func (h *handshakeLayer) WriteMessageBodies(bodies []handshakeMessageBody) error {
+func (h *handshakeLayer) WriteMessageBodies(bodies []handshakeMessageBody) ([]*handshakeMessage, error) {
 	hms := make([]*handshakeMessage, len(bodies))
 	for i, body := range bodies {
 		hm, err := handshakeMessageFromBody(body)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		hms[i] = hm
 	}
 
-	return h.WriteMessages(hms)
+	return hms, h.WriteMessages(hms)
 }

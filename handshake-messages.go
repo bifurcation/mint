@@ -242,11 +242,21 @@ func (ee encryptedExtensionsBody) Type() handshakeType {
 }
 
 func (ee encryptedExtensionsBody) Marshal() ([]byte, error) {
+	if nssCompatMode && len(ee) == 0 {
+		return []byte{}, nil
+	}
+
 	return extensionList(ee).Marshal()
 }
 
 func (ee *encryptedExtensionsBody) Unmarshal(data []byte) (int, error) {
 	var el extensionList
+
+	if nssCompatMode && len(data) == 0 {
+		*ee = encryptedExtensionsBody(el)
+		return 0, nil
+	}
+
 	read, err := el.Unmarshal(data)
 	if err == nil {
 		*ee = encryptedExtensionsBody(el)
@@ -280,7 +290,7 @@ func (c certificateBody) Marshal() ([]byte, error) {
 		if cert == nil || len(cert.Raw) == 0 {
 			return nil, fmt.Errorf("tls:certificate: Unmarshaled certificate")
 		}
-		certsLen += len(cert.Raw)
+		certsLen += 3 + len(cert.Raw)
 	}
 
 	data := make([]byte, 1+contextLen+3+certsLen)
@@ -315,16 +325,28 @@ func (c *certificateBody) Unmarshal(data []byte) (int, error) {
 		return 0, fmt.Errorf("tls:certificate: Message too short for certificates")
 	}
 
-	certificates, err := x509.ParseCertificates(data[1+contextLen+3:])
-	if err != nil {
-		return 0, err
-	}
-	if len(certificates) == 0 {
-		return 0, fmt.Errorf("No certificates provided")
-	}
-	c.certificateList = certificates
+	start := 1 + contextLen + 3
+	end := 1 + contextLen + 3 + certsLen
+	c.certificateList = []*x509.Certificate{}
+	for start < end {
+		if len(data[start:]) < 3 {
+			return 0, fmt.Errorf("tls:certificate: Message too short for certificate length")
+		}
 
-	return 1 + contextLen + 3 + certsLen, nil
+		certLen := (int(data[start]) << 16) + (int(data[start+1]) << 8) + int(data[start+2])
+		if len(data[start+3:]) < certLen {
+			return 0, fmt.Errorf("tls:certificate: Message too short for certificate")
+		}
+
+		cert, err := x509.ParseCertificate(data[start+3 : start+3+certLen])
+		if err != nil {
+			return 0, fmt.Errorf("tls:certificate: Certificate failed to parse: %v", err)
+		}
+
+		c.certificateList = append(c.certificateList, cert)
+		start += 3 + certLen
+	}
+	return start, nil
 }
 
 // CertificateVerify
@@ -387,14 +409,9 @@ func (cv *certificateVerifyBody) Unmarshal(data []byte) (int, error) {
 	return 4 + sigLen, nil
 }
 
-func (cv *certificateVerifyBody) computeContext(transcript []handshakeMessageBody) (hash crypto.Hash, hashed []byte, err error) {
+func (cv *certificateVerifyBody) computeContext(transcript []*handshakeMessage) (hash crypto.Hash, hashed []byte, err error) {
 	handshakeContext := []byte{}
-	var msg *handshakeMessage
-	for _, body := range transcript {
-		msg, err = handshakeMessageFromBody(body)
-		if err != nil {
-			return
-		}
+	for _, msg := range transcript {
 		handshakeContext = append(handshakeContext, msg.Marshal()...)
 	}
 
@@ -409,7 +426,7 @@ func (cv *certificateVerifyBody) computeContext(transcript []handshakeMessageBod
 	return
 }
 
-func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []handshakeMessageBody) error {
+func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*handshakeMessage) error {
 	hash, hashedData, err := cv.computeContext(transcript)
 	if err != nil {
 		return err
@@ -419,7 +436,7 @@ func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []han
 	return err
 }
 
-func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []handshakeMessageBody) error {
+func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*handshakeMessage) error {
 	_, hashedData, err := cv.computeContext(transcript)
 	if err != nil {
 		return err
