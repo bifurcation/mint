@@ -268,7 +268,6 @@ func hkdfEncodeLabel(labelIn string, hashValue []byte, outLen int) []byte {
 	hkdfLabel[3+labelLen] = byte(hashLen)
 	copy(hkdfLabel[3+labelLen+1:], hashValue)
 
-	fmt.Printf("encoded_label[%d] = %x\n", len(hkdfLabel), hkdfLabel)
 	return hkdfLabel
 }
 
@@ -291,7 +290,8 @@ func hkdfExpand(hash crypto.Hash, prk, info []byte, outLen int) []byte {
 }
 
 func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []byte, outLen int) []byte {
-	return hkdfExpand(hash, secret, hkdfEncodeLabel(label, hashValue, outLen), outLen)
+	info := hkdfEncodeLabel(label, hashValue, outLen)
+	return hkdfExpand(hash, secret, info, outLen)
 }
 
 const (
@@ -308,8 +308,8 @@ const (
 
 	purposeClientWriteKey = "client write key"
 	purposeServerWriteKey = "server write key"
-	purposeClientWriteIV  = "client write IV"
-	purposeServerWriteIV  = "server write IV"
+	purposeClientWriteIV  = "client write iv"
+	purposeServerWriteIV  = "server write iv"
 )
 
 type keySet struct {
@@ -367,8 +367,6 @@ func (c *cryptoContext) makeTrafficKeys(secret []byte, phase string, context []b
 	h := c.params.hash.New()
 	h.Write(context)
 	handshakeHash := h.Sum(nil)
-
-	fmt.Printf("phase='%s' handshakeHash='%X'\n", phase, handshakeHash)
 
 	return keySet{
 		clientWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeClientWriteKey, handshakeHash, c.params.keyLen),
