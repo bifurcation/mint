@@ -92,7 +92,8 @@ func (h *handshakeLayer) extendBuffer(n int) error {
 		}
 
 		if pt.contentType != recordTypeHandshake {
-			return fmt.Errorf("tls.handshakelayer: Unexpected record type")
+			fmt.Printf("%X\n", pt.fragment)
+			return fmt.Errorf("tls.handshakelayer: Unexpected record type %04x", pt.contentType)
 		}
 
 		h.buffer = append(h.buffer, pt.fragment...)

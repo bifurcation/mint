@@ -84,7 +84,7 @@ func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
 	}
 
 	if data[0] != 0x03 || data[1] != 0x04 {
-		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; unsupported version")
+		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; unsupported version %02x%02x", data[0], data[1])
 	}
 
 	copy(ch.random[:], data[2:34])
@@ -172,7 +172,7 @@ func (sh *serverHelloBody) Unmarshal(data []byte) (int, error) {
 	}
 
 	if data[0] != 0x03 || data[1] != 0x04 {
-		return 0, fmt.Errorf("tls.serverhello: Malformed ServerHello; unsupported version")
+		return 0, fmt.Errorf("tls.serverhello: Malformed ServerHello; unsupported version %02x%02x", data[0], data[1])
 	}
 
 	copy(sh.random[:], data[2:34])

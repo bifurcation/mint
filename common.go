@@ -1,5 +1,10 @@
 package mint
 
+const (
+	draftVersionImplemented = 11
+	nssCompatMode           = true
+)
+
 // enum {...} ContentType;
 type recordType byte
 
@@ -82,9 +87,8 @@ const (
 	extensionTypeServerName          helloExtensionType = 0
 	extensionTypeSupportedGroups     helloExtensionType = 10
 	extensionTypeSignatureAlgorithms helloExtensionType = 13
-	extensionTypeEarlyData           helloExtensionType = 0xff00 // TBD
-	extensionTypePreSharedKey        helloExtensionType = 0xff01 // TBD
-	extensionTypeKeyShare            helloExtensionType = 0xff02 // TBD
+	extensionTypeKeyShare            helloExtensionType = 40     // Provisional value, from NSS
+	extensionTypeDraftVersion        helloExtensionType = 0xff02 // Required for NSS
 )
 
 // enum {...} NamedGroup

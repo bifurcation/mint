@@ -377,3 +377,25 @@ func (sa *signatureAlgorithmsExtension) Unmarshal(data []byte) (int, error) {
 
 	return 2 + listLen, nil
 }
+
+// This is required for NSS
+type draftVersionExtension struct {
+	version int
+}
+
+func (dv draftVersionExtension) Type() helloExtensionType {
+	return extensionTypeDraftVersion
+}
+
+func (dv draftVersionExtension) Marshal() ([]byte, error) {
+	return []byte{byte(dv.version >> 8), byte(dv.version)}, nil
+}
+
+func (dv *draftVersionExtension) Unmarshal(data []byte) (int, error) {
+	if len(data) != 2 {
+		return 0, fmt.Errorf("tls.draftVersion: Wrong length")
+	}
+
+	dv.version = (int(data[0]) << 8) + int(data[1])
+	return 2, nil
+}

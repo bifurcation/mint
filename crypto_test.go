@@ -18,7 +18,7 @@ import (
 var (
 	ecGroups = []namedGroup{namedGroupP256, namedGroupP384, namedGroupP521}
 
-	shortKeyPubHex = "04e9f6076620ddf6a24e4398162057eccd3077892f046b412" +
+	shortKeyPubHex = "4104e9f6076620ddf6a24e4398162057eccd3077892f046b412" +
 		"0ffcb9fa31cdfd385c8727b222f9a6091e442e48f32ba145" +
 		"bd3d68c0631b0ed8faf298c40c404bf59"
 	shortKeyPrivHex = "6f28e305a0975ead3b95c228082adcae852fca6af0c9385f670531657966cd6a"

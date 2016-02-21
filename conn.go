@@ -71,6 +71,13 @@ type Conn struct {
 	context           cryptoContext
 }
 
+func newConn(conn net.Conn, config *Config, isClient bool) *Conn {
+	c := &Conn{conn: conn, config: config, isClient: isClient}
+	c.in = newRecordLayer(c.conn)
+	c.out = newRecordLayer(c.conn)
+	return c
+}
+
 func (c *Conn) extendBuffer(n int) error {
 	// XXX: crypto/tls bounds the number of empty records that can be read.  Should we?
 	for len(c.readBuffer) < n {
@@ -214,6 +221,7 @@ func (c *Conn) Handshake() error {
 	} else {
 		c.handshakeErr = c.serverHandshake()
 	}
+	c.handshakeComplete = (c.handshakeErr == nil)
 	return c.handshakeErr
 }
 
@@ -223,24 +231,15 @@ func (c *Conn) clientHandshake() error {
 
 	// XXX Config
 	config_serverName := "example.com"
-	config_cipherSuites := []cipherSuite{
-		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-	}
-	config_keyShareGroups := []namedGroup{namedGroupP256, namedGroupP384, namedGroupP521}
-	config_signatureAlgorithms := []signatureAndHashAlgorithm{
-		signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmRSA},
-		signatureAndHashAlgorithm{hash: hashAlgorithmSHA384, signature: signatureAlgorithmECDSA},
-	}
 	config_authenticationCallback := func(chain []*x509.Certificate) error { return nil }
 
 	// Construct some extensions
 	privateKeys := map[namedGroup][]byte{}
 	ks := keyShareExtension{
 		roleIsServer: false,
-		shares:       make([]keyShare, len(config_keyShareGroups)),
+		shares:       make([]keyShare, len(supportedGroups)),
 	}
-	for i, group := range config_keyShareGroups {
+	for i, group := range supportedGroups {
 		pub, priv, err := newKeyShare(group)
 		if err != nil {
 			return err
@@ -251,18 +250,23 @@ func (c *Conn) clientHandshake() error {
 		privateKeys[group] = priv
 	}
 	sni := serverNameExtension(config_serverName)
-	sg := supportedGroupsExtension{groups: config_keyShareGroups}
-	sa := signatureAlgorithmsExtension{algorithms: config_signatureAlgorithms}
+	sg := supportedGroupsExtension{groups: supportedGroups}
+	sa := signatureAlgorithmsExtension{algorithms: signatureAlgorithms}
+	dv := draftVersionExtension{version: draftVersionImplemented}
 
 	// Construct and write ClientHello
 	ch := &clientHelloBody{
-		cipherSuites: config_cipherSuites,
+		cipherSuites: supportedCipherSuites,
 	}
 	ch.extensions.Add(&sni)
-	ch.extensions.Add(&ks)
+	err := ch.extensions.Add(&ks)
+	if err != nil {
+		return err
+	}
 	ch.extensions.Add(&sg)
 	ch.extensions.Add(&sa)
-	err := hOut.WriteMessageBody(ch)
+	ch.extensions.Add(&dv)
+	err = hOut.WriteMessageBody(ch)
 	if err != nil {
 		return err
 	}
