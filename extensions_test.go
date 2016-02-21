@@ -40,8 +40,10 @@ var (
 	extListOverflowInnerHex = "0012000a0005f0f1f2f3f4000a0010f0f1f2f3f4"
 
 	// KeyShare test cases
-	p256             = bytes.Repeat([]byte{0}, keyExchangeSizeFromNamedGroup(namedGroupP256))
-	p521             = bytes.Repeat([]byte{0}, keyExchangeSizeFromNamedGroup(namedGroupP521))
+	len256           = keyExchangeSizeFromNamedGroup(namedGroupP256)
+	len521           = keyExchangeSizeFromNamedGroup(namedGroupP521)
+	p256             = append([]byte{byte(len256 - 1)}, bytes.Repeat([]byte{0}, len256-1)...)
+	p521             = append([]byte{byte(len521 - 1)}, bytes.Repeat([]byte{0}, len521-1)...)
 	keyShareClientIn = &keyShareExtension{
 		roleIsServer: false,
 		shares: []keyShare{
@@ -61,9 +63,9 @@ var (
 			keyShare{group: namedGroupP256, keyExchange: []byte{0}},
 		},
 	}
-	keyShareClientHex = "00ce" + "00170041" + hex.EncodeToString(p256) +
-		"00190085" + hex.EncodeToString(p521)
-	keyShareServerHex  = "00170041" + hex.EncodeToString(p256)
+	keyShareClientHex = "00d0" + "00170042" + hex.EncodeToString(p256) +
+		"00190086" + hex.EncodeToString(p521)
+	keyShareServerHex  = "00170042" + hex.EncodeToString(p256)
 	keyShareInvalidHex = "0017000100"
 
 	// Add/Find test cases
@@ -211,7 +213,7 @@ func TestExtensionAdd(t *testing.T) {
 
 func TestExtensionFind(t *testing.T) {
 	// Test successful find
-	var ks keyShareExtension
+	ks := keyShareExtension{roleIsServer: true}
 	found := extListKeyShareIn.Find(&ks)
 	assert(t, found, "Failed to find a valid extension")
 

@@ -1,6 +1,6 @@
 package mint
 
-const (
+var (
 	draftVersionImplemented = 11
 	nssCompatMode           = true
 )

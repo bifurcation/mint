@@ -258,15 +258,13 @@ func (c *Conn) clientHandshake() error {
 	ch := &clientHelloBody{
 		cipherSuites: supportedCipherSuites,
 	}
-	ch.extensions.Add(&sni)
-	err := ch.extensions.Add(&ks)
-	if err != nil {
-		return err
+	for _, ext := range []extensionBody{&sni, &ks, &sg, &sa, &dv} {
+		err := ch.extensions.Add(ext)
+		if err != nil {
+			return err
+		}
 	}
-	ch.extensions.Add(&sg)
-	ch.extensions.Add(&sa)
-	ch.extensions.Add(&dv)
-	err = hOut.WriteMessageBody(ch)
+	err := hOut.WriteMessageBody(ch)
 	if err != nil {
 		return err
 	}

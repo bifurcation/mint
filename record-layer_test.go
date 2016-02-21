@@ -32,12 +32,12 @@ func TestRekey(t *testing.T) {
 	// Test rekey failure on wrong-size IV
 	r = newRecordLayer(bytes.NewBuffer(nil))
 	err = r.Rekey(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, key, iv[:2])
-	assertError(t, err, "Failed to rekey")
+	assertError(t, err, "Allowed rekey with wrong-size IV")
 
 	// Test rekey failure on unknown ciphersuite
 	r = newRecordLayer(bytes.NewBuffer(nil))
 	err = r.Rekey(TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, key, iv)
-	assertError(t, err, "Failed to rekey")
+	assertError(t, err, "Allowed rekey with unknown ciphersuite")
 }
 
 func TestSequenceNumberRollover(t *testing.T) {
@@ -76,11 +76,13 @@ func TestReadRecord(t *testing.T) {
 	plaintext[0] = 0x15
 
 	// Test failure on wrong version
+	nssCompatMode = false
 	plaintext[2] = 0x02
 	r = newRecordLayer(bytes.NewBuffer(plaintext))
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject record with incorrect version")
 	plaintext[2] = 0x01
+	nssCompatMode = true
 
 	// Test failure on size too big
 	plaintext[3] = 0xFF

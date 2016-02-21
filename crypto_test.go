@@ -45,7 +45,7 @@ func TestNewKeyShare(t *testing.T) {
 		assertNotError(t, err, "Failed to generate new key pair")
 
 		crv := curveFromNamedGroup(group)
-		x, y := elliptic.Unmarshal(crv, pub)
+		x, y := elliptic.Unmarshal(crv, pub[1:])
 		assert(t, x != nil && y != nil, "Public key failed to unmarshal")
 		assert(t, crv.Params().IsOnCurve(x, y), "Public key not on curve")
 	}
