@@ -250,8 +250,13 @@ func hkdfExtract(hash crypto.Hash, saltIn, input []byte) []byte {
 	return h.Sum(nil)
 }
 
+// struct HkdfLabel {
+//    uint16 length;
+//    opaque label<9..255>;
+//    opaque hash_value<0..255>;
+// };
 func hkdfEncodeLabel(labelIn string, hashValue []byte, outLen int) []byte {
-	label := "TLS 1.3," + labelIn
+	label := "TLS 1.3, " + labelIn
 
 	labelLen := len(label)
 	hashLen := len(hashValue)
@@ -262,6 +267,8 @@ func hkdfEncodeLabel(labelIn string, hashValue []byte, outLen int) []byte {
 	copy(hkdfLabel[3:3+labelLen], []byte(label))
 	hkdfLabel[3+labelLen] = byte(hashLen)
 	copy(hkdfLabel[3+labelLen+1:], hashValue)
+
+	fmt.Printf("encoded_label[%d] = %x\n", len(hkdfLabel), hkdfLabel)
 	return hkdfLabel
 }
 
@@ -357,11 +364,17 @@ func (c *cryptoContext) marshalTranscript() []byte {
 }
 
 func (c *cryptoContext) makeTrafficKeys(secret []byte, phase string, context []byte) keySet {
+	h := c.params.hash.New()
+	h.Write(context)
+	handshakeHash := h.Sum(nil)
+
+	fmt.Printf("phase='%s' handshakeHash='%X'\n", phase, handshakeHash)
+
 	return keySet{
-		clientWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeClientWriteKey, context, c.params.keyLen),
-		serverWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeServerWriteKey, context, c.params.keyLen),
-		clientWriteIV:  hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeClientWriteIV, context, c.params.ivLen),
-		serverWriteIV:  hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeServerWriteIV, context, c.params.ivLen),
+		clientWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeClientWriteKey, handshakeHash, c.params.keyLen),
+		serverWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeServerWriteKey, handshakeHash, c.params.keyLen),
+		clientWriteIV:  hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeClientWriteIV, handshakeHash, c.params.ivLen),
+		serverWriteIV:  hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeServerWriteIV, handshakeHash, c.params.ivLen),
 	}
 }
 
