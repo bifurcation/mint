@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"fmt"
+	"log"
 )
 
 const (
@@ -432,7 +433,7 @@ func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*ha
 		return err
 	}
 
-	cv.alg.signature, cv.signature, err = sign(hash, privateKey, hashedData)
+	cv.alg.signature, cv.signature, err = sign(hash, privateKey, hashedData, contextCertificateVerify)
 	return err
 }
 
@@ -442,5 +443,7 @@ func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript [
 		return err
 	}
 
-	return verify(cv.alg, publicKey, hashedData, cv.signature)
+	log.Printf("Digest to be verified: [%d] %x", len(hashedData), hashedData)
+
+	return verify(cv.alg, publicKey, hashedData, contextCertificateVerify, cv.signature)
 }

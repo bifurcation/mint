@@ -186,9 +186,24 @@ type ecdsaSignature struct {
 	R, S *big.Int
 }
 
-func sign(hash crypto.Hash, privateKey crypto.Signer, digest []byte) (signatureAlgorithm, []byte, error) {
+const (
+	contextCertificateVerify = "TLS 1.3, server CertificateVerify"
+)
+
+func encodeSignatureInput(hash crypto.Hash, data []byte, context string) []byte {
+	h := hash.New()
+	h.Write(bytes.Repeat([]byte{0x20}, 64))
+	h.Write([]byte(context))
+	h.Write([]byte{0})
+	h.Write(data)
+	return h.Sum(nil)
+}
+
+func sign(hash crypto.Hash, privateKey crypto.Signer, data []byte, context string) (signatureAlgorithm, []byte, error) {
 	var opts crypto.SignerOpts
 	var sigAlg signatureAlgorithm
+
+	digest := encodeSignatureInput(hash, data, context)
 
 	switch privateKey.(type) {
 	case *rsa.PrivateKey:
@@ -202,11 +217,17 @@ func sign(hash crypto.Hash, privateKey crypto.Signer, digest []byte) (signatureA
 	return sigAlg, sig, err
 }
 
-func verify(alg signatureAndHashAlgorithm, publicKey crypto.PublicKey, digest []byte, sig []byte) error {
+func verify(alg signatureAndHashAlgorithm, publicKey crypto.PublicKey, data []byte, context string, sig []byte) error {
 	hash := hashMap[alg.hash]
+
+	digest := encodeSignatureInput(hash, data, context)
 
 	switch pub := publicKey.(type) {
 	case *rsa.PublicKey:
+		if nssCompatMode && alg.signature == signatureAlgorithmRSA {
+			return rsa.VerifyPKCS1v15(pub, hash, digest, sig)
+		}
+
 		if alg.signature != signatureAlgorithmRSA && alg.signature != signatureAlgorithmRSAPSS {
 			return fmt.Errorf("tls.verify: Unsupported algorithm for RSA key")
 		}
@@ -357,19 +378,13 @@ type cryptoContext struct {
 
 func (c *cryptoContext) marshalTranscript() []byte {
 	data := []byte{}
-	log.Printf("Marshaling handshake transcript:")
 	for _, msg := range c.transcript {
-		log.Printf("  %d [%d] %x", msg.msgType, len(msg.body), msg.body)
 		data = append(data, msg.Marshal()...)
 	}
 	return data
 }
 
-func (c *cryptoContext) makeTrafficKeys(secret []byte, phase string, context []byte) keySet {
-	h := c.params.hash.New()
-	h.Write(context)
-	handshakeHash := h.Sum(nil)
-
+func (c *cryptoContext) makeTrafficKeys(secret []byte, phase string, handshakeHash []byte) keySet {
 	return keySet{
 		clientWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeClientWriteKey, handshakeHash, c.params.keyLen),
 		serverWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeServerWriteKey, handshakeHash, c.params.keyLen),
@@ -403,7 +418,10 @@ func (c *cryptoContext) Init(ch, sh *handshakeMessage, SS, ES []byte, suite ciph
 
 	// Compute handshakeKeys
 	context := c.marshalTranscript()
-	c.handshakeKeys = c.makeTrafficKeys(c.xES, phaseHandshake, context)
+	h := c.params.hash.New()
+	h.Write(context)
+	handshakeHash := h.Sum(nil)
+	c.handshakeKeys = c.makeTrafficKeys(c.xES, phaseHandshake, handshakeHash)
 
 	c.initialized = true
 	return nil
@@ -454,20 +472,22 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	c.transcript = append(c.transcript, finishedMessage)
 
 	// Compute client_finished_key and client Finished
-	handshakeThroughFinished := c.marshalTranscript()
-	h = c.params.hash.New()
-	h.Write(handshakeThroughFinished)
+	h.Write(finishedMessage.Marshal())
 	handshakeHash = h.Sum(nil)
+	log.Printf("handshake hash for client Finished: [%d] %x", len(handshakeHash), handshakeHash)
+
 	clientFinishedMAC := hmac.New(c.params.hash.New, c.clientFinishedKey)
 	clientFinishedMAC.Write(handshakeHash)
 	c.clientFinishedData = clientFinishedMAC.Sum(nil)
+	log.Printf("client Finished data: [%d] %x", len(handshakeHash), handshakeHash)
+
 	c.clientFinished = &finishedBody{
 		verifyDataLen: L,
 		verifyData:    c.clientFinishedData,
 	}
 
 	// application_key_0
-	c.applicationKeys = c.makeTrafficKeys(c.trafficSecret, phaseApplication, handshakeThroughFinished)
+	c.applicationKeys = c.makeTrafficKeys(c.trafficSecret, phaseApplication, handshakeHash)
 
 	return nil
 }

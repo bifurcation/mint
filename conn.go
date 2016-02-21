@@ -83,7 +83,8 @@ func (c *Conn) extendBuffer(n int) error {
 	// XXX: crypto/tls bounds the number of empty records that can be read.  Should we?
 	for len(c.readBuffer) < n {
 		pt, err := c.in.ReadRecord()
-		if err != nil {
+
+		if pt == nil {
 			return err
 		}
 
@@ -94,6 +95,11 @@ func (c *Conn) extendBuffer(n int) error {
 			// TODO: Handle alerts
 		case recordTypeApplicationData:
 			c.readBuffer = append(c.readBuffer, pt.fragment...)
+			log.Printf("extended buffer: [%d] %x", len(c.readBuffer), c.readBuffer)
+		}
+
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -114,11 +120,19 @@ func (c *Conn) Read(buffer []byte) (int, error) {
 	err := c.extendBuffer(n)
 	var read int
 	if len(c.readBuffer) < n {
-		copy(buffer[:0], c.readBuffer)
+		buffer = buffer[:len(c.readBuffer)]
+		copy(buffer, c.readBuffer)
+		log.Printf("read buffer smaller than input buffer")
+		log.Printf("output from buffer: %x", c.readBuffer)
+		log.Printf("output to client  : %x", buffer)
 		c.readBuffer = c.readBuffer[:0]
 		read = len(c.readBuffer)
 	} else {
+		log.Printf("read buffer larger than than input buffer")
 		copy(buffer[:0], c.readBuffer[:n])
+		log.Printf("read buffer smaller than input buffer")
+		log.Printf("output from buffer: %x", c.readBuffer[:n])
+		log.Printf("output to client  : %x", buffer)
 		c.readBuffer = c.readBuffer[n:]
 		read = n
 	}
@@ -232,7 +246,7 @@ func (c *Conn) clientHandshake() error {
 
 	// XXX Config
 	config_serverName := "example.com"
-	//config_authenticationCallback := func(chain []*x509.Certificate) error { return nil }
+	config_authenticationCallback := func(chain []*x509.Certificate) error { return nil }
 
 	// Construct some extensions
 	privateKeys := map[namedGroup][]byte{}
@@ -307,7 +321,7 @@ func (c *Conn) clientHandshake() error {
 		log.Printf("ClientHandshake: Unable to rekey inbound")
 		return err
 	}
-	err = c.out.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
+	err = c.out.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
 	if err != nil {
 		log.Printf("ClientHandshake: Unable to rekey outbound")
 		return err
@@ -316,6 +330,8 @@ func (c *Conn) clientHandshake() error {
 
 	// Read to Finished
 	transcript := []*handshakeMessage{}
+	var cert *certificateBody
+	var certVerify *certificateVerifyBody
 	var finishedMessage *handshakeMessage
 	for {
 		hm, err := hIn.ReadMessage()
@@ -324,45 +340,50 @@ func (c *Conn) clientHandshake() error {
 			return err
 		}
 		log.Printf("ClientHandshake: Read message with type: %v", hm.msgType)
+
 		if hm.msgType == handshakeTypeFinished {
 			finishedMessage = hm
 			break
+		} else {
+			if hm.msgType == handshakeTypeCertificate {
+				cert = new(certificateBody)
+				_, err = cert.Unmarshal(hm.body)
+			} else if hm.msgType == handshakeTypeCertificateVerify {
+				certVerify = new(certificateVerifyBody)
+				_, err = certVerify.Unmarshal(hm.body)
+			}
+			transcript = append(transcript, hm)
 		}
-		transcript = append(transcript, hm)
+
+		if err != nil {
+			log.Printf("Error processing handshake message: %v", err)
+			return err
+		}
 	}
 	log.Printf("ClientHandshake: Done reading server's first flight")
 
 	// Verify the server's certificate if required
-	/* Skip for now
-	  if config_authenticationCallback != nil {
-			transcriptLen := len(transcript)
-			if transcriptLen < 2 {
-				return fmt.Errorf("tls.client: No authentication data provided (%d)")
-			}
-
-			cert, ok := transcript[transcriptLen-2].(*certificateBody)
-			if !ok {
-				return fmt.Errorf("tls.client: Certificate message not found")
-			}
-
-			certVerify, ok := transcript[transcriptLen-1].(*certificateVerifyBody)
-			if !ok {
-				return fmt.Errorf("tls.client: CertificateVerify message not found")
-			}
-
-			// TODO Verify signature over handshake context
-			serverPublicKey := cert.certificateList[0].PublicKey
-			transcriptForCertVerify := []handshakeMessageBody{ch, sh}
-			transcriptForCertVerify = append(transcriptForCertVerify, transcript[:transcriptLen-2]...)
-			if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify); err != nil {
-				return err
-			}
-
-			if err = config_authenticationCallback(cert.certificateList); err != nil {
-				return err
-			}
+	if config_authenticationCallback != nil {
+		if cert == nil || certVerify == nil {
+			return fmt.Errorf("tls.client: No server auth data provided")
 		}
-	*/
+
+		transcriptForCertVerify := append([]*handshakeMessage{chm, shm}, transcript[:len(transcript)-1]...)
+		log.Printf("Transcript for certVerify")
+		for _, hm := range transcriptForCertVerify {
+			log.Printf("  [%d] %x", hm.msgType, hm.body)
+		}
+		log.Printf("===")
+
+		serverPublicKey := cert.certificateList[0].PublicKey
+		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify); err != nil {
+			return err
+		}
+
+		if err = config_authenticationCallback(cert.certificateList); err != nil {
+			return err
+		}
+	}
 
 	// Update the crypto context with all but the Finished
 	ctx.Update(transcript)
@@ -381,6 +402,7 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Send client Finished
+
 	_, err = hOut.WriteMessageBody(ctx.clientFinished)
 	if err != nil {
 		return err
@@ -391,7 +413,7 @@ func (c *Conn) clientHandshake() error {
 	if err != nil {
 		return err
 	}
-	err = c.out.Rekey(ctx.suite, ctx.applicationKeys.serverWriteKey, ctx.applicationKeys.serverWriteIV)
+	err = c.out.Rekey(ctx.suite, ctx.applicationKeys.clientWriteKey, ctx.applicationKeys.clientWriteIV)
 	if err != nil {
 		return err
 	}
