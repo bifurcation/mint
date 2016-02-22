@@ -224,7 +224,7 @@ func verify(alg signatureAndHashAlgorithm, publicKey crypto.PublicKey, data []by
 
 	switch pub := publicKey.(type) {
 	case *rsa.PublicKey:
-		if nssCompatMode && alg.signature == signatureAlgorithmRSA {
+		if allowPKCS1 && alg.signature == signatureAlgorithmRSA {
 			return rsa.VerifyPKCS1v15(pub, hash, digest, sig)
 		}
 

@@ -2,7 +2,11 @@ package mint
 
 var (
 	draftVersionImplemented = 11
-	nssCompatMode           = true
+
+	// Flags for some minor compat issues
+	allowEmptyEncryptedExtensions = false
+	allowWrongVersionNumber       = false
+	allowPKCS1                    = true
 )
 
 // enum {...} ContentType;

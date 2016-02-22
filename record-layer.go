@@ -176,7 +176,7 @@ func (r *recordLayer) ReadRecord() (*tlsPlaintext, error) {
 	}
 
 	// Validate version
-	if (header[1] != 0x03 || header[2] != 0x01) && !nssCompatMode {
+	if !allowWrongVersionNumber && (header[1] != 0x03 || header[2] != 0x01) {
 		return nil, fmt.Errorf("tls.record: Invalid version %02x%02x", header[1], header[2])
 	}
 

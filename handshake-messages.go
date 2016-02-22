@@ -243,7 +243,7 @@ func (ee encryptedExtensionsBody) Type() handshakeType {
 }
 
 func (ee encryptedExtensionsBody) Marshal() ([]byte, error) {
-	if nssCompatMode && len(ee) == 0 {
+	if allowEmptyEncryptedExtensions && len(ee) == 0 {
 		return []byte{}, nil
 	}
 
@@ -253,7 +253,7 @@ func (ee encryptedExtensionsBody) Marshal() ([]byte, error) {
 func (ee *encryptedExtensionsBody) Unmarshal(data []byte) (int, error) {
 	var el extensionList
 
-	if nssCompatMode && len(data) == 0 {
+	if allowEmptyEncryptedExtensions && len(data) == 0 {
 		*ee = encryptedExtensionsBody(el)
 		return 0, nil
 	}
