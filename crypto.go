@@ -199,16 +199,31 @@ func encodeSignatureInput(hash crypto.Hash, data []byte, context string) []byte 
 	return h.Sum(nil)
 }
 
+type pkcs1Opts struct {
+	hash crypto.Hash
+}
+
+func (opts pkcs1Opts) HashFunc() crypto.Hash {
+	return opts.hash
+}
+
 func sign(hash crypto.Hash, privateKey crypto.Signer, data []byte, context string) (signatureAlgorithm, []byte, error) {
 	var opts crypto.SignerOpts
 	var sigAlg signatureAlgorithm
 
+	log.Printf("digest to be verified: %x", data)
 	digest := encodeSignatureInput(hash, data, context)
+	log.Printf("digest with context: %x", digest)
 
 	switch privateKey.(type) {
 	case *rsa.PrivateKey:
-		sigAlg = signatureAlgorithmRSAPSS
-		opts = &rsa.PSSOptions{SaltLength: hash.Size(), Hash: hash}
+		if allowPKCS1 {
+			sigAlg = signatureAlgorithmRSA
+			opts = &pkcs1Opts{hash: hash}
+		} else {
+			sigAlg = signatureAlgorithmRSAPSS
+			opts = &rsa.PSSOptions{SaltLength: hash.Size(), Hash: hash}
+		}
 	case *ecdsa.PrivateKey:
 		sigAlg = signatureAlgorithmECDSA
 	}

@@ -428,6 +428,7 @@ func (c *Conn) serverHandshake() error {
 
 	// Config
 	config_supportedGroup := map[namedGroup]bool{
+		namedGroupP256: true,
 		namedGroupP384: true,
 		namedGroupP521: true,
 	}
@@ -456,7 +457,8 @@ func (c *Conn) serverHandshake() error {
 	gotSignatureAlgorithms := ch.extensions.Find(signatureAlgorithms)
 	gotKeyShares := ch.extensions.Find(clientKeyShares)
 	if !gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms || !gotKeyShares {
-		return fmt.Errorf("tls.server: Missing extension in ClientHello")
+		return fmt.Errorf("tls.server: Missing extension in ClientHello (%v %v %v %v)",
+			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
 	}
 
 	// Find key_share extension and do key agreement
@@ -474,10 +476,16 @@ func (c *Conn) serverHandshake() error {
 				roleIsServer: true,
 				shares:       []keyShare{keyShare{group: share.group, keyExchange: pub}},
 			}
+			if err != nil {
+				return err
+			}
 			break
 		}
 	}
-	if serverKeyShare == nil || len(ES) == 0 {
+	if serverKeyShare == nil {
+		return fmt.Errorf("tls.server: Did not find a matching key share")
+	}
+	if len(ES) == 0 {
 		return fmt.Errorf("tls.server: Key agreement failed")
 	}
 
@@ -507,11 +515,18 @@ func (c *Conn) serverHandshake() error {
 	// Init context and rekey to handshake keys
 	ctx := cryptoContext{}
 	ctx.Init(chm, shm, ES, ES, chosenSuite)
-	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
+	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
 	if err != nil {
 		return err
 	}
 	err = c.out.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
+	if err != nil {
+		return err
+	}
+
+	// Send an EncryptedExtensions message (even if it's empty)
+	ee := &encryptedExtensionsBody{}
+	eem, err := hOut.WriteMessageBody(ee)
 	if err != nil {
 		return err
 	}
@@ -521,14 +536,15 @@ func (c *Conn) serverHandshake() error {
 	certificate := &certificateBody{
 		certificateList: []*x509.Certificate{config_serverCertificate},
 	}
-	certificateVerify := &certificateVerifyBody{
-		alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
-	}
-	err = certificateVerify.Sign(config_privateKey, []*handshakeMessage{chm, shm})
+	certm, err := hOut.WriteMessageBody(certificate)
 	if err != nil {
 		return err
 	}
-	certm, err := hOut.WriteMessageBody(certificate)
+
+	certificateVerify := &certificateVerifyBody{
+		alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
+	}
+	err = certificateVerify.Sign(config_privateKey, []*handshakeMessage{chm, shm, eem, certm})
 	if err != nil {
 		return err
 	}
@@ -538,7 +554,7 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Update the crypto context
-	ctx.Update([]*handshakeMessage{certm, certvm})
+	ctx.Update([]*handshakeMessage{eem, certm, certvm})
 
 	// Create and write server Finished
 	_, err = hOut.WriteMessageBody(ctx.serverFinished)
@@ -558,7 +574,7 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Rekey to application keys
-	err = c.in.Rekey(ctx.suite, ctx.applicationKeys.serverWriteKey, ctx.applicationKeys.serverWriteIV)
+	err = c.in.Rekey(ctx.suite, ctx.applicationKeys.clientWriteKey, ctx.applicationKeys.clientWriteIV)
 	if err != nil {
 		return err
 	}

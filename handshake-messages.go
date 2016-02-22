@@ -303,8 +303,12 @@ func (c certificateBody) Marshal() ([]byte, error) {
 	data[start+2] = byte(certsLen)
 	start += 3
 	for _, cert := range c.certificateList {
-		copy(data[start:], cert.Raw)
-		start += len(cert.Raw)
+		certLen := len(cert.Raw)
+		data[start] = byte(certLen >> 16)
+		data[start+1] = byte(certLen >> 8)
+		data[start+2] = byte(certLen)
+		copy(data[start+3:], cert.Raw)
+		start += 3 + len(cert.Raw)
 	}
 	return data, nil
 }

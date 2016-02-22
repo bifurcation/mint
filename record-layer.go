@@ -226,6 +226,8 @@ func (r *recordLayer) WriteRecordWithPadding(pt *tlsPlaintext, padLen int) error
 	header := []byte{byte(pt.contentType), 0x03, 0x01, byte(length >> 8), byte(length)}
 	record := append(header, pt.fragment...)
 
+	log.Printf("recordLayer.WriteRecord [%d] [%x]", pt.contentType, pt.fragment)
+
 	r.incrementSequenceNumber()
 	_, err := r.conn.Write(record)
 	return err

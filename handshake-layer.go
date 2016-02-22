@@ -151,6 +151,10 @@ func (h *handshakeLayer) WriteMessage(hm *handshakeMessage) error {
 }
 
 func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
+	for _, hm := range hms {
+		log.Printf("hanshakeLayer.WriteMessage [%d] %x", hm.msgType, hm.body)
+	}
+
 	// Write out headers and bodies
 	buffer := []byte{}
 	for _, msg := range hms {
