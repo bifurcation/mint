@@ -50,9 +50,9 @@ func assertDeepEquals(t *testing.T, a interface{}, b interface{}) {
 type errorReadWriter struct{}
 
 func (e errorReadWriter) Read(p []byte) (n int, err error) {
-	return 0, fmt.Errorf("Unkonwn read error")
+	return 0, fmt.Errorf("Unknown read error")
 }
 
 func (ew errorReadWriter) Write(p []byte) (n int, err error) {
-	return 0, fmt.Errorf("Unkonwn write error")
+	return 0, fmt.Errorf("Unknown write error")
 }
