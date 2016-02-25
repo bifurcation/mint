@@ -33,6 +33,9 @@ conn, err := mint.Dial("tcp", "localhost:4430", &mint.Config{...})
 listener, err := mint.Listen("tcp", "localhost:4430", &mint.Config{...})
 ```
 
+Documentation is available on
+[godoc.org](https://godoc.org/github.com/bifurcation/mint)
+
 
 ## Interoperability testing
 
