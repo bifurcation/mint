@@ -2,7 +2,6 @@ package mint
 
 import (
 	"fmt"
-	"log"
 )
 
 const (
@@ -35,7 +34,7 @@ func (hm handshakeMessage) Marshal() []byte {
 }
 
 func (hm handshakeMessage) toBody() (handshakeMessageBody, error) {
-	log.Printf("handshakeMessage.toBody [%d] [%x]", hm.msgType, hm.body)
+	logf(logTypeHandshake, "handshakeMessage.toBody [%d] [%x]", hm.msgType, hm.body)
 
 	var body handshakeMessageBody
 	switch hm.msgType {
@@ -152,7 +151,7 @@ func (h *handshakeLayer) WriteMessage(hm *handshakeMessage) error {
 
 func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 	for _, hm := range hms {
-		log.Printf("hanshakeLayer.WriteMessage [%d] %x", hm.msgType, hm.body)
+		logf(logTypeHandshake, "WriteMessage [%d] %x", hm.msgType, hm.body)
 	}
 
 	// Write out headers and bodies

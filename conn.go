@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -101,7 +100,7 @@ func (c *Conn) extendBuffer(n int) error {
 		case recordTypeApplicationData:
 			err = io.EOF
 			c.readBuffer = append(c.readBuffer, pt.fragment...)
-			log.Printf("extended buffer: [%d] %x", len(c.readBuffer), c.readBuffer)
+			logf(logTypeIO, "extended buffer: [%d] %x", len(c.readBuffer), c.readBuffer)
 		}
 
 		if err != nil {
@@ -128,16 +127,10 @@ func (c *Conn) Read(buffer []byte) (int, error) {
 	if len(c.readBuffer) < n {
 		buffer = buffer[:len(c.readBuffer)]
 		copy(buffer, c.readBuffer)
-		log.Printf("read buffer smaller than input buffer")
-		log.Printf("output from buffer: %x", c.readBuffer)
-		log.Printf("output to client  : %x", buffer)
 		read = len(c.readBuffer)
 	} else {
-		log.Printf("read buffer larger than than input buffer")
+		logf(logTypeIO, "read buffer larger than than input buffer")
 		copy(buffer[:n], c.readBuffer[:n])
-		log.Printf("read buffer smaller than input buffer")
-		log.Printf("output from buffer: %x", c.readBuffer[:n])
-		log.Printf("output to client  : %x", buffer)
 		read = n
 	}
 	c.readBuffer = c.readBuffer[read:]
@@ -296,22 +289,22 @@ func (c *Conn) clientHandshake() error {
 	if err != nil {
 		return err
 	}
-	log.Printf("ClientHandshake: Sent ClientHello")
+	logf(logTypeHandshake, "Sent ClientHello")
 
 	// Read ServerHello
 	sh := new(serverHelloBody)
 	shm, err := hIn.ReadMessageBody(sh)
 	if err != nil {
-		log.Printf("ClientHandshake: Error reading ServerHello")
+		logf(logTypeHandshake, "Error reading ServerHello")
 		return err
 	}
-	log.Printf("ClientHandshake: Received ServerHello")
+	logf(logTypeHandshake, "Received ServerHello")
 
 	// Read the key_share extension and do key agreement
 	serverKeyShares := keyShareExtension{roleIsServer: true}
 	found := sh.extensions.Find(&serverKeyShares)
 	if !found {
-		log.Printf("ClientHandshake: Server key shares extension not found")
+		logf(logTypeHandshake, "Server key shares extension not found")
 		return err
 	}
 	sks := serverKeyShares.shares[0]
@@ -321,25 +314,25 @@ func (c *Conn) clientHandshake() error {
 	}
 	ES, err := keyAgreement(sks.group, sks.keyExchange, priv)
 	if err != nil {
-		log.Printf("ClientHandshake: Error doing key agreement")
+		logf(logTypeHandshake, "Error doing key agreement")
 		return err
 	}
-	log.Printf("ClientHandshake: Completed key agreement")
+	logf(logTypeHandshake, "Completed key agreement")
 
 	// Init crypto context and rekey
 	ctx := cryptoContext{}
 	ctx.Init(chm, shm, ES, ES, sh.cipherSuite)
 	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
 	if err != nil {
-		log.Printf("ClientHandshake: Unable to rekey inbound")
+		logf(logTypeHandshake, "Unable to rekey inbound")
 		return err
 	}
 	err = c.out.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
 	if err != nil {
-		log.Printf("ClientHandshake: Unable to rekey outbound")
+		logf(logTypeHandshake, "Unable to rekey outbound")
 		return err
 	}
-	log.Printf("ClientHandshake: Completed rekey")
+	logf(logTypeHandshake, "Completed rekey")
 
 	// Read to Finished
 	transcript := []*handshakeMessage{}
@@ -349,10 +342,10 @@ func (c *Conn) clientHandshake() error {
 	for {
 		hm, err := hIn.ReadMessage()
 		if err != nil {
-			log.Printf("ClientHandshake: Error reading message: %v", err)
+			logf(logTypeHandshake, "Error reading message: %v", err)
 			return err
 		}
-		log.Printf("ClientHandshake: Read message with type: %v", hm.msgType)
+		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
 		if hm.msgType == handshakeTypeFinished {
 			finishedMessage = hm
@@ -369,11 +362,11 @@ func (c *Conn) clientHandshake() error {
 		}
 
 		if err != nil {
-			log.Printf("Error processing handshake message: %v", err)
+			logf(logTypeHandshake, "Error processing handshake message: %v", err)
 			return err
 		}
 	}
-	log.Printf("ClientHandshake: Done reading server's first flight")
+	logf(logTypeHandshake, "Done reading server's first flight")
 
 	// Verify the server's certificate if required
 	if config.authCallback != nil {
@@ -382,11 +375,11 @@ func (c *Conn) clientHandshake() error {
 		}
 
 		transcriptForCertVerify := append([]*handshakeMessage{chm, shm}, transcript[:len(transcript)-1]...)
-		log.Printf("Transcript for certVerify")
+		logf(logTypeHandshake, "Transcript for certVerify")
 		for _, hm := range transcriptForCertVerify {
-			log.Printf("  [%d] %x", hm.msgType, hm.body)
+			logf(logTypeHandshake, "  [%d] %x", hm.msgType, hm.body)
 		}
-		log.Printf("===")
+		logf(logTypeHandshake, "===")
 
 		serverPublicKey := cert.certificateList[0].PublicKey
 		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify); err != nil {
@@ -409,8 +402,6 @@ func (c *Conn) clientHandshake() error {
 		return err
 	}
 	if !bytes.Equal(sfin.verifyData, ctx.serverFinished.verifyData) {
-		log.Printf("              sfin.verifyData[%d] = %x\n", len(sfin.verifyData), sfin.verifyData)
-		log.Printf("ctx.serverFinished.verifyData[%d] = %x\n", len(ctx.serverFinished.verifyData), ctx.serverFinished.verifyData)
 		return fmt.Errorf("tls.client: Server's Finished failed to verify")
 	}
 

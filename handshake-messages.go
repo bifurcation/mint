@@ -4,7 +4,6 @@ import (
 	"crypto"
 	"crypto/x509"
 	"fmt"
-	"log"
 )
 
 const (
@@ -451,7 +450,7 @@ func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript [
 		return err
 	}
 
-	log.Printf("Digest to be verified: [%d] %x", len(hashedData), hashedData)
+	logf(logTypeHandshake, "Digest to be verified: [%d] %x", len(hashedData), hashedData)
 
 	return verify(cv.alg, publicKey, hashedData, contextCertificateVerify, cv.signature)
 }

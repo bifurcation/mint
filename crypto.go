@@ -12,7 +12,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"fmt"
-	"log"
 	"math/big"
 
 	// Blank includes to ensure hash support
@@ -212,9 +211,9 @@ func sign(hash crypto.Hash, privateKey crypto.Signer, data []byte, context strin
 	var opts crypto.SignerOpts
 	var sigAlg signatureAlgorithm
 
-	log.Printf("digest to be verified: %x", data)
+	logf(logTypeCrypto, "digest to be verified: %x", data)
 	digest := encodeSignatureInput(hash, data, context)
-	log.Printf("digest with context: %x", digest)
+	logf(logTypeCrypto, "digest with context: %x", digest)
 
 	switch privateKey.(type) {
 	case *rsa.PrivateKey:
@@ -230,6 +229,7 @@ func sign(hash crypto.Hash, privateKey crypto.Signer, data []byte, context strin
 	}
 
 	sig, err := privateKey.Sign(prng, digest, opts)
+	logf(logTypeCrypto, "signature: %x", sig)
 	return sigAlg, sig, err
 }
 
@@ -331,11 +331,11 @@ func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []
 	info := hkdfEncodeLabel(label, hashValue, outLen)
 	derived := hkdfExpand(hash, secret, info, outLen)
 
-	log.Printf("HKDF Expand: label=[TLS 1.3, ] + '%s',requested length=%d\n", label, outLen)
-	log.Printf("PRK [%d]: %x\n", len(secret), secret)
-	log.Printf("Hash [%d]: %x\n", len(hashValue), hashValue)
-	log.Printf("Info [%d]: %x\n", len(info), info)
-	log.Printf("Derived key [%d]: %x\n", len(derived), derived)
+	logf(logTypeCrypto, "HKDF Expand: label=[TLS 1.3, ] + '%s',requested length=%d\n", label, outLen)
+	logf(logTypeCrypto, "PRK [%d]: %x\n", len(secret), secret)
+	logf(logTypeCrypto, "Hash [%d]: %x\n", len(hashValue), hashValue)
+	logf(logTypeCrypto, "Info [%d]: %x\n", len(info), info)
+	logf(logTypeCrypto, "Derived key [%d]: %x\n", len(derived), derived)
 
 	return derived
 }
@@ -496,12 +496,12 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	// Compute client_finished_key and client Finished
 	h.Write(finishedMessage.Marshal())
 	handshakeHash = h.Sum(nil)
-	log.Printf("handshake hash for client Finished: [%d] %x", len(handshakeHash), handshakeHash)
+	logf(logTypeCrypto, "handshake hash for client Finished: [%d] %x", len(handshakeHash), handshakeHash)
 
 	clientFinishedMAC := hmac.New(c.params.hash.New, c.clientFinishedKey)
 	clientFinishedMAC.Write(handshakeHash)
 	c.clientFinishedData = clientFinishedMAC.Sum(nil)
-	log.Printf("client Finished data: [%d] %x", len(handshakeHash), handshakeHash)
+	logf(logTypeCrypto, "client Finished data: [%d] %x", len(handshakeHash), handshakeHash)
 
 	c.clientFinished = &finishedBody{
 		verifyDataLen: L,
