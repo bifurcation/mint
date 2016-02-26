@@ -53,6 +53,6 @@ func (e errorReadWriter) Read(p []byte) (n int, err error) {
 	return 0, fmt.Errorf("Unknown read error")
 }
 
-func (ew errorReadWriter) Write(p []byte) (n int, err error) {
+func (e errorReadWriter) Write(p []byte) (n int, err error) {
 	return 0, fmt.Errorf("Unknown write error")
 }

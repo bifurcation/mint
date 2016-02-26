@@ -33,8 +33,8 @@ var (
 	hkdfExpandLen            = 42
 	hkdfLabel                = "test"
 	hkdfHashHex              = "f9a54250131c827542664bcad131b87c09cdd92f0d5f84db3680ee4c0c0f8ed6" // random
-	hkdfEncodedLabelHex      = "002a" + "0c" + hex.EncodeToString([]byte("TLS 1.3,"+hkdfLabel)) + "20" + hkdfHashHex
-	hkdfExpandLabelOutputHex = "cca90009033b529a7fd768fc49e111aacb04dd4f86f309ed4a7faf4c91ee14bda45f4f1d300c3ec01ab2"
+	hkdfEncodedLabelHex      = "002a" + "0d" + hex.EncodeToString([]byte("TLS 1.3, "+hkdfLabel)) + "20" + hkdfHashHex
+	hkdfExpandLabelOutputHex = "474de877d26b9e14ba50d91657bdf8bdb0fb7152f0ef8d908bb68eb697bb64c6bf2f2d81fa987e86bc32"
 )
 
 func TestNewKeyShare(t *testing.T) {
@@ -142,6 +142,7 @@ func TestSignVerify(t *testing.T) {
 		10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
 		20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
 		30, 31}
+	context := "TLS 1.3, test"
 
 	privRSA, err := newSigningKey(signatureAlgorithmRSA)
 	assertNotError(t, err, "failed to generate RSA private key")
@@ -149,54 +150,73 @@ func TestSignVerify(t *testing.T) {
 	assertNotError(t, err, "failed to generate RSA private key")
 
 	// Test successful signing
-	sigAlgRSA, sigRSA, err := sign(crypto.SHA256, privRSA, data)
+	sigAlgRSA, sigRSA, err := sign(crypto.SHA256, privRSA, data, context)
 	assertNotError(t, err, "Failed to generate RSA signature")
-	assertEquals(t, sigAlgRSA, signatureAlgorithmRSAPSS)
+	assertEquals(t, sigAlgRSA, signatureAlgorithmRSA)
 
-	sigAlgECDSA, sigECDSA, err := sign(crypto.SHA256, privECDSA, data)
+	originalAllowPKCS1 := allowPKCS1
+	allowPKCS1 = false
+	sigAlgRSAPSS, sigRSAPSS, err := sign(crypto.SHA256, privRSA, data, context)
+	assertNotError(t, err, "Failed to generate RSA-PSS signature")
+	assertEquals(t, sigAlgRSAPSS, signatureAlgorithmRSAPSS)
+	allowPKCS1 = originalAllowPKCS1
+
+	sigAlgECDSA, sigECDSA, err := sign(crypto.SHA256, privECDSA, data, context)
 	assertNotError(t, err, "Failed to generate ECDSA signature")
 	assertEquals(t, sigAlgECDSA, signatureAlgorithmECDSA)
 
 	// Test successful verification
-	algRSAPSS := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSAPSS}
-	err = verify(algRSAPSS, privRSA.Public(), data, sigRSA)
+	algRSA := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}
+	err = verify(algRSA, privRSA.Public(), data, context, sigRSA)
 	assertNotError(t, err, "Failed to verify a valid RSA-PSS signature")
 
+	originalAllowPKCS1 = allowPKCS1
+	allowPKCS1 = false
+	algRSAPSS := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSAPSS}
+	err = verify(algRSAPSS, privRSA.Public(), data, context, sigRSAPSS)
+	assertNotError(t, err, "Failed to verify a valid RSA-PSS signature")
+	allowPKCS1 = originalAllowPKCS1
+
 	algECDSA := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmECDSA}
-	err = verify(algECDSA, privECDSA.Public(), data, sigECDSA)
+	err = verify(algECDSA, privECDSA.Public(), data, context, sigECDSA)
 	assertNotError(t, err, "Failed to verify a valid ECDSA signature")
 
 	// Test RSA verify failure on bad algorithm
-	algRSA := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}
-	err = verify(algRSA, privRSA.Public(), data, sigRSA)
+	originalAllowPKCS1 = allowPKCS1
+	allowPKCS1 = false
+	err = verify(algRSA, privRSA.Public(), data, context, sigRSA)
 	assertError(t, err, "Verified RSA with something other than PSS")
+	allowPKCS1 = originalAllowPKCS1
+
+	err = verify(algECDSA, privRSA.Public(), data, context, sigRSA)
+	assertError(t, err, "Verified RSA with a non-RSA algorithm")
 
 	// Test ECDSA verify failure on bad algorithm
-	err = verify(algRSAPSS, privECDSA.Public(), data, sigECDSA)
+	err = verify(algRSAPSS, privECDSA.Public(), data, context, sigECDSA)
 	assertError(t, err, "Verified ECDSA with a bad algorithm")
 
 	// Test ECDSA verify failure on ASN.1 unmarshal failure
-	err = verify(algECDSA, privECDSA.Public(), data, sigECDSA[:8])
+	err = verify(algECDSA, privECDSA.Public(), data, context, sigECDSA[:8])
 	assertError(t, err, "Verified ECDSA with a bad ASN.1")
 
 	// Test ECDSA verify failure on trailing data
-	err = verify(algECDSA, privECDSA.Public(), data, append(sigECDSA, data...))
+	err = verify(algECDSA, privECDSA.Public(), data, context, append(sigECDSA, data...))
 	assertError(t, err, "Verified ECDSA with a trailing ASN.1")
 
 	// Test ECDSA verify failure on zero / negative values
 	zeroSigIn := ecdsaSignature{big.NewInt(0), big.NewInt(0)}
 	zeroSig, err := asn1.Marshal(zeroSigIn)
-	err = verify(algECDSA, privECDSA.Public(), data, zeroSig)
+	err = verify(algECDSA, privECDSA.Public(), data, context, zeroSig)
 	assertError(t, err, "Verified ECDSA with zero signature")
 
 	// Test ECDSA verify failure on signature validation failure
 	sigECDSA[7] ^= 0xFF
-	err = verify(algECDSA, privECDSA.Public(), data, sigECDSA)
+	err = verify(algECDSA, privECDSA.Public(), data, context, sigECDSA)
 	assertError(t, err, "Verified ECDSA with corrupted signature")
 	sigECDSA[7] ^= 0xFF
 
 	// Test verify failure on unknown public key type
-	err = verify(algECDSA, struct{}{}, data, sigECDSA)
+	err = verify(algECDSA, struct{}{}, data, context, sigECDSA)
 	assertError(t, err, "Verified with invalid public key type")
 }
 
@@ -253,7 +273,7 @@ var (
 
 	certificateContextIn = &certificateBody{
 		certificateRequestContext: []byte{},
-		certificateList:           make([]*x509.Certificate, 1),
+		certificateList:           []*x509.Certificate{cert1, cert2},
 	}
 
 	certificateVerifyContextIn = &certificateVerifyBody{
@@ -300,6 +320,15 @@ func TestCryptoContext(t *testing.T) {
 		},
 	})
 
+	chm, err := handshakeMessageFromBody(clientHelloContextIn)
+	assertNotError(t, err, "Error in prep [0]")
+	shm, err := handshakeMessageFromBody(serverHelloContextIn)
+	assertNotError(t, err, "Error in prep [1]")
+	cm, err := handshakeMessageFromBody(certificateContextIn)
+	assertNotError(t, err, "Error in prep [2]")
+	cvm, err := handshakeMessageFromBody(certificateVerifyContextIn)
+	assertNotError(t, err, "Error in prep [3]")
+
 	alg := signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmECDSA}
 	priv, err := newSigningKey(signatureAlgorithmECDSA)
 	assertNotError(t, err, "Failed to generate key pair")
@@ -309,7 +338,7 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test successful Init
 	ctx := cryptoContext{}
-	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	err = ctx.Init(chm, shm, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
 	assertNotError(t, err, "Failed to init context")
 	assert(t, ctx.initialized, "Context not marked as initialized after Init")
 	assert(t, len(ctx.transcript) == 2, "Transcript not populated after Init")
@@ -321,35 +350,28 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test Init failure on usupported ciphersuite
 	ctx = cryptoContext{}
-	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256)
+	err = ctx.Init(chm, shm, SSContextIn, ESContextIn, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256)
 	assertError(t, err, "Init'ed context with an unsupported ciphersuite")
 
-	// Test Init failure on CH addToTranscript failure (i.e., marshal failure)
+	// Test Init failure on nil messages
 	ctx = cryptoContext{}
-	originalSuites := clientHelloContextIn.cipherSuites
-	clientHelloContextIn.cipherSuites = []cipherSuite{}
-	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
-	assertError(t, err, "Init'ed context despite ClientHello marshal failure")
-	clientHelloContextIn.cipherSuites = originalSuites
+	err = ctx.Init(nil, shm, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	assertError(t, err, "Init'ed context with nil clientHello")
 
-	// Test Init failure on SH addToTranscript failure (i.e., marshal failure)
 	ctx = cryptoContext{}
-	originalExtensions := serverHelloContextIn.extensions
-	serverHelloContextIn.extensions = extListTooLongIn
-	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
-	assertError(t, err, "Init'ed context despite ServerHello marshal failure")
-	serverHelloContextIn.extensions = originalExtensions
+	err = ctx.Init(chm, nil, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	assertError(t, err, "Init'ed context with nil clientHello")
 
 	// Test that Update failes on un-Init'ed context
 	ctx = cryptoContext{}
-	err = ctx.Update([]handshakeMessageBody{certificateContextIn, certificateVerifyContextIn})
+	err = ctx.Update([]*handshakeMessage{cm, cvm})
 	assertError(t, err, "Allowed Update on un-Init'ed context")
 
 	// Test succesful Update
 	ctx = cryptoContext{}
-	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	err = ctx.Init(chm, shm, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
 	assertNotError(t, err, "Failed to init context before update")
-	err = ctx.Update([]handshakeMessageBody{certificateContextIn, certificateVerifyContextIn})
+	err = ctx.Update([]*handshakeMessage{cm, cvm})
 	assertNotError(t, err, "Failed to update context")
 	assert(t, len(ctx.mES) > 0, "mES not populated after Update")
 	assert(t, len(ctx.mSS) > 0, "mSS not populated after Update")
@@ -363,17 +385,12 @@ func TestCryptoContext(t *testing.T) {
 	assert(t, len(ctx.trafficSecret) > 0, "Traffic secret not populated after Update")
 	assert(t, !keySetEmpty(ctx.applicationKeys), "Application keys not populated after Update")
 
-	// Test Update failure on addToTranscript failure (i.e., marshal failure)
+	// Test Update failure on nil message
 	ctx = cryptoContext{}
-	err = ctx.Init(clientHelloContextIn, serverHelloContextIn, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	err = ctx.Init(chm, shm, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
 	assertNotError(t, err, "Failed to init context before update failure test")
-
-	originalContext := certificateContextIn.certificateRequestContext
-	certificateContextIn.certificateRequestContext = bytes.Repeat([]byte{0}, maxCertRequestContextLen+1)
-
-	err = ctx.Update([]handshakeMessageBody{certificateContextIn, certificateVerifyContextIn})
-	assertError(t, err, "Updated context despite marshal failure")
-	certificateContextIn.certificateRequestContext = originalContext
+	err = ctx.Update([]*handshakeMessage{cm, nil})
+	assertError(t, err, "Updated context with nil message")
 
 	// Test key update
 	oldKeys := ctx.applicationKeys

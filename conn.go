@@ -2,26 +2,29 @@ package mint
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/x509"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"sync"
 	"time"
 )
 
+// Config is the struct used to pass configuration settings to a TLS client or
+// server instance.  The settings for client and server are pretty different,
+// but we just throw them all in here.
 type Config struct {
 	// TODO
 	ServerName string
 }
 
-func (c Config) ValidForServer() bool {
+func (c Config) validForServer() bool {
 	// TODO
 	return true
 }
 
-func (c Config) ValidForClient() bool {
+func (c Config) validForClient() bool {
 	// TODO
 	return true
 }
@@ -97,7 +100,7 @@ func (c *Conn) extendBuffer(n int) error {
 		case recordTypeApplicationData:
 			err = io.EOF
 			c.readBuffer = append(c.readBuffer, pt.fragment...)
-			log.Printf("extended buffer: [%d] %x", len(c.readBuffer), c.readBuffer)
+			logf(logTypeIO, "extended buffer: [%d] %x", len(c.readBuffer), c.readBuffer)
 		}
 
 		if err != nil {
@@ -124,16 +127,10 @@ func (c *Conn) Read(buffer []byte) (int, error) {
 	if len(c.readBuffer) < n {
 		buffer = buffer[:len(c.readBuffer)]
 		copy(buffer, c.readBuffer)
-		log.Printf("read buffer smaller than input buffer")
-		log.Printf("output from buffer: %x", c.readBuffer)
-		log.Printf("output to client  : %x", buffer)
 		read = len(c.readBuffer)
 	} else {
-		log.Printf("read buffer larger than than input buffer")
+		logf(logTypeIO, "read buffer larger than than input buffer")
 		copy(buffer[:n], c.readBuffer[:n])
-		log.Printf("read buffer smaller than input buffer")
-		log.Printf("output from buffer: %x", c.readBuffer[:n])
-		log.Printf("output to client  : %x", buffer)
 		read = n
 	}
 	c.readBuffer = c.readBuffer[read:]
@@ -223,6 +220,9 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
+// Handshake causes a TLS handshake on the connection.  The `isClient` member
+// determines whether a client or server handshake is performed.  If a
+// handshake has already been performed, then its result will be returned.
 func (c *Conn) Handshake() error {
 	// TODO Lock handshakeMutex
 	if err := c.handshakeErr; err != nil {
@@ -246,8 +246,13 @@ func (c *Conn) clientHandshake() error {
 	hOut := newHandshakeLayer(c.out)
 
 	// XXX Config
-	config_serverName := "example.com"
-	config_authenticationCallback := func(chain []*x509.Certificate) error { return nil }
+	config := struct {
+		serverName   string
+		authCallback func(chain []*x509.Certificate) error
+	}{
+		serverName:   "example.com",
+		authCallback: func(chain []*x509.Certificate) error { return nil },
+	}
 
 	// Construct some extensions
 	privateKeys := map[namedGroup][]byte{}
@@ -265,7 +270,7 @@ func (c *Conn) clientHandshake() error {
 		ks.shares[i].keyExchange = pub
 		privateKeys[group] = priv
 	}
-	sni := serverNameExtension(config_serverName)
+	sni := serverNameExtension(config.serverName)
 	sg := supportedGroupsExtension{groups: supportedGroups}
 	sa := signatureAlgorithmsExtension{algorithms: signatureAlgorithms}
 	dv := draftVersionExtension{version: draftVersionImplemented}
@@ -284,22 +289,22 @@ func (c *Conn) clientHandshake() error {
 	if err != nil {
 		return err
 	}
-	log.Printf("ClientHandshake: Sent ClientHello")
+	logf(logTypeHandshake, "Sent ClientHello")
 
 	// Read ServerHello
 	sh := new(serverHelloBody)
 	shm, err := hIn.ReadMessageBody(sh)
 	if err != nil {
-		log.Printf("ClientHandshake: Error reading ServerHello")
+		logf(logTypeHandshake, "Error reading ServerHello")
 		return err
 	}
-	log.Printf("ClientHandshake: Received ServerHello")
+	logf(logTypeHandshake, "Received ServerHello")
 
 	// Read the key_share extension and do key agreement
 	serverKeyShares := keyShareExtension{roleIsServer: true}
 	found := sh.extensions.Find(&serverKeyShares)
 	if !found {
-		log.Printf("ClientHandshake: Server key shares extension not found")
+		logf(logTypeHandshake, "Server key shares extension not found")
 		return err
 	}
 	sks := serverKeyShares.shares[0]
@@ -309,25 +314,25 @@ func (c *Conn) clientHandshake() error {
 	}
 	ES, err := keyAgreement(sks.group, sks.keyExchange, priv)
 	if err != nil {
-		log.Printf("ClientHandshake: Error doing key agreement")
+		logf(logTypeHandshake, "Error doing key agreement")
 		return err
 	}
-	log.Printf("ClientHandshake: Completed key agreement")
+	logf(logTypeHandshake, "Completed key agreement")
 
 	// Init crypto context and rekey
 	ctx := cryptoContext{}
 	ctx.Init(chm, shm, ES, ES, sh.cipherSuite)
 	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
 	if err != nil {
-		log.Printf("ClientHandshake: Unable to rekey inbound")
+		logf(logTypeHandshake, "Unable to rekey inbound")
 		return err
 	}
 	err = c.out.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
 	if err != nil {
-		log.Printf("ClientHandshake: Unable to rekey outbound")
+		logf(logTypeHandshake, "Unable to rekey outbound")
 		return err
 	}
-	log.Printf("ClientHandshake: Completed rekey")
+	logf(logTypeHandshake, "Completed rekey")
 
 	// Read to Finished
 	transcript := []*handshakeMessage{}
@@ -337,10 +342,10 @@ func (c *Conn) clientHandshake() error {
 	for {
 		hm, err := hIn.ReadMessage()
 		if err != nil {
-			log.Printf("ClientHandshake: Error reading message: %v", err)
+			logf(logTypeHandshake, "Error reading message: %v", err)
 			return err
 		}
-		log.Printf("ClientHandshake: Read message with type: %v", hm.msgType)
+		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
 		if hm.msgType == handshakeTypeFinished {
 			finishedMessage = hm
@@ -357,31 +362,31 @@ func (c *Conn) clientHandshake() error {
 		}
 
 		if err != nil {
-			log.Printf("Error processing handshake message: %v", err)
+			logf(logTypeHandshake, "Error processing handshake message: %v", err)
 			return err
 		}
 	}
-	log.Printf("ClientHandshake: Done reading server's first flight")
+	logf(logTypeHandshake, "Done reading server's first flight")
 
 	// Verify the server's certificate if required
-	if config_authenticationCallback != nil {
+	if config.authCallback != nil {
 		if cert == nil || certVerify == nil {
 			return fmt.Errorf("tls.client: No server auth data provided")
 		}
 
 		transcriptForCertVerify := append([]*handshakeMessage{chm, shm}, transcript[:len(transcript)-1]...)
-		log.Printf("Transcript for certVerify")
+		logf(logTypeHandshake, "Transcript for certVerify")
 		for _, hm := range transcriptForCertVerify {
-			log.Printf("  [%d] %x", hm.msgType, hm.body)
+			logf(logTypeHandshake, "  [%d] %x", hm.msgType, hm.body)
 		}
-		log.Printf("===")
+		logf(logTypeHandshake, "===")
 
 		serverPublicKey := cert.certificateList[0].PublicKey
 		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify); err != nil {
 			return err
 		}
 
-		if err = config_authenticationCallback(cert.certificateList); err != nil {
+		if err = config.authCallback(cert.certificateList); err != nil {
 			return err
 		}
 	}
@@ -397,8 +402,6 @@ func (c *Conn) clientHandshake() error {
 		return err
 	}
 	if !bytes.Equal(sfin.verifyData, ctx.serverFinished.verifyData) {
-		log.Printf("              sfin.verifyData[%d] = %x\n", len(sfin.verifyData), sfin.verifyData)
-		log.Printf("ctx.serverFinished.verifyData[%d] = %x\n", len(ctx.serverFinished.verifyData), ctx.serverFinished.verifyData)
 		return fmt.Errorf("tls.client: Server's Finished failed to verify")
 	}
 
@@ -428,18 +431,25 @@ func (c *Conn) serverHandshake() error {
 	hOut := newHandshakeLayer(c.out)
 
 	// Config
-	config_supportedGroup := map[namedGroup]bool{
-		namedGroupP256: true,
-		namedGroupP384: true,
-		namedGroupP521: true,
+	config := struct {
+		supportedGroup       map[namedGroup]bool
+		supportedCiphersuite map[cipherSuite]bool
+		privateKey           crypto.Signer
+		certicate            *x509.Certificate
+	}{
+		supportedGroup: map[namedGroup]bool{
+			namedGroupP256: true,
+			namedGroupP384: true,
+			namedGroupP521: true,
+		},
+		supportedCiphersuite: map[cipherSuite]bool{
+			TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
+			TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
+		},
 	}
-	config_supportedCiphersuite := map[cipherSuite]bool{
-		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
-		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
-	}
-	config_privateKey, _ := newSigningKey(signatureAlgorithmRSA)
-	config_serverCertificate, _ := newSelfSigned("example.com",
-		signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}, config_privateKey)
+	config.privateKey, _ = newSigningKey(signatureAlgorithmRSA)
+	config.certicate, _ = newSelfSigned("example.com",
+		signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}, config.privateKey)
 
 	// Read ClientHello and extract extensions
 	ch := new(clientHelloBody)
@@ -466,7 +476,7 @@ func (c *Conn) serverHandshake() error {
 	var serverKeyShare *keyShareExtension
 	var ES []byte
 	for _, share := range clientKeyShares.shares {
-		if config_supportedGroup[share.group] {
+		if config.supportedGroup[share.group] {
 			pub, priv, err := newKeyShare(share.group)
 			if err != nil {
 				return err
@@ -494,7 +504,7 @@ func (c *Conn) serverHandshake() error {
 	var chosenSuite cipherSuite
 	foundCipherSuite := false
 	for _, suite := range ch.cipherSuites {
-		if config_supportedCiphersuite[suite] {
+		if config.supportedCiphersuite[suite] {
 			chosenSuite = suite
 			foundCipherSuite = true
 		}
@@ -535,7 +545,7 @@ func (c *Conn) serverHandshake() error {
 	// Create and send Certificate, CertificateVerify
 	// TODO Certificate selection based on ClientHello
 	certificate := &certificateBody{
-		certificateList: []*x509.Certificate{config_serverCertificate},
+		certificateList: []*x509.Certificate{config.certicate},
 	}
 	certm, err := hOut.WriteMessageBody(certificate)
 	if err != nil {
@@ -545,7 +555,7 @@ func (c *Conn) serverHandshake() error {
 	certificateVerify := &certificateVerifyBody{
 		alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
 	}
-	err = certificateVerify.Sign(config_privateKey, []*handshakeMessage{chm, shm, eem, certm})
+	err = certificateVerify.Sign(config.privateKey, []*handshakeMessage{chm, shm, eem, certm})
 	if err != nil {
 		return err
 	}

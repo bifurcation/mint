@@ -4,7 +4,6 @@ import (
 	"crypto"
 	"crypto/x509"
 	"fmt"
-	"log"
 )
 
 const (
@@ -417,12 +416,16 @@ func (cv *certificateVerifyBody) Unmarshal(data []byte) (int, error) {
 func (cv *certificateVerifyBody) computeContext(transcript []*handshakeMessage) (hash crypto.Hash, hashed []byte, err error) {
 	handshakeContext := []byte{}
 	for _, msg := range transcript {
+		if msg == nil {
+			err = fmt.Errorf("tls.certverify: Nil message")
+			return
+		}
 		handshakeContext = append(handshakeContext, msg.Marshal()...)
 	}
 
 	hash, ok := hashMap[cv.alg.hash]
 	if !ok {
-		err = fmt.Errorf("Unsupported hash algorithm")
+		err = fmt.Errorf("tls.certverify: Unsupported hash algorithm")
 		return
 	}
 	h := hash.New()
@@ -447,7 +450,7 @@ func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript [
 		return err
 	}
 
-	log.Printf("Digest to be verified: [%d] %x", len(hashedData), hashedData)
+	logf(logTypeHandshake, "Digest to be verified: [%d] %x", len(hashedData), hashedData)
 
 	return verify(cv.alg, publicKey, hashedData, contextCertificateVerify, cv.signature)
 }

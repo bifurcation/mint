@@ -109,6 +109,10 @@ var (
 	serverNameRaw = "example.com"
 	serverNameIn  = serverNameExtension(serverNameRaw)
 	serverNameHex = "000e00000b" + hex.EncodeToString([]byte(serverNameRaw))
+
+	// DraftVersion test cases
+	draftVersionIn  = draftVersionExtension{0x2030}
+	draftVersionHex = "2030"
 )
 
 func TestExtensionMarshalUnmarshal(t *testing.T) {
@@ -254,16 +258,16 @@ func TestServerNameMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a ServerName without a full name")
 
 	// Test unmarshal failure on length mismatch
-	serverName[4] += 1
+	serverName[4]++
 	read, err = sni.Unmarshal(serverName)
 	assertError(t, err, "Unmarshaled a ServerName with inconsistent lengths")
-	serverName[4] -= 1
+	serverName[4]--
 
 	// Test unmarshal failure on odd list length
-	serverName[2] += 1
+	serverName[2]++
 	read, err = sni.Unmarshal(serverName)
 	assertError(t, err, "Unmarshaled a ServerName that was not a host_name")
-	serverName[2] -= 1
+	serverName[2]--
 }
 
 func TestKeyShareMarshalUnmarshal(t *testing.T) {
@@ -358,11 +362,11 @@ func TestSupportedGroupsMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a SupportedGroups without a key share length")
 
 	// Test unmarshal failure on odd list length
-	supportedGroups[1] -= 1
+	supportedGroups[1]--
 	sg = supportedGroupsExtension{}
 	read, err = sg.Unmarshal(supportedGroups)
 	assertError(t, err, "Unmarshaled a SupportedGroups with an odd-length list")
-	supportedGroups[1] += 1
+	supportedGroups[1]++
 }
 
 func TestSignatureAlgorithmsMarshalUnmarshal(t *testing.T) {
@@ -394,9 +398,33 @@ func TestSignatureAlgorithmsMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a SignatureAlgorithms without a key share length")
 
 	// Test unmarshal failure on odd list length
-	signatureAlgorithms[1] -= 1
+	signatureAlgorithms[1]--
 	sg = signatureAlgorithmsExtension{}
 	read, err = sg.Unmarshal(signatureAlgorithms)
 	assertError(t, err, "Unmarshaled a SignatureAlgorithms with an odd-length list")
-	signatureAlgorithms[1] += 1
+	signatureAlgorithms[1]++
+}
+
+func TestDraftVersionMarshalUnmarshal(t *testing.T) {
+	draftVersion, _ := hex.DecodeString(draftVersionHex)
+
+	// Test extension type
+	assertEquals(t, draftVersionExtension{}.Type(), extensionTypeDraftVersion)
+
+	// Test successful marshal
+	out, err := draftVersionIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid DraftVersion")
+	assertByteEquals(t, out, draftVersion)
+
+	// Test successful unmarshal
+	dv := draftVersionExtension{}
+	read, err := dv.Unmarshal(draftVersion)
+	assertNotError(t, err, "Failed to unmarshal valid DraftVersion")
+	assertDeepEquals(t, dv, draftVersionIn)
+	assertEquals(t, read, len(draftVersion))
+
+	// Test unmarshal failure on wrong data length
+	dv = draftVersionExtension{}
+	read, err = dv.Unmarshal(draftVersion[:1])
+	assertError(t, err, "Unmarshaled a DraftVersion with the wrong length")
 }

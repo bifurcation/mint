@@ -48,7 +48,9 @@ var (
 
 	// EncryptedExtensions test cases
 	encExtValidIn  = encryptedExtensionsBody(extListValidIn)
+	encExtEmptyIn  = encryptedExtensionsBody{}
 	encExtValidHex = extListValidHex
+	encExtEmptyHex = ""
 
 	// Certificate test cases
 	cert1Hex = "308201653082010ba003020102020500a0a0a0a0300a0608" +
@@ -82,39 +84,44 @@ var (
 		"470030440220718254f2b3c1cc0fa4c53bf43182f8acbc19" +
 		"04e45ee1a3abdc8bc50a155712b4022010664cc29b80fae9" +
 		"150027726da5b144df764a76007eee2a52b6ae0c995395fb"
+	cert1Bytes, _ = hex.DecodeString(cert1Hex)
+	cert2Bytes, _ = hex.DecodeString(cert2Hex)
+	cert1, _      = x509.ParseCertificate(cert1Bytes)
+	cert2, _      = x509.ParseCertificate(cert2Bytes)
+
 	certValidIn  = certificateBody{certificateRequestContext: []byte{0, 0, 0, 0}}
-	certValidHex = "04000000000002d1308201653082010ba003020102020500" +
-		"a0a0a0a0300a06082a8648ce3d0403023017311530130603" +
-		"550403130c6578616d706c65312e636f6d3022180f303030" +
-		"31303130313030303030305a180f30303031303130313030" +
-		"303030305a3017311530130603550403130c6578616d706c" +
-		"65312e636f6d3059301306072a8648ce3d020106082a8648" +
-		"ce3d030107034200044460e6de2a170e0c7c8d1306c82386" +
-		"db31980bd76647bde9b96055d075fc64ea7d8d3864afcf0f" +
-		"f16da73c68df6880a597303243410016ef2e36f5962584d1" +
-		"87a340303e300e0603551d0f0101ff0404030203a8301306" +
-		"03551d25040c300a06082b0601050507030130170603551d" +
-		"110410300e820c6578616d706c65312e636f6d300a06082a" +
-		"8648ce3d0403020348003045022005937d0bf7a7cb458971" +
-		"5bb83dddd2505335829e6305b75cfeae6f2dcc2230b60221" +
-		"00f6f0e75436cd59b94ceedffb18bcf5bb2f161260a282f7" +
-		"b63d1376e5805c51b6308201643082010ba0030201020205" +
-		"00a0a0a0a0300a06082a8648ce3d04030430173115301306" +
-		"03550403130c6578616d706c65322e636f6d3022180f3030" +
-		"3031303130313030303030305a180f303030313031303130" +
-		"30303030305a3017311530130603550403130c6578616d70" +
-		"6c65322e636f6d3059301306072a8648ce3d020106082a86" +
-		"48ce3d030107034200044460e6de2a170e0c7c8d1306c823" +
-		"86db31980bd76647bde9b96055d075fc64ea7d8d3864afcf" +
-		"0ff16da73c68df6880a597303243410016ef2e36f5962584" +
-		"d187a340303e300e0603551d0f0101ff0404030203a83013" +
-		"0603551d25040c300a06082b060105050703013017060355" +
-		"1d110410300e820c6578616d706c65322e636f6d300a0608" +
-		"2a8648ce3d04030403470030440220718254f2b3c1cc0fa4" +
-		"c53bf43182f8acbc1904e45ee1a3abdc8bc50a155712b402" +
-		"2010664cc29b80fae9150027726da5b144df764a76007eee" +
-		"2a52b6ae0c995395fb"
-	certEmptyHex = "00000000"
+	certValidHex = "04000000000002d7000169308201653082010ba003020102" +
+		"020500a0a0a0a0300a06082a8648ce3d0403023017311530" +
+		"130603550403130c6578616d706c65312e636f6d3022180f" +
+		"30303031303130313030303030305a180f30303031303130" +
+		"313030303030305a3017311530130603550403130c657861" +
+		"6d706c65312e636f6d3059301306072a8648ce3d02010608" +
+		"2a8648ce3d030107034200044460e6de2a170e0c7c8d1306" +
+		"c82386db31980bd76647bde9b96055d075fc64ea7d8d3864" +
+		"afcf0ff16da73c68df6880a597303243410016ef2e36f596" +
+		"2584d187a340303e300e0603551d0f0101ff0404030203a8" +
+		"30130603551d25040c300a06082b06010505070301301706" +
+		"03551d110410300e820c6578616d706c65312e636f6d300a" +
+		"06082a8648ce3d0403020348003045022005937d0bf7a7cb" +
+		"4589715bb83dddd2505335829e6305b75cfeae6f2dcc2230" +
+		"b6022100f6f0e75436cd59b94ceedffb18bcf5bb2f161260" +
+		"a282f7b63d1376e5805c51b6000168308201643082010ba0" +
+		"03020102020500a0a0a0a0300a06082a8648ce3d04030430" +
+		"17311530130603550403130c6578616d706c65322e636f6d" +
+		"3022180f30303031303130313030303030305a180f303030" +
+		"31303130313030303030305a301731153013060355040313" +
+		"0c6578616d706c65322e636f6d3059301306072a8648ce3d" +
+		"020106082a8648ce3d030107034200044460e6de2a170e0c" +
+		"7c8d1306c82386db31980bd76647bde9b96055d075fc64ea" +
+		"7d8d3864afcf0ff16da73c68df6880a597303243410016ef" +
+		"2e36f5962584d187a340303e300e0603551d0f0101ff0404" +
+		"030203a830130603551d25040c300a06082b060105050703" +
+		"0130170603551d110410300e820c6578616d706c65322e63" +
+		"6f6d300a06082a8648ce3d04030403470030440220718254" +
+		"f2b3c1cc0fa4c53bf43182f8acbc1904e45ee1a3abdc8bc5" +
+		"0a155712b4022010664cc29b80fae9150027726da5b144df" +
+		"764a76007eee2a52b6ae0c995395fb"
+	certTooShortHex = "000000023081"
 
 	// CertificateVerify test cases
 	certVerifyValidIn = certificateVerifyBody{
@@ -182,10 +189,10 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a ClientHello below the min length")
 
 	// Test unmarshal failure on wrong version
-	chValid[1] -= 1
+	chValid[1]--
 	_, err = ch.Unmarshal(chValid)
 	assertError(t, err, "Unmarshaled a ClientHello with the wrong version")
-	chValid[1] += 1
+	chValid[1]++
 
 	// Test unmarshal failure on non-empty session ID
 	chValid[34] = 0x04
@@ -268,10 +275,10 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a too-short ServerHello")
 
 	// Test unmarshal failure on wrong version
-	shValid[1] -= 1
+	shValid[1]--
 	_, err = sh.Unmarshal(shValid)
 	assertError(t, err, "Unmarshaled a ServerHello with the wrong version")
-	shValid[1] += 1
+	shValid[1]++
 
 	// Test unmarshal failure on extension list unmarshal failure
 	_, err = sh.Unmarshal(shOverflow)
@@ -290,10 +297,10 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, finValid)
 
 	// Test marshal failure on incorrect data length
-	finValidIn.verifyDataLen -= 1
+	finValidIn.verifyDataLen--
 	out, err = finValidIn.Marshal()
 	assertError(t, err, "Marshaled a Finished with the wrong data length")
-	finValidIn.verifyDataLen += 1
+	finValidIn.verifyDataLen++
 
 	// Test successful unmarshal
 	var fin finishedBody
@@ -304,15 +311,17 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 	assertDeepEquals(t, fin, finValidIn)
 
 	// Test unmarshal failure on insufficient data
-	fin.verifyDataLen += 1
+	fin.verifyDataLen++
 	_, err = fin.Unmarshal(finValid)
 	assertError(t, err, "Unmarshaled a Finished with too little data")
-	fin.verifyDataLen -= 1
+	fin.verifyDataLen--
 }
 
 // This one is a little brief because it is just an extensionList
 func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 	encExtValid, _ := hex.DecodeString(encExtValidHex)
+	encExtEmpty, _ := hex.DecodeString(encExtEmptyHex)
+	extListEmpty, _ := hex.DecodeString(extListEmptyHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (encryptedExtensionsBody{}).Type(), handshakeTypeEncryptedExtensions)
@@ -328,16 +337,38 @@ func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Failed to unmarshal a valid EncryptedExtensions")
 	assertEquals(t, read, len(encExtValid))
 	assertDeepEquals(t, ee, encExtValidIn)
+
+	// Test proper behavior on empty extensions
+	originalAllowEmptyEncryptedExtensions := allowEmptyEncryptedExtensions
+
+	allowEmptyEncryptedExtensions = true
+
+	out, err = encExtEmptyIn.Marshal()
+	assertNotError(t, err, "Failed to marshal empty EncryptedExtensions (when allowed)")
+	assertByteEquals(t, out, encExtEmpty)
+
+	read, err = ee.Unmarshal(encExtEmpty)
+	assertNotError(t, err, "Failed to unmarshal empty EncryptedExtensions (when allowed)")
+	assertEquals(t, read, len(encExtEmpty))
+	assertDeepEquals(t, len(ee), 0)
+
+	allowEmptyEncryptedExtensions = false
+
+	out, err = encExtEmptyIn.Marshal()
+	assertNotError(t, err, "Failed to marshal empty EncryptedExtensions (when disallowed)")
+	assertByteEquals(t, out, extListEmpty)
+
+	read, err = ee.Unmarshal(encExtEmpty)
+	assertError(t, err, "Failed to reject empty EncryptedExtensions (when disallowed)")
+
+	allowEmptyEncryptedExtensions = originalAllowEmptyEncryptedExtensions
+
 }
 
 func TestCertificateMarshalUnmarshal(t *testing.T) {
 	// Create a couple of certificates and manually encode
 	certValid, _ := hex.DecodeString(certValidHex)
-	certEmpty, _ := hex.DecodeString(certEmptyHex)
-	cert1Bytes, _ := hex.DecodeString(cert1Hex)
-	cert2Bytes, _ := hex.DecodeString(cert2Hex)
-	cert1, _ := x509.ParseCertificate(cert1Bytes)
-	cert2, _ := x509.ParseCertificate(cert2Bytes)
+	certTooShort, _ := hex.DecodeString(certTooShortHex)
 	certValidIn.certificateList = []*x509.Certificate{cert1, cert2}
 
 	// Test correctness of handshake type
@@ -381,20 +412,30 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	_, err = cert.Unmarshal(certValid[:12])
 	assertError(t, err, "Unmarshaled a Certificate with truncated certificates")
 
-	// Test unmarshal failure on malformed certificate
-	certValid[8] ^= 0xFF
+	// Test unmarshal failure on a too-short certificates field
+	_, err = cert.Unmarshal(certTooShort)
+	assertError(t, err, "Unmarshaled a Certificate with truncated certificate length")
+
+	// Test unmarshal failure on truncated certificate
+	certValid[8] ^= 0xFF // Make length of first cert huge
 	_, err = cert.Unmarshal(certValid)
 	assertError(t, err, "Unmarshaled a Certificate with truncated certificates")
 	certValid[8] ^= 0xFF
 
-	// Test unmarshal failure on no certificates
-	_, err = cert.Unmarshal(certEmpty)
-	assertError(t, err, "Unmarshaled a Certificate with no certificates")
+	// Test unmarshal failure on malformed certificate
+	certValid[11] ^= 0xFF // Clobber first octet of first cert
+	_, err = cert.Unmarshal(certValid)
+	assertError(t, err, "Unmarshaled a Certificate with truncated certificates")
+	certValid[11] ^= 0xFF
 }
 
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
-	transcript := []handshakeMessageBody{&chValidIn, &shValidIn}
+
+	chMessage, _ := handshakeMessageFromBody(&chValidIn)
+	shMessage, _ := handshakeMessageFromBody(&shValidIn)
+	transcript := []*handshakeMessage{chMessage, shMessage}
+	nilTranscript := append(transcript, nil)
 	privRSA, err := newSigningKey(signatureAlgorithmRSA)
 	assertNotError(t, err, "failed to generate RSA private key")
 
@@ -426,9 +467,8 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Failed to sign CertificateVerify")
 
 	// Test sign failure on handshake marshal failure
-	chValidIn.extensions = extListSingleTooLongIn
-	err = certVerifyValidIn.Sign(privRSA, transcript)
-	assertError(t, err, "Signed CertificateVerify despite unmarshal failure")
+	err = certVerifyValidIn.Sign(privRSA, nilTranscript)
+	assertError(t, err, "Signed CertificateVerify despite nil message")
 	chValidIn.extensions = extListValidIn
 
 	// Test sign failure on bad hash algorithm
@@ -446,6 +486,10 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	// Test verify failure on bad hash algorithm
 	certVerifyValidIn.alg.hash = hashAlgorithm(0)
 	err = certVerifyValidIn.Verify(privRSA.Public(), transcript)
-	assertError(t, err, "Signed CertificateVerify despite bad hash algorithm")
+	assertError(t, err, "Verified CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.alg.hash = hashAlgorithmSHA256
+
+	// Test veiryf failure on nil message
+	err = certVerifyValidIn.Verify(privRSA.Public(), nilTranscript)
+	assertError(t, err, "Verified CertificateVerify despite nil message")
 }

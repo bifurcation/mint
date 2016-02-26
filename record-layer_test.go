@@ -76,13 +76,14 @@ func TestReadRecord(t *testing.T) {
 	plaintext[0] = 0x15
 
 	// Test failure on wrong version
-	nssCompatMode = false
+	originalAllowWrongVersionNumber := allowWrongVersionNumber
+	allowWrongVersionNumber = false
 	plaintext[2] = 0x02
 	r = newRecordLayer(bytes.NewBuffer(plaintext))
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject record with incorrect version")
 	plaintext[2] = 0x01
-	nssCompatMode = true
+	allowWrongVersionNumber = originalAllowWrongVersionNumber
 
 	// Test failure on size too big
 	plaintext[3] = 0xFF

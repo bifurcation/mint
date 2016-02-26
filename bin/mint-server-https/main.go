@@ -13,7 +13,7 @@ func main() {
 	listener, err := mint.Listen("tcp", service, &mint.Config{})
 
 	if err != nil {
-		log.Println("Error: %v", err)
+		log.Printf("Error: %v", err)
 	}
 
 	http.HandleFunc("/", handleClient)

@@ -2,7 +2,6 @@ package mint
 
 import (
 	"fmt"
-	"log"
 )
 
 const (
@@ -35,7 +34,7 @@ func (hm handshakeMessage) Marshal() []byte {
 }
 
 func (hm handshakeMessage) toBody() (handshakeMessageBody, error) {
-	log.Printf("handshakeMessage.toBody [%d] [%x]", hm.msgType, hm.body)
+	logf(logTypeHandshake, "handshakeMessage.toBody [%d] [%x]", hm.msgType, hm.body)
 
 	var body handshakeMessageBody
 	switch hm.msgType {
@@ -152,7 +151,7 @@ func (h *handshakeLayer) WriteMessage(hm *handshakeMessage) error {
 
 func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 	for _, hm := range hms {
-		log.Printf("hanshakeLayer.WriteMessage [%d] %x", hm.msgType, hm.body)
+		logf(logTypeHandshake, "WriteMessage [%d] %x", hm.msgType, hm.body)
 	}
 
 	// Write out headers and bodies
@@ -198,9 +197,9 @@ func (h *handshakeLayer) WriteMessageBody(body handshakeMessageBody) (*handshake
 	if err != nil {
 		return nil, err
 	}
-	if len(hms) < 1 {
-		return nil, fmt.Errorf("tls.writemessagebody: No handshake message returned")
-	}
+
+	// When it succeeds, WriteMessageBodies always returns as many messages as
+	// bodies were provided in the input array
 	return hms[0], nil
 }
 

@@ -12,9 +12,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"fmt"
-	"log"
 	"math/big"
 
+	// Blank includes to ensure hash support
 	_ "crypto/sha1"
 	_ "crypto/sha256"
 	_ "crypto/sha512"
@@ -211,9 +211,9 @@ func sign(hash crypto.Hash, privateKey crypto.Signer, data []byte, context strin
 	var opts crypto.SignerOpts
 	var sigAlg signatureAlgorithm
 
-	log.Printf("digest to be verified: %x", data)
+	logf(logTypeCrypto, "digest to be verified: %x", data)
 	digest := encodeSignatureInput(hash, data, context)
-	log.Printf("digest with context: %x", digest)
+	logf(logTypeCrypto, "digest with context: %x", digest)
 
 	switch privateKey.(type) {
 	case *rsa.PrivateKey:
@@ -229,6 +229,7 @@ func sign(hash crypto.Hash, privateKey crypto.Signer, data []byte, context strin
 	}
 
 	sig, err := privateKey.Sign(prng, digest, opts)
+	logf(logTypeCrypto, "signature: %x", sig)
 	return sigAlg, sig, err
 }
 
@@ -321,7 +322,7 @@ func hkdfExpand(hash crypto.Hash, prk, info []byte, outLen int) []byte {
 
 		T = h.Sum(nil)
 		out = append(out, T...)
-		i += 1
+		i++
 	}
 	return out[:outLen]
 }
@@ -330,11 +331,11 @@ func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []
 	info := hkdfEncodeLabel(label, hashValue, outLen)
 	derived := hkdfExpand(hash, secret, info, outLen)
 
-	log.Printf("HKDF Expand: label=[TLS 1.3, ] + '%s',requested length=%d\n", label, outLen)
-	log.Printf("PRK [%d]: %x\n", len(secret), secret)
-	log.Printf("Hash [%d]: %x\n", len(hashValue), hashValue)
-	log.Printf("Info [%d]: %x\n", len(info), info)
-	log.Printf("Derived key [%d]: %x\n", len(derived), derived)
+	logf(logTypeCrypto, "HKDF Expand: label=[TLS 1.3, ] + '%s',requested length=%d\n", label, outLen)
+	logf(logTypeCrypto, "PRK [%d]: %x\n", len(secret), secret)
+	logf(logTypeCrypto, "Hash [%d]: %x\n", len(hashValue), hashValue)
+	logf(logTypeCrypto, "Info [%d]: %x\n", len(info), info)
+	logf(logTypeCrypto, "Derived key [%d]: %x\n", len(derived), derived)
 
 	return derived
 }
@@ -421,6 +422,9 @@ func (c *cryptoContext) Init(ch, sh *handshakeMessage, SS, ES []byte, suite ciph
 	c.transcript = []*handshakeMessage{}
 
 	// Add ClientHello, ServerHello to transcript
+	if ch == nil || sh == nil {
+		return fmt.Errorf("tls.cryptoinit: Nil message provided")
+	}
 	c.transcript = append(c.transcript, []*handshakeMessage{ch, sh}...)
 
 	// Compute xSS, xES = HKDF-Extract(0, ES)
@@ -448,6 +452,11 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	}
 
 	// Add messages to transcript
+	for _, msg := range messages {
+		if msg == nil {
+			return fmt.Errorf("tls.updatecontext: Nil message")
+		}
+	}
 	c.transcript = append(c.transcript, messages...)
 	handshakeSoFar := c.marshalTranscript()
 
@@ -476,25 +485,23 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	serverFinishedMAC.Write(handshakeHash)
 	c.serverFinishedData = serverFinishedMAC.Sum(nil)
 	c.serverFinished = &finishedBody{
-		verifyDataLen: L,
+		verifyDataLen: len(c.serverFinishedData),
 		verifyData:    c.serverFinishedData,
 	}
 
-	finishedMessage, err := handshakeMessageFromBody(c.serverFinished)
-	if err != nil {
-		return err
-	}
+	// This call can only fail if there's a length mismatch, which can't happen here
+	finishedMessage, _ := handshakeMessageFromBody(c.serverFinished)
 	c.transcript = append(c.transcript, finishedMessage)
 
 	// Compute client_finished_key and client Finished
 	h.Write(finishedMessage.Marshal())
 	handshakeHash = h.Sum(nil)
-	log.Printf("handshake hash for client Finished: [%d] %x", len(handshakeHash), handshakeHash)
+	logf(logTypeCrypto, "handshake hash for client Finished: [%d] %x", len(handshakeHash), handshakeHash)
 
 	clientFinishedMAC := hmac.New(c.params.hash.New, c.clientFinishedKey)
 	clientFinishedMAC.Write(handshakeHash)
 	c.clientFinishedData = clientFinishedMAC.Sum(nil)
-	log.Printf("client Finished data: [%d] %x", len(handshakeHash), handshakeHash)
+	logf(logTypeCrypto, "client Finished data: [%d] %x", len(handshakeHash), handshakeHash)
 
 	c.clientFinished = &finishedBody{
 		verifyDataLen: L,
