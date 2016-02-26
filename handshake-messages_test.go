@@ -48,7 +48,9 @@ var (
 
 	// EncryptedExtensions test cases
 	encExtValidIn  = encryptedExtensionsBody(extListValidIn)
+	encExtEmptyIn  = encryptedExtensionsBody{}
 	encExtValidHex = extListValidHex
+	encExtEmptyHex = ""
 
 	// Certificate test cases
 	cert1Hex = "308201653082010ba003020102020500a0a0a0a0300a0608" +
@@ -119,6 +121,7 @@ var (
 		"f2b3c1cc0fa4c53bf43182f8acbc1904e45ee1a3abdc8bc5" +
 		"0a155712b4022010664cc29b80fae9150027726da5b144df" +
 		"764a76007eee2a52b6ae0c995395fb"
+	certTooShortHex = "000000023081"
 
 	// CertificateVerify test cases
 	certVerifyValidIn = certificateVerifyBody{
@@ -317,6 +320,8 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 // This one is a little brief because it is just an extensionList
 func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 	encExtValid, _ := hex.DecodeString(encExtValidHex)
+	encExtEmpty, _ := hex.DecodeString(encExtEmptyHex)
+	extListEmpty, _ := hex.DecodeString(extListEmptyHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (encryptedExtensionsBody{}).Type(), handshakeTypeEncryptedExtensions)
@@ -332,11 +337,38 @@ func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Failed to unmarshal a valid EncryptedExtensions")
 	assertEquals(t, read, len(encExtValid))
 	assertDeepEquals(t, ee, encExtValidIn)
+
+	// Test proper behavior on empty extensions
+	originalAllowEmptyEncryptedExtensions := allowEmptyEncryptedExtensions
+
+	allowEmptyEncryptedExtensions = true
+
+	out, err = encExtEmptyIn.Marshal()
+	assertNotError(t, err, "Failed to marshal empty EncryptedExtensions (when allowed)")
+	assertByteEquals(t, out, encExtEmpty)
+
+	read, err = ee.Unmarshal(encExtEmpty)
+	assertNotError(t, err, "Failed to unmarshal empty EncryptedExtensions (when allowed)")
+	assertEquals(t, read, len(encExtEmpty))
+	assertDeepEquals(t, len(ee), 0)
+
+	allowEmptyEncryptedExtensions = false
+
+	out, err = encExtEmptyIn.Marshal()
+	assertNotError(t, err, "Failed to marshal empty EncryptedExtensions (when disallowed)")
+	assertByteEquals(t, out, extListEmpty)
+
+	read, err = ee.Unmarshal(encExtEmpty)
+	assertError(t, err, "Failed to reject empty EncryptedExtensions (when disallowed)")
+
+	allowEmptyEncryptedExtensions = originalAllowEmptyEncryptedExtensions
+
 }
 
 func TestCertificateMarshalUnmarshal(t *testing.T) {
 	// Create a couple of certificates and manually encode
 	certValid, _ := hex.DecodeString(certValidHex)
+	certTooShort, _ := hex.DecodeString(certTooShortHex)
 	certValidIn.certificateList = []*x509.Certificate{cert1, cert2}
 
 	// Test correctness of handshake type
@@ -380,11 +412,21 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	_, err = cert.Unmarshal(certValid[:12])
 	assertError(t, err, "Unmarshaled a Certificate with truncated certificates")
 
-	// Test unmarshal failure on malformed certificate
-	certValid[8] ^= 0xFF
+	// Test unmarshal failure on a too-short certificates field
+	_, err = cert.Unmarshal(certTooShort)
+	assertError(t, err, "Unmarshaled a Certificate with truncated certificate length")
+
+	// Test unmarshal failure on truncated certificate
+	certValid[8] ^= 0xFF // Make length of first cert huge
 	_, err = cert.Unmarshal(certValid)
 	assertError(t, err, "Unmarshaled a Certificate with truncated certificates")
 	certValid[8] ^= 0xFF
+
+	// Test unmarshal failure on malformed certificate
+	certValid[11] ^= 0xFF // Clobber first octet of first cert
+	_, err = cert.Unmarshal(certValid)
+	assertError(t, err, "Unmarshaled a Certificate with truncated certificates")
+	certValid[11] ^= 0xFF
 }
 
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {

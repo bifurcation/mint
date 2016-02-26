@@ -188,6 +188,9 @@ func TestSignVerify(t *testing.T) {
 	assertError(t, err, "Verified RSA with something other than PSS")
 	allowPKCS1 = originalAllowPKCS1
 
+	err = verify(algECDSA, privRSA.Public(), data, context, sigRSA)
+	assertError(t, err, "Verified RSA with a non-RSA algorithm")
+
 	// Test ECDSA verify failure on bad algorithm
 	err = verify(algRSAPSS, privECDSA.Public(), data, context, sigECDSA)
 	assertError(t, err, "Verified ECDSA with a bad algorithm")
@@ -352,11 +355,11 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test Init failure on nil messages
 	ctx = cryptoContext{}
-	err = ctx.Init(nil, shm, SSContextIn, ESContextIn, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256)
+	err = ctx.Init(nil, shm, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
 	assertError(t, err, "Init'ed context with nil clientHello")
 
 	ctx = cryptoContext{}
-	err = ctx.Init(chm, nil, SSContextIn, ESContextIn, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256)
+	err = ctx.Init(chm, nil, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
 	assertError(t, err, "Init'ed context with nil clientHello")
 
 	// Test that Update failes on un-Init'ed context

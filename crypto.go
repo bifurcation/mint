@@ -485,14 +485,12 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	serverFinishedMAC.Write(handshakeHash)
 	c.serverFinishedData = serverFinishedMAC.Sum(nil)
 	c.serverFinished = &finishedBody{
-		verifyDataLen: L,
+		verifyDataLen: len(c.serverFinishedData),
 		verifyData:    c.serverFinishedData,
 	}
 
-	finishedMessage, err := handshakeMessageFromBody(c.serverFinished)
-	if err != nil {
-		return err
-	}
+	// This call can only fail if there's a length mismatch, which can't happen here
+	finishedMessage, _ := handshakeMessageFromBody(c.serverFinished)
 	c.transcript = append(c.transcript, finishedMessage)
 
 	// Compute client_finished_key and client Finished

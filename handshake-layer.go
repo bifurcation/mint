@@ -198,9 +198,9 @@ func (h *handshakeLayer) WriteMessageBody(body handshakeMessageBody) (*handshake
 	if err != nil {
 		return nil, err
 	}
-	if len(hms) < 1 {
-		return nil, fmt.Errorf("tls.writemessagebody: No handshake message returned")
-	}
+
+	// When it succeeds, WriteMessageBodies always returns as many messages as
+	// bodies were provided in the input array
 	return hms[0], nil
 }
 
