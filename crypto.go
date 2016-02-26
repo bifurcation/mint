@@ -15,6 +15,7 @@ import (
 	"log"
 	"math/big"
 
+	// Blank includes to ensure hash support
 	_ "crypto/sha1"
 	_ "crypto/sha256"
 	_ "crypto/sha512"
@@ -321,7 +322,7 @@ func hkdfExpand(hash crypto.Hash, prk, info []byte, outLen int) []byte {
 
 		T = h.Sum(nil)
 		out = append(out, T...)
-		i += 1
+		i++
 	}
 	return out[:outLen]
 }

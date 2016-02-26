@@ -186,10 +186,10 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a ClientHello below the min length")
 
 	// Test unmarshal failure on wrong version
-	chValid[1] -= 1
+	chValid[1]--
 	_, err = ch.Unmarshal(chValid)
 	assertError(t, err, "Unmarshaled a ClientHello with the wrong version")
-	chValid[1] += 1
+	chValid[1]++
 
 	// Test unmarshal failure on non-empty session ID
 	chValid[34] = 0x04
@@ -272,10 +272,10 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a too-short ServerHello")
 
 	// Test unmarshal failure on wrong version
-	shValid[1] -= 1
+	shValid[1]--
 	_, err = sh.Unmarshal(shValid)
 	assertError(t, err, "Unmarshaled a ServerHello with the wrong version")
-	shValid[1] += 1
+	shValid[1]++
 
 	// Test unmarshal failure on extension list unmarshal failure
 	_, err = sh.Unmarshal(shOverflow)
@@ -294,10 +294,10 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, finValid)
 
 	// Test marshal failure on incorrect data length
-	finValidIn.verifyDataLen -= 1
+	finValidIn.verifyDataLen--
 	out, err = finValidIn.Marshal()
 	assertError(t, err, "Marshaled a Finished with the wrong data length")
-	finValidIn.verifyDataLen += 1
+	finValidIn.verifyDataLen++
 
 	// Test successful unmarshal
 	var fin finishedBody
@@ -308,10 +308,10 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 	assertDeepEquals(t, fin, finValidIn)
 
 	// Test unmarshal failure on insufficient data
-	fin.verifyDataLen += 1
+	fin.verifyDataLen++
 	_, err = fin.Unmarshal(finValid)
 	assertError(t, err, "Unmarshaled a Finished with too little data")
-	fin.verifyDataLen -= 1
+	fin.verifyDataLen--
 }
 
 // This one is a little brief because it is just an extensionList

@@ -2,6 +2,7 @@ package mint
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/x509"
 	"fmt"
 	"io"
@@ -11,17 +12,20 @@ import (
 	"time"
 )
 
+// Config is the struct used to pass configuration settings to a TLS client or
+// server instance.  The settings for client and server are pretty different,
+// but we just throw them all in here.
 type Config struct {
 	// TODO
 	ServerName string
 }
 
-func (c Config) ValidForServer() bool {
+func (c Config) validForServer() bool {
 	// TODO
 	return true
 }
 
-func (c Config) ValidForClient() bool {
+func (c Config) validForClient() bool {
 	// TODO
 	return true
 }
@@ -223,6 +227,9 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
+// Handshake causes a TLS handshake on the connection.  The `isClient` member
+// determines whether a client or server handshake is performed.  If a
+// handshake has already been performed, then its result will be returned.
 func (c *Conn) Handshake() error {
 	// TODO Lock handshakeMutex
 	if err := c.handshakeErr; err != nil {
@@ -246,8 +253,13 @@ func (c *Conn) clientHandshake() error {
 	hOut := newHandshakeLayer(c.out)
 
 	// XXX Config
-	config_serverName := "example.com"
-	config_authenticationCallback := func(chain []*x509.Certificate) error { return nil }
+	config := struct {
+		serverName   string
+		authCallback func(chain []*x509.Certificate) error
+	}{
+		serverName:   "example.com",
+		authCallback: func(chain []*x509.Certificate) error { return nil },
+	}
 
 	// Construct some extensions
 	privateKeys := map[namedGroup][]byte{}
@@ -265,7 +277,7 @@ func (c *Conn) clientHandshake() error {
 		ks.shares[i].keyExchange = pub
 		privateKeys[group] = priv
 	}
-	sni := serverNameExtension(config_serverName)
+	sni := serverNameExtension(config.serverName)
 	sg := supportedGroupsExtension{groups: supportedGroups}
 	sa := signatureAlgorithmsExtension{algorithms: signatureAlgorithms}
 	dv := draftVersionExtension{version: draftVersionImplemented}
@@ -364,7 +376,7 @@ func (c *Conn) clientHandshake() error {
 	log.Printf("ClientHandshake: Done reading server's first flight")
 
 	// Verify the server's certificate if required
-	if config_authenticationCallback != nil {
+	if config.authCallback != nil {
 		if cert == nil || certVerify == nil {
 			return fmt.Errorf("tls.client: No server auth data provided")
 		}
@@ -381,7 +393,7 @@ func (c *Conn) clientHandshake() error {
 			return err
 		}
 
-		if err = config_authenticationCallback(cert.certificateList); err != nil {
+		if err = config.authCallback(cert.certificateList); err != nil {
 			return err
 		}
 	}
@@ -428,18 +440,25 @@ func (c *Conn) serverHandshake() error {
 	hOut := newHandshakeLayer(c.out)
 
 	// Config
-	config_supportedGroup := map[namedGroup]bool{
-		namedGroupP256: true,
-		namedGroupP384: true,
-		namedGroupP521: true,
+	config := struct {
+		supportedGroup       map[namedGroup]bool
+		supportedCiphersuite map[cipherSuite]bool
+		privateKey           crypto.Signer
+		certicate            *x509.Certificate
+	}{
+		supportedGroup: map[namedGroup]bool{
+			namedGroupP256: true,
+			namedGroupP384: true,
+			namedGroupP521: true,
+		},
+		supportedCiphersuite: map[cipherSuite]bool{
+			TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
+			TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
+		},
 	}
-	config_supportedCiphersuite := map[cipherSuite]bool{
-		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
-		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
-	}
-	config_privateKey, _ := newSigningKey(signatureAlgorithmRSA)
-	config_serverCertificate, _ := newSelfSigned("example.com",
-		signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}, config_privateKey)
+	config.privateKey, _ = newSigningKey(signatureAlgorithmRSA)
+	config.certicate, _ = newSelfSigned("example.com",
+		signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}, config.privateKey)
 
 	// Read ClientHello and extract extensions
 	ch := new(clientHelloBody)
@@ -466,7 +485,7 @@ func (c *Conn) serverHandshake() error {
 	var serverKeyShare *keyShareExtension
 	var ES []byte
 	for _, share := range clientKeyShares.shares {
-		if config_supportedGroup[share.group] {
+		if config.supportedGroup[share.group] {
 			pub, priv, err := newKeyShare(share.group)
 			if err != nil {
 				return err
@@ -494,7 +513,7 @@ func (c *Conn) serverHandshake() error {
 	var chosenSuite cipherSuite
 	foundCipherSuite := false
 	for _, suite := range ch.cipherSuites {
-		if config_supportedCiphersuite[suite] {
+		if config.supportedCiphersuite[suite] {
 			chosenSuite = suite
 			foundCipherSuite = true
 		}
@@ -535,7 +554,7 @@ func (c *Conn) serverHandshake() error {
 	// Create and send Certificate, CertificateVerify
 	// TODO Certificate selection based on ClientHello
 	certificate := &certificateBody{
-		certificateList: []*x509.Certificate{config_serverCertificate},
+		certificateList: []*x509.Certificate{config.certicate},
 	}
 	certm, err := hOut.WriteMessageBody(certificate)
 	if err != nil {
@@ -545,7 +564,7 @@ func (c *Conn) serverHandshake() error {
 	certificateVerify := &certificateVerifyBody{
 		alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
 	}
-	err = certificateVerify.Sign(config_privateKey, []*handshakeMessage{chm, shm, eem, certm})
+	err = certificateVerify.Sign(config.privateKey, []*handshakeMessage{chm, shm, eem, certm})
 	if err != nil {
 		return err
 	}
