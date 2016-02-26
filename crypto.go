@@ -421,6 +421,9 @@ func (c *cryptoContext) Init(ch, sh *handshakeMessage, SS, ES []byte, suite ciph
 	c.transcript = []*handshakeMessage{}
 
 	// Add ClientHello, ServerHello to transcript
+	if ch == nil || sh == nil {
+		return fmt.Errorf("tls.cryptoinit: Nil message provided")
+	}
 	c.transcript = append(c.transcript, []*handshakeMessage{ch, sh}...)
 
 	// Compute xSS, xES = HKDF-Extract(0, ES)
@@ -448,6 +451,11 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	}
 
 	// Add messages to transcript
+	for _, msg := range messages {
+		if msg == nil {
+			return fmt.Errorf("tls.updatecontext: Nil message")
+		}
+	}
 	c.transcript = append(c.transcript, messages...)
 	handshakeSoFar := c.marshalTranscript()
 
