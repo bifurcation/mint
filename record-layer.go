@@ -31,8 +31,9 @@ type tlsPlaintext struct {
 type recordLayer struct {
 	sync.Mutex
 
-	conn   io.ReadWriter // The underlying connection
-	buffer []byte        // The next record to send
+	conn     io.ReadWriter // The underlying connection
+	buffer   []byte        // The next record to send
+	nextData []byte        // The next record to send
 
 	ivLength int         // Length of the seq and nonce fields
 	seq      []byte      // Zero-padded sequence number
@@ -100,7 +101,7 @@ func (r *recordLayer) encrypt(pt *tlsPlaintext, padLen int) *tlsPlaintext {
 
 	// Assemble the revised plaintext
 	out := &tlsPlaintext{
-		contentType: recordTypeApplicationData,
+		contentType: pt.contentType,
 		fragment:    make([]byte, ciphertextLen),
 	}
 	copy(out.fragment, pt.fragment)
@@ -143,18 +144,25 @@ func (r *recordLayer) decrypt(pt *tlsPlaintext) (*tlsPlaintext, int, error) {
 }
 
 func (r *recordLayer) readFullBuffer(data []byte) error {
-	data = data[:0]
+	buffer := make([]byte, cap(data)+recordHeaderLen)
+
+	var index int
+	copy(buffer, r.nextData)
+	index = len(r.nextData)
+
 	for {
-		m, err := r.conn.Read(data[len(data):cap(data)])
-		data = data[:len(data)+m]
-		if len(data) == cap(data) {
+		m, err := r.conn.Read(buffer[index:])
+		if m+index >= cap(data) {
 			// TODO(bradfitz,agl): slightly suspicious
 			// that we're throwing away r.Read's err here.
+			copy(data[:cap(data)], buffer)
+			r.nextData = buffer[cap(data) : m+index]
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+		index = index + m
 	}
 }
 
