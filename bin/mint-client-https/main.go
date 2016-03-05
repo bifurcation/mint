@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 )
 
 func main() {
+	flagURL := flag.String("URL", "https://localhost:4430", "URL to send request")
+	flag.Parse()
 	mintdial := func(network, addr string) (net.Conn, error) {
 		return mint.Dial(network, addr, nil)
 	}
@@ -20,13 +23,13 @@ func main() {
 	}
 	client := &http.Client{Transport: tr}
 
-	response, err := client.Get("https://localhost:4430/")
+	response, err := client.Get(*flagURL)
 	if err != nil {
 		fmt.Println("err:", err)
 		return
 	}
+	defer response.Body.Close()
 
-	fmt.Println("==== RESPONSE ====")
 	err = response.Write(os.Stdout)
 	if err != nil {
 		fmt.Println("err:", err)

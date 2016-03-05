@@ -85,7 +85,12 @@ func newConn(conn net.Conn, config *Config, isClient bool) *Conn {
 
 func (c *Conn) extendBuffer(n int) error {
 	// XXX: crypto/tls bounds the number of empty records that can be read.  Should we?
-	for len(c.readBuffer) < n {
+	// if there's no more data left, stop reading
+	if len(c.in.nextData) == 0 && len(c.readBuffer) > 0 {
+		return nil
+	}
+
+	for len(c.readBuffer) <= n {
 		pt, err := c.in.ReadRecord()
 
 		if pt == nil {
@@ -96,15 +101,42 @@ func (c *Conn) extendBuffer(n int) error {
 		case recordTypeHandshake:
 			// TODO: Handle post-handshake handshake messages
 		case recordTypeAlert:
-			// TODO: Handle alerts
+			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(c.readBuffer), c.readBuffer)
+			if len(pt.fragment) != 2 {
+				c.sendAlert(alertUnexpectedMessage)
+				return io.EOF
+			}
+			if alert(pt.fragment[1]) == alertCloseNotify {
+				return io.EOF
+			}
+
+			switch pt.fragment[0] {
+			case alertLevelWarning:
+				// drop on the floor
+			case alertLevelError:
+				return alert(pt.fragment[1])
+			default:
+				c.sendAlert(alertUnexpectedMessage)
+				return io.EOF
+			}
+
 		case recordTypeApplicationData:
-			err = io.EOF
 			c.readBuffer = append(c.readBuffer, pt.fragment...)
 			logf(logTypeIO, "extended buffer: [%d] %x", len(c.readBuffer), c.readBuffer)
 		}
 
 		if err != nil {
 			return err
+		}
+
+		// if there's no more data left, stop reading
+		if len(c.in.nextData) == 0 {
+			return nil
+		}
+
+		// if we're over the limit and the next record is not an alert, exit
+		if len(c.readBuffer) == n && recordType(c.in.nextData[0]) != recordTypeAlert {
+			return nil
 		}
 	}
 	return nil
@@ -121,19 +153,20 @@ func (c *Conn) Read(buffer []byte) (int, error) {
 	c.in.Lock()
 	defer c.in.Unlock()
 
-	n := cap(buffer)
+	n := len(buffer)
 	err := c.extendBuffer(n)
 	var read int
 	if len(c.readBuffer) < n {
 		buffer = buffer[:len(c.readBuffer)]
 		copy(buffer, c.readBuffer)
 		read = len(c.readBuffer)
+		c.readBuffer = c.readBuffer[:0]
 	} else {
 		logf(logTypeIO, "read buffer larger than than input buffer")
 		copy(buffer[:n], c.readBuffer[:n])
+		c.readBuffer = c.readBuffer[n:]
 		read = n
 	}
-	c.readBuffer = c.readBuffer[read:]
 
 	return read, err
 }
@@ -179,14 +212,37 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 	return sent, nil
 }
 
+// sendAlert sends a TLS alert message.
+// c.out.Mutex <= L.
+func (c *Conn) sendAlert(err alert) error {
+	c.handshakeMutex.Lock()
+	defer c.handshakeMutex.Unlock()
+
+	tmp := make([]byte, 2)
+	switch err {
+	case alertNoRenegotiation, alertCloseNotify:
+		tmp[0] = alertLevelWarning
+	default:
+		tmp[0] = alertLevelError
+	}
+	tmp[1] = byte(err)
+	c.out.WriteRecord(&tlsPlaintext{
+		contentType: recordTypeAlert,
+		fragment:    tmp},
+	)
+
+	// closeNotify is a special case in that it isn't an error:
+	if err != alertCloseNotify {
+		return &net.OpError{Op: "local error", Err: err}
+	}
+	return nil
+}
+
 // Close closes the connection.
 func (c *Conn) Close() error {
 	// XXX crypto/tls has an interlock with Write here.  Do we need that?
 
-	c.handshakeMutex.Lock()
-	defer c.handshakeMutex.Unlock()
-
-	// TODO Send closeNotify alert
+	c.sendAlert(alertCloseNotify)
 	return c.conn.Close()
 }
 
