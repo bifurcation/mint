@@ -303,8 +303,12 @@ func (c *Conn) clientHandshake() error {
 
 	// XXX Config
 	config := struct {
-		serverName   string
-		authCallback func(chain []*x509.Certificate) error
+		serverName    string
+		authCallback  func(chain []*x509.Certificate) error
+		preSharedKeys map[string]struct {
+			identity []byte
+			key      []byte
+		}
 	}{
 		serverName:   "example.com",
 		authCallback: func(chain []*x509.Certificate) error { return nil },
@@ -331,12 +335,26 @@ func (c *Conn) clientHandshake() error {
 	sa := signatureAlgorithmsExtension{algorithms: signatureAlgorithms}
 	dv := draftVersionExtension{version: draftVersionImplemented}
 
+	var psk *preSharedKeyExtension
+	if key, ok := config.preSharedKeys[config.serverName]; ok {
+		psk = &preSharedKeyExtension{
+			roleIsServer: false,
+			identities:   [][]byte{key.key},
+		}
+	}
+
 	// Construct and write ClientHello
 	ch := &clientHelloBody{
 		cipherSuites: supportedCipherSuites,
 	}
 	for _, ext := range []extensionBody{&sni, &ks, &sg, &sa, &dv} {
 		err := ch.extensions.Add(ext)
+		if err != nil {
+			return err
+		}
+	}
+	if psk != nil {
+		err := ch.extensions.Add(psk)
 		if err != nil {
 			return err
 		}
@@ -356,28 +374,41 @@ func (c *Conn) clientHandshake() error {
 	}
 	logf(logTypeHandshake, "Received ServerHello")
 
-	// Read the key_share extension and do key agreement
-	serverKeyShares := keyShareExtension{roleIsServer: true}
-	found := sh.extensions.Find(&serverKeyShares)
-	if !found {
-		logf(logTypeHandshake, "Server key shares extension not found")
-		return err
-	}
-	sks := serverKeyShares.shares[0]
-	priv, ok := privateKeys[sks.group]
-	if !ok {
-		return fmt.Errorf("tls.client: Server sent a private key for a group we didn't send")
-	}
-	ES, err := keyAgreement(sks.group, sks.keyExchange, priv)
-	if err != nil {
-		logf(logTypeHandshake, "Error doing key agreement")
-		return err
-	}
-	logf(logTypeHandshake, "Completed key agreement")
+	// Do PSK or key agreement depending on the ciphersuite
+	serverPSK := preSharedKeyExtension{roleIsServer: true}
+	foundPSK := sh.extensions.Find(&serverPSK)
+	serverKeyShare := keyShareExtension{roleIsServer: true}
+	foundKeyShare := sh.extensions.Find(&serverKeyShare)
 
-	// Init crypto context and rekey
+	var pskSecret, dhSecret []byte
+	if foundPSK && psk.HasIdentity(serverPSK.identities[0]) {
+		pskSecret = config.preSharedKeys[config.serverName].key
+	}
+	if foundKeyShare {
+		sks := serverKeyShare.shares[0]
+		priv, ok := privateKeys[sks.group]
+		if ok {
+			// XXX: Ignore error; ctx.Init() will error on dhSecret being nil
+			dhSecret, _ = keyAgreement(sks.group, sks.keyExchange, priv)
+		}
+	}
+
+	// Init crypto context
 	ctx := cryptoContext{}
-	ctx.Init(chm, shm, ES, ES, sh.cipherSuite)
+	err = ctx.Init(sh.cipherSuite)
+	if err != nil {
+		return err
+	}
+	err = ctx.ComputeBaseSecrets(dhSecret, pskSecret)
+	if err != nil {
+		return err
+	}
+	err = ctx.UpdateWithHellos(chm, shm)
+	if err != nil {
+		return err
+	}
+
+	// Rekey to handshake keys
 	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
 	if err != nil {
 		logf(logTypeHandshake, "Unable to rekey inbound")
@@ -492,6 +523,10 @@ func (c *Conn) serverHandshake() error {
 		supportedCiphersuite map[cipherSuite]bool
 		privateKey           crypto.Signer
 		certicate            *x509.Certificate
+		preSharedKeys        []struct {
+			identity []byte
+			key      []byte
+		}
 	}{
 		supportedGroup: map[namedGroup]bool{
 			namedGroupP256: true,
@@ -518,42 +553,57 @@ func (c *Conn) serverHandshake() error {
 	supportedGroups := new(supportedGroupsExtension)
 	signatureAlgorithms := new(signatureAlgorithmsExtension)
 	clientKeyShares := &keyShareExtension{roleIsServer: false}
+	clientPSK := &preSharedKeyExtension{roleIsServer: false}
 
 	gotServerName := ch.extensions.Find(serverName)
 	gotSupportedGroups := ch.extensions.Find(supportedGroups)
 	gotSignatureAlgorithms := ch.extensions.Find(signatureAlgorithms)
 	gotKeyShares := ch.extensions.Find(clientKeyShares)
-	if !gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms || !gotKeyShares {
+	gotPSK := ch.extensions.Find(clientPSK)
+	if !gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms {
 		return fmt.Errorf("tls.server: Missing extension in ClientHello (%v %v %v %v)",
 			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
 	}
 
-	// Find key_share extension and do key agreement
-	var serverKeyShare *keyShareExtension
-	var ES []byte
-	for _, share := range clientKeyShares.shares {
-		if config.supportedGroup[share.group] {
-			pub, priv, err := newKeyShare(share.group)
-			if err != nil {
-				return err
-			}
+	// Find pre_shared_key extension and look it up
+	var serverPSK *preSharedKeyExtension
+	var pskSecret []byte
+	if gotPSK {
+		for _, key := range config.preSharedKeys {
+			if clientPSK.HasIdentity(key.identity) {
+				pskSecret = make([]byte, len(key.key))
+				copy(pskSecret, key.key)
 
-			ES, err = keyAgreement(share.group, share.keyExchange, priv)
-			serverKeyShare = &keyShareExtension{
-				roleIsServer: true,
-				shares:       []keyShare{keyShare{group: share.group, keyExchange: pub}},
+				serverPSK = &preSharedKeyExtension{
+					roleIsServer: true,
+					identities:   [][]byte{key.identity},
+				}
 			}
-			if err != nil {
-				return err
-			}
-			break
 		}
 	}
-	if serverKeyShare == nil {
-		return fmt.Errorf("tls.server: Did not find a matching key share")
-	}
-	if len(ES) == 0 {
-		return fmt.Errorf("tls.server: Key agreement failed")
+
+	// Find key_share extension and do key agreement
+	var serverKeyShare *keyShareExtension
+	var dhSecret []byte
+	if gotKeyShares {
+		for _, share := range clientKeyShares.shares {
+			if config.supportedGroup[share.group] {
+				pub, priv, err := newKeyShare(share.group)
+				if err != nil {
+					return err
+				}
+
+				dhSecret, err = keyAgreement(share.group, share.keyExchange, priv)
+				serverKeyShare = &keyShareExtension{
+					roleIsServer: true,
+					shares:       []keyShare{keyShare{group: share.group, keyExchange: pub}},
+				}
+				if err != nil {
+					return err
+				}
+				break
+			}
+		}
 	}
 
 	// Pick a ciphersuite
@@ -569,19 +619,42 @@ func (c *Conn) serverHandshake() error {
 		return fmt.Errorf("tls.server: No acceptable ciphersuites")
 	}
 
-	// Create and write ServerHello
-	sh := &serverHelloBody{
-		cipherSuite: chosenSuite,
+	// Init context and decide whether to send KeyShare/PreSharedKey
+	ctx := cryptoContext{}
+	err = ctx.Init(chosenSuite)
+	if err != nil {
+		return err
 	}
-	sh.extensions.Add(serverKeyShare)
-	shm, err := hOut.WriteMessageBody(sh)
+	sendKeyShare := (ctx.params.mode == handshakeModePSKAndDH) || (ctx.params.mode == handshakeModeDH)
+	sendPSK := (ctx.params.mode == handshakeModePSK) || (ctx.params.mode == handshakeModePSKAndDH)
+
+	err = ctx.ComputeBaseSecrets(dhSecret, pskSecret)
 	if err != nil {
 		return err
 	}
 
-	// Init context and rekey to handshake keys
-	ctx := cryptoContext{}
-	ctx.Init(chm, shm, ES, ES, chosenSuite)
+	// Create the ServerHello
+	sh := &serverHelloBody{
+		cipherSuite: chosenSuite,
+	}
+	if sendKeyShare {
+		sh.extensions.Add(serverKeyShare)
+	}
+	if sendPSK {
+		sh.extensions.Add(serverPSK)
+	}
+
+	// Write ServerHello and update the crypto context
+	shm, err := hOut.WriteMessageBody(sh)
+	if err != nil {
+		return err
+	}
+	err = ctx.UpdateWithHellos(chm, shm)
+	if err != nil {
+		return err
+	}
+
+	// Rekey to handshake keys
 	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
 	if err != nil {
 		return err

@@ -22,10 +22,20 @@ import (
 
 var prng = rand.Reader
 
+type handshakeMode uint8
+
+const (
+	handshakeModeUnknown handshakeMode = iota
+	handshakeModePSK
+	handshakeModePSKAndDH
+	handshakeModeDH
+)
+
 type cipherSuiteParams struct {
-	hash   crypto.Hash // Hash function
-	keyLen int         // Key length in octets
-	ivLen  int         // IV length in octets
+	mode   handshakeMode // PSK, DH, or both
+	hash   crypto.Hash   // Hash function
+	keyLen int           // Key length in octets
+	ivLen  int           // IV length in octets
 }
 
 var (
@@ -38,21 +48,31 @@ var (
 
 	cipherSuiteMap = map[cipherSuite]cipherSuiteParams{
 		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			mode:   handshakeModeDH,
 			hash:   crypto.SHA256,
 			keyLen: 16,
 			ivLen:  12,
 		},
 		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			mode:   handshakeModeDH,
 			hash:   crypto.SHA256,
 			keyLen: 16,
 			ivLen:  12,
 		},
 		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			mode:   handshakeModeDH,
 			hash:   crypto.SHA256,
 			keyLen: 32,
 			ivLen:  12,
 		},
 		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			mode:   handshakeModeDH,
+			hash:   crypto.SHA256,
+			keyLen: 32,
+			ivLen:  12,
+		},
+		TLS_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			mode:   handshakeModePSK,
 			hash:   crypto.SHA256,
 			keyLen: 32,
 			ivLen:  12,
@@ -365,12 +385,25 @@ type keySet struct {
 	serverWriteIV  []byte
 }
 
+type ctxState uint8
+
+const (
+	ctxStateNew ctxState = iota
+	ctxStateInit
+	ctxStateBase
+	ctxStateHello
+	ctxStateComplete
+)
+
 // XXX: This might be specific to 1xRTT; we'll figure out how to adapt later
 type cryptoContext struct {
-	initialized bool
+	state ctxState
 
 	suite  cipherSuite
 	params cipherSuiteParams
+
+	needKeyShare bool
+	needPSK      bool
 
 	transcript []*handshakeMessage
 
@@ -409,7 +442,11 @@ func (c *cryptoContext) makeTrafficKeys(secret []byte, phase string, handshakeHa
 	}
 }
 
-func (c *cryptoContext) Init(ch, sh *handshakeMessage, SS, ES []byte, suite cipherSuite) error {
+func (c *cryptoContext) Init(suite cipherSuite) error {
+	if c.state != ctxStateNew {
+		return fmt.Errorf("tls.cryptoinit: wrong state")
+	}
+
 	// Configure based on cipherSuite
 	params, ok := cipherSuiteMap[suite]
 	if !ok {
@@ -418,22 +455,72 @@ func (c *cryptoContext) Init(ch, sh *handshakeMessage, SS, ES []byte, suite ciph
 	c.suite = suite
 	c.params = params
 
+	c.state = ctxStateInit
+	return nil
+}
+
+func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
+	if c.state != ctxStateInit {
+		return fmt.Errorf("tls.cryptobase: wrong state")
+	}
+
+	// Compute ES, SS
+	switch c.params.mode {
+	case handshakeModePSK:
+		if pskSecret == nil {
+			return fmt.Errorf("tls.cryptobase: PSK selected but no PSK secret provided")
+		}
+
+		c.SS = make([]byte, len(pskSecret))
+		c.ES = make([]byte, len(pskSecret))
+		copy(c.SS, pskSecret)
+		copy(c.ES, pskSecret)
+	case handshakeModePSKAndDH:
+		if pskSecret == nil {
+			return fmt.Errorf("tls.cryptobase: PSK selected but no PSK secret provided")
+		}
+		if dhSecret == nil {
+			return fmt.Errorf("tls.cryptobase: DH selected but no DH secret provided")
+		}
+
+		c.SS = make([]byte, len(pskSecret))
+		c.ES = make([]byte, len(dhSecret))
+		copy(c.SS, pskSecret)
+		copy(c.ES, dhSecret)
+	case handshakeModeDH:
+		if dhSecret == nil {
+			return fmt.Errorf("tls.cryptobase: DH selected but no DH secret provided")
+		}
+
+		c.SS = make([]byte, len(dhSecret))
+		c.ES = make([]byte, len(dhSecret))
+		copy(c.SS, dhSecret)
+		copy(c.ES, dhSecret)
+	default:
+		return fmt.Errorf("tls.cryptobase: Unknown handshake mode")
+	}
+
+	// Compute xES, xSS = HKDF-Extract(0, XS)
+	c.xSS = hkdfExtract(c.params.hash, nil, c.SS)
+	c.xES = hkdfExtract(c.params.hash, nil, c.ES)
+
+	c.state = ctxStateBase
+	return nil
+}
+
+func (c *cryptoContext) UpdateWithHellos(chm, shm *handshakeMessage) error {
+	if c.state != ctxStateBase {
+		return fmt.Errorf("tls.cryptohello: wrong state")
+	}
+
 	// Set up transcript and initialize transcript hash
 	c.transcript = []*handshakeMessage{}
 
 	// Add ClientHello, ServerHello to transcript
-	if ch == nil || sh == nil {
-		return fmt.Errorf("tls.cryptoinit: Nil message provided")
+	if chm == nil || shm == nil {
+		return fmt.Errorf("tls.cryptohello: Nil message provided")
 	}
-	c.transcript = append(c.transcript, []*handshakeMessage{ch, sh}...)
-
-	// Compute xSS, xES = HKDF-Extract(0, ES)
-	c.SS = make([]byte, len(SS))
-	c.ES = make([]byte, len(ES))
-	copy(c.ES, ES)
-	copy(c.SS, ES)
-	c.xSS = hkdfExtract(c.params.hash, nil, c.SS)
-	c.xES = hkdfExtract(c.params.hash, nil, c.ES)
+	c.transcript = append(c.transcript, []*handshakeMessage{chm, shm}...)
 
 	// Compute handshakeKeys
 	context := c.marshalTranscript()
@@ -442,19 +529,19 @@ func (c *cryptoContext) Init(ch, sh *handshakeMessage, SS, ES []byte, suite ciph
 	handshakeHash := h.Sum(nil)
 	c.handshakeKeys = c.makeTrafficKeys(c.xES, phaseHandshake, handshakeHash)
 
-	c.initialized = true
+	c.state = ctxStateBase
 	return nil
 }
 
 func (c *cryptoContext) Update(messages []*handshakeMessage) error {
-	if !c.initialized {
-		return fmt.Errorf("tls.updatecontext: Called on uninitialized context")
+	if c.state != ctxStateBase {
+		return fmt.Errorf("tls.cryptoupdate: wrong state")
 	}
 
 	// Add messages to transcript
 	for _, msg := range messages {
 		if msg == nil {
-			return fmt.Errorf("tls.updatecontext: Nil message")
+			return fmt.Errorf("tls.cryptoupdate: Nil message")
 		}
 	}
 	c.transcript = append(c.transcript, messages...)
@@ -511,6 +598,7 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	// application_key_0
 	c.applicationKeys = c.makeTrafficKeys(c.trafficSecret, phaseApplication, handshakeHash)
 
+	c.state = ctxStateComplete
 	return nil
 }
 
