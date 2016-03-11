@@ -92,6 +92,7 @@ const (
 	extensionTypeSupportedGroups     helloExtensionType = 10
 	extensionTypeSignatureAlgorithms helloExtensionType = 13
 	extensionTypeKeyShare            helloExtensionType = 40     // Provisional value, from NSS
+	extensionTypePreSharedKey        helloExtensionType = 41     // Provisional value, from NSS
 	extensionTypeDraftVersion        helloExtensionType = 0xff02 // Required for NSS
 )
 

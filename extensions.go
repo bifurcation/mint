@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"bytes"
 	"fmt"
 )
 
@@ -376,6 +377,93 @@ func (sa *signatureAlgorithmsExtension) Unmarshal(data []byte) (int, error) {
 	}
 
 	return 2 + listLen, nil
+}
+
+// opaque psk_identity<0..2^16-1>;
+//
+// struct {
+//     select (Role) {
+//         case client:
+//             psk_identity identities<2..2^16-1>;
+//
+//         case server:
+//             psk_identity identity;
+//     }
+// } PreSharedKeyExtension;
+
+type preSharedKeyExtension struct {
+	roleIsServer bool
+	identities   [][]byte
+}
+
+func (psk preSharedKeyExtension) Type() helloExtensionType {
+	return extensionTypePreSharedKey
+}
+
+func (psk preSharedKeyExtension) Marshal() ([]byte, error) {
+	if psk.roleIsServer && len(psk.identities) > 1 {
+		return nil, fmt.Errorf("tls.presharedkey: Server can only send one identity")
+	}
+
+	identities := []byte{}
+	for _, id := range psk.identities {
+		idLen := len(id)
+		header := []byte{byte(idLen >> 8), byte(idLen)}
+		identities = append(identities, header...)
+		identities = append(identities, id...)
+	}
+
+	if !psk.roleIsServer {
+		dataLen := len(identities)
+		header := []byte{byte(dataLen >> 8), byte(dataLen)}
+		identities = append(header, identities...)
+	}
+
+	return identities, nil
+}
+
+func (psk *preSharedKeyExtension) Unmarshal(data []byte) (int, error) {
+	read := 0
+	totalLen := len(data)
+	if !psk.roleIsServer {
+		if len(data) < 2 {
+			return 0, fmt.Errorf("tls.presharedkey: Client PSK extension too short")
+		}
+		read = 2
+		totalLen = (int(data[0]) << 8) + int(data[1])
+	}
+
+	for read < 2+totalLen {
+		if len(data[read:]) < 2 {
+			return 0, fmt.Errorf("tls.presharedkey: PSK extension too short for identity header")
+		}
+
+		idLen := (int(data[read]) << 8) + int(data[read+1])
+		if len(data[read+2:]) < idLen {
+			return 0, fmt.Errorf("tls.presharedkey: PSK extension too short for identity")
+		}
+
+		id := make([]byte, idLen)
+		copy(id, data[read+2:read+2+idLen])
+		psk.identities = append(psk.identities, id)
+
+		read += 2 + idLen
+
+		if psk.roleIsServer {
+			break
+		}
+	}
+
+	return read, nil
+}
+
+func (psk preSharedKeyExtension) HasIdentity(id []byte) bool {
+	for _, localID := range psk.identities {
+		if bytes.Equal(localID, id) {
+			return true
+		}
+	}
+	return false
 }
 
 // This is required for NSS
