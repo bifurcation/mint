@@ -53,6 +53,9 @@ const (
 	TLS_PSK_WITH_AES_256_GCM_SHA384             cipherSuite = 0x00A9
 	TLS_PSK_WITH_CHACHA20_POLY1305_SHA256       cipherSuite = 0xCCAB
 	TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 cipherSuite = 0xCCAC
+	// FAKE
+	TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256 cipherSuite = 0xFF01
+	TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384 cipherSuite = 0xFF02
 )
 
 // enum {...} HashAlgorithm

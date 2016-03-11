@@ -41,6 +41,7 @@ var (
 		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 		TLS_PSK_WITH_AES_128_GCM_SHA256,
+		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256,
 	}
 
 	supportedGroups = []namedGroup{
@@ -541,7 +542,8 @@ func (c *Conn) serverHandshake() error {
 		supportedCiphersuite: map[cipherSuite]bool{
 			//TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
 			//TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
-			TLS_PSK_WITH_AES_128_GCM_SHA256: true,
+			// TLS_PSK_WITH_AES_128_GCM_SHA256: true, // use to force PSK
+			TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: true, // use to force PSK+DH
 		},
 		preSharedKeys: []preSharedKey{
 			preSharedKey{

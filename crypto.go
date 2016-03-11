@@ -47,6 +47,7 @@ var (
 	}
 
 	cipherSuiteMap = map[cipherSuite]cipherSuiteParams{
+		// REQUIRED
 		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
 			mode:   handshakeModeDH,
 			hash:   crypto.SHA256,
@@ -59,21 +60,36 @@ var (
 			keyLen: 16,
 			ivLen:  12,
 		},
+		// RECOMMENDED
 		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
 			mode:   handshakeModeDH,
-			hash:   crypto.SHA256,
+			hash:   crypto.SHA384,
 			keyLen: 32,
 			ivLen:  12,
 		},
 		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
 			mode:   handshakeModeDH,
-			hash:   crypto.SHA256,
+			hash:   crypto.SHA384,
 			keyLen: 32,
 			ivLen:  12,
 		},
+		// OTHER
 		TLS_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
 			mode:   handshakeModePSK,
 			hash:   crypto.SHA256,
+			keyLen: 16,
+			ivLen:  12,
+		},
+		// FAKE
+		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			mode:   handshakeModePSKAndDH,
+			hash:   crypto.SHA256,
+			keyLen: 16,
+			ivLen:  12,
+		},
+		TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			mode:   handshakeModeDH,
+			hash:   crypto.SHA384,
 			keyLen: 32,
 			ivLen:  12,
 		},
