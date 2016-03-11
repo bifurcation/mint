@@ -40,6 +40,7 @@ var (
 		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		TLS_PSK_WITH_AES_128_GCM_SHA256,
 	}
 
 	supportedGroups = []namedGroup{
@@ -297,6 +298,11 @@ func (c *Conn) Handshake() error {
 	return c.handshakeErr
 }
 
+type preSharedKey struct {
+	identity []byte
+	key      []byte
+}
+
 func (c *Conn) clientHandshake() error {
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
@@ -305,13 +311,16 @@ func (c *Conn) clientHandshake() error {
 	config := struct {
 		serverName    string
 		authCallback  func(chain []*x509.Certificate) error
-		preSharedKeys map[string]struct {
-			identity []byte
-			key      []byte
-		}
+		preSharedKeys map[string]preSharedKey
 	}{
 		serverName:   "example.com",
 		authCallback: func(chain []*x509.Certificate) error { return nil },
+		preSharedKeys: map[string]preSharedKey{
+			"example.com": preSharedKey{
+				identity: []byte{0, 1, 2, 3},
+				key:      []byte("sixteen byte key"),
+			},
+		},
 	}
 
 	// Construct some extensions
@@ -339,7 +348,7 @@ func (c *Conn) clientHandshake() error {
 	if key, ok := config.preSharedKeys[config.serverName]; ok {
 		psk = &preSharedKeyExtension{
 			roleIsServer: false,
-			identities:   [][]byte{key.key},
+			identities:   [][]byte{key.identity},
 		}
 	}
 
@@ -493,7 +502,6 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Send client Finished
-
 	_, err = hOut.WriteMessageBody(ctx.clientFinished)
 	if err != nil {
 		return err
@@ -523,10 +531,7 @@ func (c *Conn) serverHandshake() error {
 		supportedCiphersuite map[cipherSuite]bool
 		privateKey           crypto.Signer
 		certicate            *x509.Certificate
-		preSharedKeys        []struct {
-			identity []byte
-			key      []byte
-		}
+		preSharedKeys        []preSharedKey
 	}{
 		supportedGroup: map[namedGroup]bool{
 			namedGroupP256: true,
@@ -534,8 +539,15 @@ func (c *Conn) serverHandshake() error {
 			namedGroupP521: true,
 		},
 		supportedCiphersuite: map[cipherSuite]bool{
-			TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
-			TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
+			//TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
+			//TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
+			TLS_PSK_WITH_AES_128_GCM_SHA256: true,
+		},
+		preSharedKeys: []preSharedKey{
+			preSharedKey{
+				identity: []byte{0, 1, 2, 3},
+				key:      []byte("sixteen byte key"),
+			},
 		},
 	}
 	config.privateKey, _ = newSigningKey(signatureAlgorithmRSA)
@@ -546,8 +558,10 @@ func (c *Conn) serverHandshake() error {
 	ch := new(clientHelloBody)
 	chm, err := hIn.ReadMessageBody(ch)
 	if err != nil {
+		logf(logTypeHandshake, "Unable to read ClientHello: %v", err)
 		return err
 	}
+	logf(logTypeHandshake, "Read ClientHello")
 
 	serverName := new(serverNameExtension)
 	supportedGroups := new(supportedGroupsExtension)
@@ -561,6 +575,7 @@ func (c *Conn) serverHandshake() error {
 	gotKeyShares := ch.extensions.Find(clientKeyShares)
 	gotPSK := ch.extensions.Find(clientPSK)
 	if !gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms {
+		logf(logTypeHandshake, "Insufficient extensions")
 		return fmt.Errorf("tls.server: Missing extension in ClientHello (%v %v %v %v)",
 			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
 	}
@@ -569,8 +584,15 @@ func (c *Conn) serverHandshake() error {
 	var serverPSK *preSharedKeyExtension
 	var pskSecret []byte
 	if gotPSK {
+		logf(logTypeHandshake, "Got PSK extension; processing")
+		for _, id := range clientPSK.identities {
+			logf(logTypeHandshake, "Client provided PSK identity %x", id)
+		}
+
 		for _, key := range config.preSharedKeys {
+			logf(logTypeHandshake, "Checking for %x", key.identity)
 			if clientPSK.HasIdentity(key.identity) {
+				logf(logTypeHandshake, "Matched %x")
 				pskSecret = make([]byte, len(key.key))
 				copy(pskSecret, key.key)
 
@@ -586,6 +608,7 @@ func (c *Conn) serverHandshake() error {
 	var serverKeyShare *keyShareExtension
 	var dhSecret []byte
 	if gotKeyShares {
+		logf(logTypeHandshake, "Got KeyShare extension; processing")
 		for _, share := range clientKeyShares.shares {
 			if config.supportedGroup[share.group] {
 				pub, priv, err := newKeyShare(share.group)
@@ -616,8 +639,10 @@ func (c *Conn) serverHandshake() error {
 		}
 	}
 	if !foundCipherSuite {
+		logf(logTypeHandshake, "No acceptable ciphersuites")
 		return fmt.Errorf("tls.server: No acceptable ciphersuites")
 	}
+	logf(logTypeHandshake, "Chose CipherSuite %x", chosenSuite)
 
 	// Init context and decide whether to send KeyShare/PreSharedKey
 	ctx := cryptoContext{}
@@ -627,11 +652,14 @@ func (c *Conn) serverHandshake() error {
 	}
 	sendKeyShare := (ctx.params.mode == handshakeModePSKAndDH) || (ctx.params.mode == handshakeModeDH)
 	sendPSK := (ctx.params.mode == handshakeModePSK) || (ctx.params.mode == handshakeModePSKAndDH)
+	logf(logTypeHandshake, "Initialized context %v %v", sendKeyShare, sendPSK)
 
 	err = ctx.ComputeBaseSecrets(dhSecret, pskSecret)
 	if err != nil {
+		logf(logTypeHandshake, "Unable to compute base secrets %v", err)
 		return err
 	}
+	logf(logTypeHandshake, "Computed base secrets")
 
 	// Create the ServerHello
 	sh := &serverHelloBody{
@@ -643,12 +671,15 @@ func (c *Conn) serverHandshake() error {
 	if sendPSK {
 		sh.extensions.Add(serverPSK)
 	}
+	logf(logTypeHandshake, "Done creating ServerHello")
 
 	// Write ServerHello and update the crypto context
 	shm, err := hOut.WriteMessageBody(sh)
 	if err != nil {
+		logf(logTypeHandshake, "Unable to send ServerHello %v", err)
 		return err
 	}
+	logf(logTypeHandshake, "Wrote ServerHello")
 	err = ctx.UpdateWithHellos(chm, shm)
 	if err != nil {
 		return err
