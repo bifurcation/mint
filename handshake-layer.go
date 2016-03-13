@@ -133,7 +133,7 @@ func (h *handshakeLayer) ReadMessageBody(body handshakeMessageBody) (*handshakeM
 	}
 
 	if hm.msgType != body.Type() {
-		return nil, fmt.Errorf("tls.handshakelayer: Unexpected message type %v", hm.msgType)
+		return nil, fmt.Errorf("tls.handshakelayer: Unexpected message type %v != %v", hm.msgType, body.Type())
 	}
 
 	read, err := body.Unmarshal(hm.body)

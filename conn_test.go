@@ -29,23 +29,29 @@ func TestBasicFlow(t *testing.T) {
 	s2c := pipe()
 
 	client := &Conn{
-		in:  newRecordLayer(s2c),
-		out: newRecordLayer(c2s),
+		isClient: true,
+		in:       newRecordLayer(s2c),
+		out:      newRecordLayer(c2s),
 	}
 	server := &Conn{
-		in:  newRecordLayer(c2s),
-		out: newRecordLayer(s2c),
+		isClient: false,
+		in:       newRecordLayer(c2s),
+		out:      newRecordLayer(s2c),
 	}
 
 	done := make(chan bool)
 	go func(t *testing.T) {
-		err := server.serverHandshake()
+		err := server.Handshake()
 		assertNotError(t, err, "Server failed handshake")
 		done <- true
 	}(t)
 
-	err := client.clientHandshake()
+	err := client.Handshake()
 	assertNotError(t, err, "Client failed handshake")
+
+	buf := make([]byte, 0)
+	_, err = client.Read(buf)
+	assertNotError(t, err, "Failed to read")
 
 	<-done
 

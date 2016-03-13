@@ -101,7 +101,8 @@ func (c *Conn) extendBuffer(n int) error {
 
 		switch pt.contentType {
 		case recordTypeHandshake:
-			// TODO: Handle post-handshake handshake messages
+			// TODO: Handle NewSessionTicket
+			// TODO: Handle KeyUpdate messages
 		case recordTypeAlert:
 			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(c.readBuffer), c.readBuffer)
 			if len(pt.fragment) != 2 {
@@ -536,6 +537,8 @@ func (c *Conn) serverHandshake() error {
 		privateKey           crypto.Signer
 		certicate            *x509.Certificate
 		preSharedKeys        []preSharedKey
+		ticketLifetime       uint32
+		ticketLen            int
 	}{
 		supportedGroup: map[namedGroup]bool{
 			namedGroupP256: true,
@@ -554,6 +557,8 @@ func (c *Conn) serverHandshake() error {
 				key:      []byte("sixteen byte key"),
 			},
 		},
+		ticketLifetime: 120,
+		ticketLen:      32,
 	}
 	config.privateKey, _ = newSigningKey(signatureAlgorithmRSA)
 	config.certicate, _ = newSelfSigned("example.com",
@@ -762,6 +767,26 @@ func (c *Conn) serverHandshake() error {
 	}
 	err = c.out.Rekey(ctx.suite, ctx.applicationKeys.serverWriteKey, ctx.applicationKeys.serverWriteIV)
 	if err != nil {
+		return err
+	}
+
+	// Send a new session ticket
+	tkt, err := newSessionTicket(config.ticketLifetime, config.ticketLen)
+	if err != nil {
+		return err
+	}
+
+	newPSK := preSharedKey{
+		identity: tkt.ticket,
+		key:      ctx.masterSecret,
+	}
+	config.preSharedKeys = append(config.preSharedKeys, newPSK)
+
+	logf(logTypeHandshake, "About to write NewSessionTicket %v", err)
+	_, err = hOut.WriteMessageBody(tkt)
+	logf(logTypeHandshake, "Wrote NewSessionTicket %v", err)
+	if err != nil {
+		logf(logTypeHandshake, "Returning error: %v", err)
 		return err
 	}
 
