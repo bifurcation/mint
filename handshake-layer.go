@@ -50,6 +50,8 @@ func (hm handshakeMessage) toBody() (handshakeMessageBody, error) {
 		body = new(certificateVerifyBody)
 	case handshakeTypeFinished:
 		body = new(finishedBody)
+	case handshakeTypeNewSessionTicket:
+		body = new(newSessionTicketBody)
 	default:
 		return body, fmt.Errorf("tls.handshakemessage: Unsupported body type")
 	}

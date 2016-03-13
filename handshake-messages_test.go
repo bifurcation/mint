@@ -132,6 +132,17 @@ var (
 		signature: []byte{0, 0, 0, 0},
 	}
 	certVerifyValidHex = "0403000400000000"
+
+	// NewSessionTicket test cases
+	ticketValidHex = "00010203000404050607"
+	ticketValidIn  = newSessionTicketBody{
+		lifetimeHint: 0x00010203,
+		ticket:       []byte{4, 5, 6, 7},
+	}
+	ticketTooBigIn = newSessionTicketBody{
+		lifetimeHint: 0x00010203,
+		ticket:       make([]byte, maxTicketLen+1),
+	}
 )
 
 func TestHandshakeMessageTypes(t *testing.T) {
@@ -489,7 +500,42 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Verified CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.alg.hash = hashAlgorithmSHA256
 
-	// Test veiryf failure on nil message
+	// Test veirfy failure on nil message
 	err = certVerifyValidIn.Verify(privRSA.Public(), nilTranscript)
 	assertError(t, err, "Verified CertificateVerify despite nil message")
+}
+
+func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
+	ticketValid, _ := hex.DecodeString(ticketValidHex)
+
+	// Test correctness of handshake type
+	assertEquals(t, (newSessionTicketBody{}).Type(), handshakeTypeNewSessionTicket)
+
+	// Test creation of a new random ticket
+	tkt, err := newSessionTicket(uint32(3), 16)
+	assertNotError(t, err, "Failed to create session ticket")
+	assertEquals(t, tkt.lifetimeHint, uint32(3))
+	assertEquals(t, len(tkt.ticket), 16)
+
+	// Test successful marshal
+	out, err := ticketValidIn.Marshal()
+	assertNotError(t, err, "Failed to marshal a valid NewSessionTicket")
+	assertByteEquals(t, out, ticketValid)
+
+	// Test marshal failure on incorrect data length
+	out, err = ticketTooBigIn.Marshal()
+	assertError(t, err, "Marshaled a Finished with the wrong data length")
+
+	// Test successful unmarshal
+	read, err := tkt.Unmarshal(ticketValid)
+	assertNotError(t, err, "Failed to unmarshal a valid NewSessionTicket")
+	assertEquals(t, read, len(ticketValid))
+	assertDeepEquals(t, *tkt, ticketValidIn)
+
+	// Test unmarshal failure on insufficient data
+	_, err = tkt.Unmarshal(ticketValid[:4])
+	assertError(t, err, "Unmarshaled a NewSessionTicket with an incomplete header")
+
+	_, err = tkt.Unmarshal(ticketValid[:9])
+	assertError(t, err, "Unmarshaled a NewSessionTicket with an incomplete ticket")
 }
