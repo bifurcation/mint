@@ -466,7 +466,7 @@ func (c *Conn) clientHandshake() error {
 	logf(logTypeHandshake, "Done reading server's first flight")
 
 	// Verify the server's certificate if required
-	if ctx.params.mode != handshakeModePSK {
+	if ctx.params.mode != handshakeModePSK && ctx.params.mode != handshakeModePSKAndDH {
 		if cert == nil || certVerify == nil {
 			return fmt.Errorf("tls.client: No server auth data provided")
 		}
@@ -709,7 +709,7 @@ func (c *Conn) serverHandshake() error {
 	transcript := []*handshakeMessage{eem}
 
 	// Authenticate with a certificate if required
-	if ctx.params.mode != handshakeModePSK {
+	if sendPSK {
 		// Create and send Certificate, CertificateVerify
 		// TODO Certificate selection based on ClientHello
 		certificate := &certificateBody{
