@@ -466,7 +466,7 @@ func (c *Conn) clientHandshake() error {
 	logf(logTypeHandshake, "Done reading server's first flight")
 
 	// Verify the server's certificate if required
-	if config.authCallback != nil {
+	if ctx.params.mode != handshakeModePSK {
 		if cert == nil || certVerify == nil {
 			return fmt.Errorf("tls.client: No server auth data provided")
 		}
@@ -483,8 +483,11 @@ func (c *Conn) clientHandshake() error {
 			return err
 		}
 
-		if err = config.authCallback(cert.certificateList); err != nil {
-			return err
+		if config.authCallback != nil {
+			err = config.authCallback(cert.certificateList)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -542,8 +545,8 @@ func (c *Conn) serverHandshake() error {
 		supportedCiphersuite: map[cipherSuite]bool{
 			//TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
 			//TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
-			// TLS_PSK_WITH_AES_128_GCM_SHA256: true, // use to force PSK
-			TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: true, // use to force PSK+DH
+			TLS_PSK_WITH_AES_128_GCM_SHA256: true, // use to force PSK
+			//TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: true, // use to force PSK+DH
 		},
 		preSharedKeys: []preSharedKey{
 			preSharedKey{
@@ -703,31 +706,37 @@ func (c *Conn) serverHandshake() error {
 	if err != nil {
 		return err
 	}
+	transcript := []*handshakeMessage{eem}
 
-	// Create and send Certificate, CertificateVerify
-	// TODO Certificate selection based on ClientHello
-	certificate := &certificateBody{
-		certificateList: []*x509.Certificate{config.certicate},
-	}
-	certm, err := hOut.WriteMessageBody(certificate)
-	if err != nil {
-		return err
-	}
+	// Authenticate with a certificate if required
+	if ctx.params.mode != handshakeModePSK {
+		// Create and send Certificate, CertificateVerify
+		// TODO Certificate selection based on ClientHello
+		certificate := &certificateBody{
+			certificateList: []*x509.Certificate{config.certicate},
+		}
+		certm, err := hOut.WriteMessageBody(certificate)
+		if err != nil {
+			return err
+		}
 
-	certificateVerify := &certificateVerifyBody{
-		alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
-	}
-	err = certificateVerify.Sign(config.privateKey, []*handshakeMessage{chm, shm, eem, certm})
-	if err != nil {
-		return err
-	}
-	certvm, err := hOut.WriteMessageBody(certificateVerify)
-	if err != nil {
-		return err
+		certificateVerify := &certificateVerifyBody{
+			alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
+		}
+		err = certificateVerify.Sign(config.privateKey, []*handshakeMessage{chm, shm, eem, certm})
+		if err != nil {
+			return err
+		}
+		certvm, err := hOut.WriteMessageBody(certificateVerify)
+		if err != nil {
+			return err
+		}
+
+		transcript = append(transcript, []*handshakeMessage{certm, certvm}...)
 	}
 
 	// Update the crypto context
-	ctx.Update([]*handshakeMessage{eem, certm, certvm})
+	ctx.Update(transcript)
 
 	// Create and write server Finished
 	_, err = hOut.WriteMessageBody(ctx.serverFinished)
