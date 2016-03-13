@@ -3,6 +3,8 @@
 mint - A Minimal TLS 1.3 stack
 ==============================
 
+[![Build Status](https://circleci.com/gh/bifurcation/mint.svg)](https://circleci.com/gh/bifurcation/mint)
+
 This project is primarily a learning effort for me to understand the [TLS
 1.3](http://tlswg.github.io/tls13-spec/) protocol.  The goal is to arrive at a
 pretty complete implementation of TLS 1.3, with minimal, elegant code that
