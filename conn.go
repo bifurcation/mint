@@ -40,6 +40,8 @@ var (
 		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		TLS_PSK_WITH_AES_128_GCM_SHA256,
+		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256,
 	}
 
 	supportedGroups = []namedGroup{
@@ -297,17 +299,29 @@ func (c *Conn) Handshake() error {
 	return c.handshakeErr
 }
 
+type preSharedKey struct {
+	identity []byte
+	key      []byte
+}
+
 func (c *Conn) clientHandshake() error {
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
 
 	// XXX Config
 	config := struct {
-		serverName   string
-		authCallback func(chain []*x509.Certificate) error
+		serverName    string
+		authCallback  func(chain []*x509.Certificate) error
+		preSharedKeys map[string]preSharedKey
 	}{
 		serverName:   "example.com",
 		authCallback: func(chain []*x509.Certificate) error { return nil },
+		preSharedKeys: map[string]preSharedKey{
+			"example.com": preSharedKey{
+				identity: []byte{0, 1, 2, 3},
+				key:      []byte("sixteen byte key"),
+			},
+		},
 	}
 
 	// Construct some extensions
@@ -331,12 +345,26 @@ func (c *Conn) clientHandshake() error {
 	sa := signatureAlgorithmsExtension{algorithms: signatureAlgorithms}
 	dv := draftVersionExtension{version: draftVersionImplemented}
 
+	var psk *preSharedKeyExtension
+	if key, ok := config.preSharedKeys[config.serverName]; ok {
+		psk = &preSharedKeyExtension{
+			roleIsServer: false,
+			identities:   [][]byte{key.identity},
+		}
+	}
+
 	// Construct and write ClientHello
 	ch := &clientHelloBody{
 		cipherSuites: supportedCipherSuites,
 	}
 	for _, ext := range []extensionBody{&sni, &ks, &sg, &sa, &dv} {
 		err := ch.extensions.Add(ext)
+		if err != nil {
+			return err
+		}
+	}
+	if psk != nil {
+		err := ch.extensions.Add(psk)
 		if err != nil {
 			return err
 		}
@@ -356,28 +384,41 @@ func (c *Conn) clientHandshake() error {
 	}
 	logf(logTypeHandshake, "Received ServerHello")
 
-	// Read the key_share extension and do key agreement
-	serverKeyShares := keyShareExtension{roleIsServer: true}
-	found := sh.extensions.Find(&serverKeyShares)
-	if !found {
-		logf(logTypeHandshake, "Server key shares extension not found")
-		return err
-	}
-	sks := serverKeyShares.shares[0]
-	priv, ok := privateKeys[sks.group]
-	if !ok {
-		return fmt.Errorf("tls.client: Server sent a private key for a group we didn't send")
-	}
-	ES, err := keyAgreement(sks.group, sks.keyExchange, priv)
-	if err != nil {
-		logf(logTypeHandshake, "Error doing key agreement")
-		return err
-	}
-	logf(logTypeHandshake, "Completed key agreement")
+	// Do PSK or key agreement depending on the ciphersuite
+	serverPSK := preSharedKeyExtension{roleIsServer: true}
+	foundPSK := sh.extensions.Find(&serverPSK)
+	serverKeyShare := keyShareExtension{roleIsServer: true}
+	foundKeyShare := sh.extensions.Find(&serverKeyShare)
 
-	// Init crypto context and rekey
+	var pskSecret, dhSecret []byte
+	if foundPSK && psk.HasIdentity(serverPSK.identities[0]) {
+		pskSecret = config.preSharedKeys[config.serverName].key
+	}
+	if foundKeyShare {
+		sks := serverKeyShare.shares[0]
+		priv, ok := privateKeys[sks.group]
+		if ok {
+			// XXX: Ignore error; ctx.Init() will error on dhSecret being nil
+			dhSecret, _ = keyAgreement(sks.group, sks.keyExchange, priv)
+		}
+	}
+
+	// Init crypto context
 	ctx := cryptoContext{}
-	ctx.Init(chm, shm, ES, ES, sh.cipherSuite)
+	err = ctx.Init(sh.cipherSuite)
+	if err != nil {
+		return err
+	}
+	err = ctx.ComputeBaseSecrets(dhSecret, pskSecret)
+	if err != nil {
+		return err
+	}
+	err = ctx.UpdateWithHellos(chm, shm)
+	if err != nil {
+		return err
+	}
+
+	// Rekey to handshake keys
 	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
 	if err != nil {
 		logf(logTypeHandshake, "Unable to rekey inbound")
@@ -425,7 +466,7 @@ func (c *Conn) clientHandshake() error {
 	logf(logTypeHandshake, "Done reading server's first flight")
 
 	// Verify the server's certificate if required
-	if config.authCallback != nil {
+	if ctx.params.mode != handshakeModePSK && ctx.params.mode != handshakeModePSKAndDH {
 		if cert == nil || certVerify == nil {
 			return fmt.Errorf("tls.client: No server auth data provided")
 		}
@@ -442,8 +483,11 @@ func (c *Conn) clientHandshake() error {
 			return err
 		}
 
-		if err = config.authCallback(cert.certificateList); err != nil {
-			return err
+		if config.authCallback != nil {
+			err = config.authCallback(cert.certificateList)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -462,7 +506,6 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Send client Finished
-
 	_, err = hOut.WriteMessageBody(ctx.clientFinished)
 	if err != nil {
 		return err
@@ -492,6 +535,7 @@ func (c *Conn) serverHandshake() error {
 		supportedCiphersuite map[cipherSuite]bool
 		privateKey           crypto.Signer
 		certicate            *x509.Certificate
+		preSharedKeys        []preSharedKey
 	}{
 		supportedGroup: map[namedGroup]bool{
 			namedGroupP256: true,
@@ -499,8 +543,16 @@ func (c *Conn) serverHandshake() error {
 			namedGroupP521: true,
 		},
 		supportedCiphersuite: map[cipherSuite]bool{
-			TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
-			TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
+			//TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
+			//TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
+			TLS_PSK_WITH_AES_128_GCM_SHA256: true, // use to force PSK
+			//TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: true, // use to force PSK+DH
+		},
+		preSharedKeys: []preSharedKey{
+			preSharedKey{
+				identity: []byte{0, 1, 2, 3},
+				key:      []byte("sixteen byte key"),
+			},
 		},
 	}
 	config.privateKey, _ = newSigningKey(signatureAlgorithmRSA)
@@ -511,49 +563,75 @@ func (c *Conn) serverHandshake() error {
 	ch := new(clientHelloBody)
 	chm, err := hIn.ReadMessageBody(ch)
 	if err != nil {
+		logf(logTypeHandshake, "Unable to read ClientHello: %v", err)
 		return err
 	}
+	logf(logTypeHandshake, "Read ClientHello")
 
 	serverName := new(serverNameExtension)
 	supportedGroups := new(supportedGroupsExtension)
 	signatureAlgorithms := new(signatureAlgorithmsExtension)
 	clientKeyShares := &keyShareExtension{roleIsServer: false}
+	clientPSK := &preSharedKeyExtension{roleIsServer: false}
 
 	gotServerName := ch.extensions.Find(serverName)
 	gotSupportedGroups := ch.extensions.Find(supportedGroups)
 	gotSignatureAlgorithms := ch.extensions.Find(signatureAlgorithms)
 	gotKeyShares := ch.extensions.Find(clientKeyShares)
-	if !gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms || !gotKeyShares {
+	gotPSK := ch.extensions.Find(clientPSK)
+	if !gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms {
+		logf(logTypeHandshake, "Insufficient extensions")
 		return fmt.Errorf("tls.server: Missing extension in ClientHello (%v %v %v %v)",
 			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
 	}
 
-	// Find key_share extension and do key agreement
-	var serverKeyShare *keyShareExtension
-	var ES []byte
-	for _, share := range clientKeyShares.shares {
-		if config.supportedGroup[share.group] {
-			pub, priv, err := newKeyShare(share.group)
-			if err != nil {
-				return err
-			}
+	// Find pre_shared_key extension and look it up
+	var serverPSK *preSharedKeyExtension
+	var pskSecret []byte
+	if gotPSK {
+		logf(logTypeHandshake, "Got PSK extension; processing")
+		for _, id := range clientPSK.identities {
+			logf(logTypeHandshake, "Client provided PSK identity %x", id)
+		}
 
-			ES, err = keyAgreement(share.group, share.keyExchange, priv)
-			serverKeyShare = &keyShareExtension{
-				roleIsServer: true,
-				shares:       []keyShare{keyShare{group: share.group, keyExchange: pub}},
+		for _, key := range config.preSharedKeys {
+			logf(logTypeHandshake, "Checking for %x", key.identity)
+			if clientPSK.HasIdentity(key.identity) {
+				logf(logTypeHandshake, "Matched %x")
+				pskSecret = make([]byte, len(key.key))
+				copy(pskSecret, key.key)
+
+				serverPSK = &preSharedKeyExtension{
+					roleIsServer: true,
+					identities:   [][]byte{key.identity},
+				}
 			}
-			if err != nil {
-				return err
-			}
-			break
 		}
 	}
-	if serverKeyShare == nil {
-		return fmt.Errorf("tls.server: Did not find a matching key share")
-	}
-	if len(ES) == 0 {
-		return fmt.Errorf("tls.server: Key agreement failed")
+
+	// Find key_share extension and do key agreement
+	var serverKeyShare *keyShareExtension
+	var dhSecret []byte
+	if gotKeyShares {
+		logf(logTypeHandshake, "Got KeyShare extension; processing")
+		for _, share := range clientKeyShares.shares {
+			if config.supportedGroup[share.group] {
+				pub, priv, err := newKeyShare(share.group)
+				if err != nil {
+					return err
+				}
+
+				dhSecret, err = keyAgreement(share.group, share.keyExchange, priv)
+				serverKeyShare = &keyShareExtension{
+					roleIsServer: true,
+					shares:       []keyShare{keyShare{group: share.group, keyExchange: pub}},
+				}
+				if err != nil {
+					return err
+				}
+				break
+			}
+		}
 	}
 
 	// Pick a ciphersuite
@@ -566,22 +644,53 @@ func (c *Conn) serverHandshake() error {
 		}
 	}
 	if !foundCipherSuite {
+		logf(logTypeHandshake, "No acceptable ciphersuites")
 		return fmt.Errorf("tls.server: No acceptable ciphersuites")
 	}
+	logf(logTypeHandshake, "Chose CipherSuite %x", chosenSuite)
 
-	// Create and write ServerHello
+	// Init context and decide whether to send KeyShare/PreSharedKey
+	ctx := cryptoContext{}
+	err = ctx.Init(chosenSuite)
+	if err != nil {
+		return err
+	}
+	sendKeyShare := (ctx.params.mode == handshakeModePSKAndDH) || (ctx.params.mode == handshakeModeDH)
+	sendPSK := (ctx.params.mode == handshakeModePSK) || (ctx.params.mode == handshakeModePSKAndDH)
+	logf(logTypeHandshake, "Initialized context %v %v", sendKeyShare, sendPSK)
+
+	err = ctx.ComputeBaseSecrets(dhSecret, pskSecret)
+	if err != nil {
+		logf(logTypeHandshake, "Unable to compute base secrets %v", err)
+		return err
+	}
+	logf(logTypeHandshake, "Computed base secrets")
+
+	// Create the ServerHello
 	sh := &serverHelloBody{
 		cipherSuite: chosenSuite,
 	}
-	sh.extensions.Add(serverKeyShare)
+	if sendKeyShare {
+		sh.extensions.Add(serverKeyShare)
+	}
+	if sendPSK {
+		sh.extensions.Add(serverPSK)
+	}
+	logf(logTypeHandshake, "Done creating ServerHello")
+
+	// Write ServerHello and update the crypto context
 	shm, err := hOut.WriteMessageBody(sh)
+	if err != nil {
+		logf(logTypeHandshake, "Unable to send ServerHello %v", err)
+		return err
+	}
+	logf(logTypeHandshake, "Wrote ServerHello")
+	err = ctx.UpdateWithHellos(chm, shm)
 	if err != nil {
 		return err
 	}
 
-	// Init context and rekey to handshake keys
-	ctx := cryptoContext{}
-	ctx.Init(chm, shm, ES, ES, chosenSuite)
+	// Rekey to handshake keys
 	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
 	if err != nil {
 		return err
@@ -597,31 +706,37 @@ func (c *Conn) serverHandshake() error {
 	if err != nil {
 		return err
 	}
+	transcript := []*handshakeMessage{eem}
 
-	// Create and send Certificate, CertificateVerify
-	// TODO Certificate selection based on ClientHello
-	certificate := &certificateBody{
-		certificateList: []*x509.Certificate{config.certicate},
-	}
-	certm, err := hOut.WriteMessageBody(certificate)
-	if err != nil {
-		return err
-	}
+	// Authenticate with a certificate if required
+	if sendPSK {
+		// Create and send Certificate, CertificateVerify
+		// TODO Certificate selection based on ClientHello
+		certificate := &certificateBody{
+			certificateList: []*x509.Certificate{config.certicate},
+		}
+		certm, err := hOut.WriteMessageBody(certificate)
+		if err != nil {
+			return err
+		}
 
-	certificateVerify := &certificateVerifyBody{
-		alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
-	}
-	err = certificateVerify.Sign(config.privateKey, []*handshakeMessage{chm, shm, eem, certm})
-	if err != nil {
-		return err
-	}
-	certvm, err := hOut.WriteMessageBody(certificateVerify)
-	if err != nil {
-		return err
+		certificateVerify := &certificateVerifyBody{
+			alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
+		}
+		err = certificateVerify.Sign(config.privateKey, []*handshakeMessage{chm, shm, eem, certm})
+		if err != nil {
+			return err
+		}
+		certvm, err := hOut.WriteMessageBody(certificateVerify)
+		if err != nil {
+			return err
+		}
+
+		transcript = append(transcript, []*handshakeMessage{certm, certvm}...)
 	}
 
 	// Update the crypto context
-	ctx.Update([]*handshakeMessage{eem, certm, certvm})
+	ctx.Update(transcript)
 
 	// Create and write server Finished
 	_, err = hOut.WriteMessageBody(ctx.serverFinished)

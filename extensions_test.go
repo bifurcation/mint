@@ -110,6 +110,23 @@ var (
 	serverNameIn  = serverNameExtension(serverNameRaw)
 	serverNameHex = "000e00000b" + hex.EncodeToString([]byte(serverNameRaw))
 
+	// PSK test cases
+	pskClientHex = "000c000400010203000404050607"
+	pskServerHex = "00080001020304050607"
+	pskClientIn  = &preSharedKeyExtension{
+		roleIsServer: false,
+		identities: [][]byte{
+			[]byte{0, 1, 2, 3},
+			[]byte{4, 5, 6, 7},
+		},
+	}
+	pskServerIn = &preSharedKeyExtension{
+		roleIsServer: true,
+		identities: [][]byte{
+			[]byte{0, 1, 2, 3, 4, 5, 6, 7},
+		},
+	}
+
 	// DraftVersion test cases
 	draftVersionIn  = draftVersionExtension{0x2030}
 	draftVersionHex = "2030"
@@ -427,4 +444,67 @@ func TestDraftVersionMarshalUnmarshal(t *testing.T) {
 	dv = draftVersionExtension{}
 	read, err = dv.Unmarshal(draftVersion[:1])
 	assertError(t, err, "Unmarshaled a DraftVersion with the wrong length")
+}
+
+func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
+	pskClient, _ := hex.DecodeString(pskClientHex)
+	pskServer, _ := hex.DecodeString(pskServerHex)
+
+	// Test extension type
+	assertEquals(t, preSharedKeyExtension{}.Type(), extensionTypePreSharedKey)
+
+	// Test successful marshal (client side)
+	out, err := pskClientIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid KeyShare (client)")
+	assertByteEquals(t, out, pskClient)
+
+	// Test successful marshal (server side)
+	out, err = pskServerIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid KeyShare (server)")
+	assertByteEquals(t, out, pskServer)
+
+	// Test marshal failure on server trying to send multiple
+	pskClientIn.roleIsServer = !pskClientIn.roleIsServer
+	out, err = pskClientIn.Marshal()
+	assertError(t, err, "Marshaled multiple key shares for server")
+	pskClientIn.roleIsServer = !pskClientIn.roleIsServer
+
+	// Test successful unmarshal (client side)
+	psk := preSharedKeyExtension{roleIsServer: false}
+	read, err := psk.Unmarshal(pskClient)
+	assertNotError(t, err, "Failed to unmarshal valid KeyShare (client)")
+	assertDeepEquals(t, &psk, pskClientIn)
+	assertEquals(t, read, len(pskClient))
+
+	// Test successful unmarshal (server side)
+	psk = preSharedKeyExtension{roleIsServer: true}
+	read, err = psk.Unmarshal(pskServer)
+	assertNotError(t, err, "Failed to unmarshal valid KeyShare (server)")
+	assertDeepEquals(t, &psk, pskServerIn)
+	assertEquals(t, read, len(pskServer))
+
+	// Test unmarshal failure on truncated length (client)
+	psk = preSharedKeyExtension{roleIsServer: false}
+	read, err = psk.Unmarshal(pskClient[:1])
+	assertError(t, err, "Unmarshaled a KeyShare without a length")
+
+	// Test unmarshal failure on truncated psk length
+	psk = preSharedKeyExtension{roleIsServer: false}
+	read, err = psk.Unmarshal(pskClient[:3])
+	assertError(t, err, "Unmarshaled a KeyShare without a key share length")
+
+	// Test unmarshal failure on truncated psk value
+	psk = preSharedKeyExtension{roleIsServer: false}
+	read, err = psk.Unmarshal(pskClient[:5])
+	assertError(t, err, "Unmarshaled a KeyShare without a truncated key share value")
+
+	// Test finding an identity that is present
+	id := []byte{0, 1, 2, 3}
+	found := pskClientIn.HasIdentity(id)
+	assert(t, found, "Failed to find present identity")
+
+	// Test finding an identity that is present
+	id = []byte{0, 1, 2, 4}
+	found = pskClientIn.HasIdentity(id)
+	assert(t, !found, "Found a not-present identity")
 }

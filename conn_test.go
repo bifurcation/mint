@@ -50,7 +50,7 @@ func TestBasicFlow(t *testing.T) {
 	<-done
 
 	// Tests that the client and server arrive at the same crypto contexts
-	assertEquals(t, client.context.initialized, server.context.initialized)
+	assertEquals(t, client.context.state, server.context.state)
 	assertEquals(t, client.context.suite, server.context.suite)
 	assertEquals(t, client.context.params, server.context.params)
 	assertEquals(t, len(client.context.transcript), len(server.context.transcript))

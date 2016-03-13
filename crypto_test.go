@@ -281,8 +281,8 @@ var (
 		signature: random(64),
 	}
 
-	ESContextIn = random(32)
-	SSContextIn = ESContextIn
+	dhSecretIn  = random(32)
+	pskSecretIn = random(32)
 )
 
 func keySetEmpty(k keySet) bool {
@@ -338,39 +338,133 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test successful Init
 	ctx := cryptoContext{}
-	err = ctx.Init(chm, shm, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
+	err = ctx.Init(serverHelloContextIn.cipherSuite)
 	assertNotError(t, err, "Failed to init context")
-	assert(t, ctx.initialized, "Context not marked as initialized after Init")
-	assert(t, len(ctx.transcript) == 2, "Transcript not populated after Init")
-	assert(t, len(ctx.ES) > 0, "ES not populated after Init")
-	assert(t, len(ctx.SS) > 0, "SS not populated after Init")
-	assert(t, len(ctx.xES) > 0, "xES not populated after Init")
-	assert(t, len(ctx.xES) > 0, "xSS not populated after Init")
-	assert(t, !keySetEmpty(ctx.handshakeKeys), "HandshakeKeys not populated after Init")
+	assertEquals(t, ctx.state, ctxStateInit)
+
+	// Test Init failure on wrong state
+	ctx = cryptoContext{}
+	ctx.state = ctxStateComplete
+	err = ctx.Init(TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256)
+	assertError(t, err, "Init'ed context with the wrong state")
 
 	// Test Init failure on usupported ciphersuite
 	ctx = cryptoContext{}
-	err = ctx.Init(chm, shm, SSContextIn, ESContextIn, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256)
+	err = ctx.Init(TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256)
 	assertError(t, err, "Init'ed context with an unsupported ciphersuite")
 
-	// Test Init failure on nil messages
+	// Test successful ComputeBaseSecrets (PSK mode)
 	ctx = cryptoContext{}
-	err = ctx.Init(nil, shm, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
-	assertError(t, err, "Init'ed context with nil clientHello")
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	ctx.params.mode = handshakeModePSK
+	err = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	assertEquals(t, ctx.state, ctxStateBase)
+	assertByteEquals(t, ctx.ES, pskSecretIn)
+	assertByteEquals(t, ctx.SS, pskSecretIn)
+	assert(t, len(ctx.xES) > 0, "xES not populated after ComputeBaseSecrets")
+	assert(t, len(ctx.xES) > 0, "xSS not populated after ComputeBaseSecrets")
+
+	// Test successful ComputeBaseSecrets (PSK+DH mode)
+	t.Logf("trying PSK+DH")
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	ctx.params.mode = handshakeModePSKAndDH
+	err = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	assertEquals(t, ctx.state, ctxStateBase)
+	assertByteEquals(t, ctx.ES, dhSecretIn)
+	assertByteEquals(t, ctx.SS, pskSecretIn)
+	assert(t, len(ctx.xES) > 0, "xES not populated after ComputeBaseSecrets")
+	assert(t, len(ctx.xES) > 0, "xSS not populated after ComputeBaseSecrets")
+
+	// Test successful ComputeBaseSecrets (DH mode)
+	t.Logf("trying DH")
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	ctx.params.mode = handshakeModeDH
+	err = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	assertEquals(t, ctx.state, ctxStateBase)
+	assertByteEquals(t, ctx.ES, dhSecretIn)
+	assertByteEquals(t, ctx.SS, dhSecretIn)
+	assert(t, len(ctx.xES) > 0, "xES not populated after ComputeBaseSecrets")
+	assert(t, len(ctx.xES) > 0, "xSS not populated after ComputeBaseSecrets")
+
+	// Test ComputeBaseSecrets failure on wrong state
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	ctx.state = ctxStateComplete
+	err = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	assertError(t, err, "Allowed ComputeBaseSecrets on wrong state")
+
+	// Test ComputeBaseSecrets failure on missing PSK for PSK mode
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	ctx.params.mode = handshakeModePSK
+	err = ctx.ComputeBaseSecrets(dhSecretIn, nil)
+	assertError(t, err, "Allowed ComputeBaseSecrets with missing PSK for PSK")
+
+	// Test ComputeBaseSecrets failure on missing PSK for PSK+DH mode
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	ctx.params.mode = handshakeModePSKAndDH
+	err = ctx.ComputeBaseSecrets(dhSecretIn, nil)
+	assertError(t, err, "Allowed ComputeBaseSecrets with missing PSK for PSK+DH")
+
+	// Test ComputeBaseSecrets failure on missing DH for PSK+DH mode
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	ctx.params.mode = handshakeModePSKAndDH
+	err = ctx.ComputeBaseSecrets(nil, pskSecretIn)
+	assertError(t, err, "Allowed ComputeBaseSecrets with missing DH for PSK+DH")
+
+	// Test ComputeBaseSecrets failure on missing DH for DH mode
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	ctx.params.mode = handshakeModeDH
+	err = ctx.ComputeBaseSecrets(nil, pskSecretIn)
+	assertError(t, err, "Allowed ComputeBaseSecrets with missing DH for DH")
+
+	// Test ComputeBaseSecrets failure on unknown mode
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	ctx.params.mode = handshakeModeUnknown
+	err = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	assertError(t, err, "Allowed ComputeBaseSecrets with missing DH for DH")
+
+	// Test successful UpdateWithHellos
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	_ = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	err = ctx.UpdateWithHellos(chm, shm)
+	assertNotError(t, err, "Failed to update with valid hello messages")
+	assert(t, len(ctx.transcript) == 2, "Transcript not populated after Init")
+	assert(t, !keySetEmpty(ctx.handshakeKeys), "HandshakeKeys not populated after Init")
+
+	// Test UpdateWithHellos failure on wrong state
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	_ = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	ctx.state = ctxStateComplete
+	err = ctx.UpdateWithHellos(nil, shm)
+	assertError(t, err, "Updated context with nil ClientHello")
+
+	// Test UpdateWithHellos failure on nil messages
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	_ = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	err = ctx.UpdateWithHellos(nil, shm)
+	assertError(t, err, "Updated context with nil ClientHello")
 
 	ctx = cryptoContext{}
-	err = ctx.Init(chm, nil, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
-	assertError(t, err, "Init'ed context with nil clientHello")
-
-	// Test that Update failes on un-Init'ed context
-	ctx = cryptoContext{}
-	err = ctx.Update([]*handshakeMessage{cm, cvm})
-	assertError(t, err, "Allowed Update on un-Init'ed context")
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	_ = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	err = ctx.UpdateWithHellos(chm, nil)
+	assertError(t, err, "Updated context with nil ServerHello")
 
 	// Test succesful Update
 	ctx = cryptoContext{}
-	err = ctx.Init(chm, shm, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
-	assertNotError(t, err, "Failed to init context before update")
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	_ = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	_ = ctx.UpdateWithHellos(chm, shm)
 	err = ctx.Update([]*handshakeMessage{cm, cvm})
 	assertNotError(t, err, "Failed to update context")
 	assert(t, len(ctx.mES) > 0, "mES not populated after Update")
@@ -385,10 +479,20 @@ func TestCryptoContext(t *testing.T) {
 	assert(t, len(ctx.trafficSecret) > 0, "Traffic secret not populated after Update")
 	assert(t, !keySetEmpty(ctx.applicationKeys), "Application keys not populated after Update")
 
+	// Test that Update fails on wrong state
+	ctx = cryptoContext{}
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	_ = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	_ = ctx.UpdateWithHellos(chm, shm)
+	ctx.state = ctxStateComplete
+	err = ctx.Update([]*handshakeMessage{cm, cvm})
+	assertError(t, err, "Allowed Update on wrong state")
+
 	// Test Update failure on nil message
 	ctx = cryptoContext{}
-	err = ctx.Init(chm, shm, SSContextIn, ESContextIn, serverHelloContextIn.cipherSuite)
-	assertNotError(t, err, "Failed to init context before update failure test")
+	_ = ctx.Init(serverHelloContextIn.cipherSuite)
+	_ = ctx.ComputeBaseSecrets(dhSecretIn, pskSecretIn)
+	_ = ctx.UpdateWithHellos(chm, shm)
 	err = ctx.Update([]*handshakeMessage{cm, nil})
 	assertError(t, err, "Updated context with nil message")
 
