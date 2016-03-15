@@ -17,8 +17,8 @@ type Certificate struct {
 }
 
 type PreSharedKey struct {
-	identity []byte
-	key      []byte
+	Identity []byte
+	Key      []byte
 }
 
 // Config is the struct used to pass configuration settings to a TLS client or
@@ -69,7 +69,8 @@ type Config struct {
 	certsByName  map[string]*Certificate
 }
 
-func (c *Config) setDefaults() {
+func (c *Config) init(isClient bool) error {
+	// Set defaults
 	if len(c.CipherSuites) == 0 {
 		c.CipherSuites = defaultSupportedCipherSuites
 	}
@@ -79,6 +80,53 @@ func (c *Config) setDefaults() {
 	if len(c.SignatureAlgorithms) == 0 {
 		c.SignatureAlgorithms = defaultSignatureAlgorithms
 	}
+
+	// If there is no certificate, generate one
+	if !isClient && len(c.Certificates) == 0 {
+		priv, err := newSigningKey(signatureAlgorithmRSA)
+		if err != nil {
+			return err
+		}
+
+		cert, err := newSelfSigned(c.ServerName,
+			signatureAndHashAlgorithm{
+				hashAlgorithmSHA256,
+				signatureAlgorithmRSA,
+			},
+			priv)
+		if err != nil {
+			return err
+		}
+
+		c.Certificates = []*Certificate{
+			&Certificate{
+				Chain:      []*x509.Certificate{cert},
+				PrivateKey: priv,
+			},
+		}
+	}
+
+	// Build caches
+	c.enabledSuite = map[cipherSuite]bool{}
+	c.enabledGroup = map[namedGroup]bool{}
+	c.certsByName = map[string]*Certificate{}
+
+	for _, suite := range c.CipherSuites {
+		c.enabledSuite[suite] = true
+	}
+	for _, group := range c.Groups {
+		c.enabledGroup[group] = true
+	}
+	for _, cert := range c.Certificates {
+		if len(cert.Chain) == 0 {
+			continue
+		}
+		for _, name := range cert.Chain[0].DNSNames {
+			c.certsByName[name] = cert
+		}
+	}
+
+	return nil
 }
 
 func (c Config) validForServer() bool {
@@ -347,7 +395,9 @@ func (c *Conn) Handshake() error {
 		return nil
 	}
 
-	c.config.setDefaults()
+	if err := c.config.init(c.isClient); err != nil {
+		return err
+	}
 
 	if c.isClient {
 		c.handshakeErr = c.clientHandshake()
@@ -355,6 +405,13 @@ func (c *Conn) Handshake() error {
 		c.handshakeErr = c.serverHandshake()
 	}
 	c.handshakeComplete = (c.handshakeErr == nil)
+
+	if c.handshakeErr != nil {
+		logf(logTypeHandshake, "Handshake failed: %v", c.handshakeErr)
+		c.sendAlert(alertHandshakeFailure)
+		c.conn.Close()
+	}
+
 	return c.handshakeErr
 }
 
@@ -405,7 +462,7 @@ func (c *Conn) clientHandshake() error {
 	if key, ok := c.config.ClientPSKs[c.config.ServerName]; ok {
 		psk = &preSharedKeyExtension{
 			roleIsServer: false,
-			identities:   [][]byte{key.identity},
+			identities:   [][]byte{key.Identity},
 		}
 	}
 
@@ -448,7 +505,7 @@ func (c *Conn) clientHandshake() error {
 
 	var pskSecret, dhSecret []byte
 	if foundPSK && psk.HasIdentity(serverPSK.identities[0]) {
-		pskSecret = c.config.ClientPSKs[c.config.ServerName].key
+		pskSecret = c.config.ClientPSKs[c.config.ServerName].Key
 	}
 	if foundKeyShare {
 		sks := serverKeyShare.shares[0]
@@ -643,21 +700,6 @@ func (c *Conn) serverHandshake() error {
 			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
 	}
 
-	// Select a certificate
-	var privateKey crypto.Signer
-	var chain []*x509.Certificate
-	for _, cert := range c.config.Certificates {
-		for _, name := range cert.Chain[0].DNSNames {
-			if name == string(*serverName) {
-				privateKey = cert.PrivateKey
-				chain = cert.Chain
-			}
-		}
-	}
-	if chain == nil {
-		return fmt.Errorf("No certificate found for %s", serverName)
-	}
-
 	// Find pre_shared_key extension and look it up
 	var serverPSK *preSharedKeyExtension
 	var pskSecret []byte
@@ -668,15 +710,15 @@ func (c *Conn) serverHandshake() error {
 		}
 
 		for _, key := range c.config.ServerPSKs {
-			logf(logTypeHandshake, "Checking for %x", key.identity)
-			if clientPSK.HasIdentity(key.identity) {
+			logf(logTypeHandshake, "Checking for %x", key.Identity)
+			if clientPSK.HasIdentity(key.Identity) {
 				logf(logTypeHandshake, "Matched %x")
-				pskSecret = make([]byte, len(key.key))
-				copy(pskSecret, key.key)
+				pskSecret = make([]byte, len(key.Key))
+				copy(pskSecret, key.Key)
 
 				serverPSK = &preSharedKeyExtension{
 					roleIsServer: true,
-					identities:   [][]byte{key.identity},
+					identities:   [][]byte{key.Identity},
 				}
 			}
 		}
@@ -714,6 +756,7 @@ func (c *Conn) serverHandshake() error {
 		if c.config.enabledSuite[suite] {
 			chosenSuite = suite
 			foundCipherSuite = true
+			break
 		}
 	}
 	if !foundCipherSuite {
@@ -782,7 +825,29 @@ func (c *Conn) serverHandshake() error {
 	transcript := []*handshakeMessage{eem}
 
 	// Authenticate with a certificate if required
-	if sendPSK {
+	if !sendPSK {
+		// Select a certificate
+		var privateKey crypto.Signer
+		var chain []*x509.Certificate
+		for _, cert := range c.config.Certificates {
+			for _, name := range cert.Chain[0].DNSNames {
+				if name == string(*serverName) {
+					chain = cert.Chain
+					privateKey = cert.PrivateKey
+				}
+			}
+		}
+
+		// If there's no name match, use the first in the list or fail
+		if chain == nil {
+			if len(c.config.Certificates) > 0 {
+				chain = c.config.Certificates[0].Chain
+				privateKey = c.config.Certificates[0].PrivateKey
+			} else {
+				return fmt.Errorf("No certificate found for %s", string(*serverName))
+			}
+		}
+
 		// Create and send Certificate, CertificateVerify
 		// TODO Certificate selection based on ClientHello
 		certificate := &certificateBody{
