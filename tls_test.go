@@ -169,6 +169,7 @@ func testConnReadNonzeroAndEOF(t *testing.T, delay time.Duration) error {
 		serverConfig := Config{}
 		srv := Server(sconn, &serverConfig)
 		if err := srv.Handshake(); err != nil {
+			fmt.Printf("handshake: %v", err)
 			serr = fmt.Errorf("handshake: %v", err)
 			srvCh <- nil
 			return
