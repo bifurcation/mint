@@ -67,9 +67,16 @@ type Config struct {
 	enabledSuite map[cipherSuite]bool
 	enabledGroup map[namedGroup]bool
 	certsByName  map[string]*Certificate
+
+	// The same config object can be shared among different connections, so it
+	// needs its own mutex
+	mutex sync.RWMutex
 }
 
 func (c *Config) init(isClient bool) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	// Set defaults
 	if len(c.CipherSuites) == 0 {
 		c.CipherSuites = defaultSupportedCipherSuites
