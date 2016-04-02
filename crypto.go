@@ -13,6 +13,7 @@ import (
 	"encoding/asn1"
 	"fmt"
 	"math/big"
+	"time"
 
 	// Blank includes to ensure hash support
 	_ "crypto/sha1"
@@ -271,9 +272,14 @@ func newSelfSigned(name string, alg signatureAndHashAlgorithm, priv crypto.Signe
 	if !ok {
 		return nil, fmt.Errorf("tls.selfsigned: Unknown signature algorithm")
 	}
+	if len(name) == 0 {
+		return nil, fmt.Errorf("tls.selfsigned: No name provided")
+	}
 
 	template := &x509.Certificate{
 		SerialNumber:       big.NewInt(0xA0A0A0A0),
+		NotBefore:          time.Now(),
+		NotAfter:           time.Now().AddDate(0, 0, 1),
 		SignatureAlgorithm: sigAlg,
 		Subject:            pkix.Name{CommonName: name},
 		DNSNames:           []string{name},
