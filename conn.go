@@ -90,6 +90,9 @@ func (c *Config) Init(isClient bool) error {
 	if len(c.SignatureAlgorithms) == 0 {
 		c.SignatureAlgorithms = defaultSignatureAlgorithms
 	}
+	if c.TicketLen == 0 {
+		c.TicketLen = defaultTicketLen
+	}
 	if c.ClientPSKs == nil {
 		c.ClientPSKs = map[string]PreSharedKey{}
 	}
@@ -176,6 +179,8 @@ var (
 		signatureAndHashAlgorithm{hashAlgorithmSHA512, signatureAlgorithmRSA},
 		signatureAndHashAlgorithm{hashAlgorithmSHA512, signatureAlgorithmECDSA},
 	}
+
+	defaultTicketLen = 16
 )
 
 // Conn implements the net.Conn interface, as with "crypto/tls"
