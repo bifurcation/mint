@@ -547,6 +547,9 @@ func (c *cryptoContext) Init(suite cipherSuite) error {
 }
 
 func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
+	logf(logTypeCrypto, "dhSecret: [%d] %x", len(dhSecret), dhSecret)
+        logf(logTypeCrypto, "pskSecret: [%d] %x", len(pskSecret), pskSecret)
+        
 	if c.state != ctxStateInit {
 		return fmt.Errorf("tls.cryptobase: wrong state")
 	}
@@ -554,6 +557,7 @@ func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
 	// Compute ES, SS
 	switch c.params.mode {
 	case handshakeModePSK:
+                logf(logTypeHandshake, "ComputeBaseSecrets(PSK)")
 		if pskSecret == nil {
 			return fmt.Errorf("tls.cryptobase: PSK selected but no PSK secret provided")
 		}
@@ -563,6 +567,7 @@ func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
 		copy(c.SS, pskSecret)
 		copy(c.ES, pskSecret)
 	case handshakeModePSKAndDH:
+                logf(logTypeHandshake, "ComputeBaseSecrets(PSK and DH)")
 		if pskSecret == nil {
 			return fmt.Errorf("tls.cryptobase: PSK selected but no PSK secret provided")
 		}
@@ -575,6 +580,7 @@ func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
 		copy(c.SS, pskSecret)
 		copy(c.ES, dhSecret)
 	case handshakeModeDH:
+                logf(logTypeHandshake, "ComputeBaseSecrets(DH)")        
 		if dhSecret == nil {
 			return fmt.Errorf("tls.cryptobase: DH selected but no DH secret provided")
 		}
@@ -642,7 +648,7 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	// Compute mSS, mES = HKDF-Expand-Label(xSS, label, handshake_hash, L)
 	L := c.params.hash.Size()
 	c.mSS = hkdfExpandLabel(c.params.hash, c.xSS, labelMSS, handshakeHash, L)
-	c.mES = hkdfExpandLabel(c.params.hash, c.xSS, labelMES, handshakeHash, L)
+	c.mES = hkdfExpandLabel(c.params.hash, c.xES, labelMES, handshakeHash, L)
 
 	// Compute master_secret and traffic secret
 	c.masterSecret = hkdfExtract(c.params.hash, c.mSS, c.mES)
