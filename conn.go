@@ -959,9 +959,9 @@ func (c *Conn) serverHandshake() error {
 		}
 		c.config.ServerPSKs = append(c.config.ServerPSKs, newPSK)
 
-		logf(logTypeHandshake, "About to write NewSessionTicket %v", err)
+		logf(logTypeHandshake, "About to write NewSessionTicket %v", tkt.ticket)
 		_, err = hOut.WriteMessageBody(tkt)
-		logf(logTypeHandshake, "Wrote NewSessionTicket %v", err)
+		logf(logTypeHandshake, "Wrote NewSessionTicket %v", tkt.ticket)
 		if err != nil {
 			logf(logTypeHandshake, "Returning error: %v", err)
 			return err
