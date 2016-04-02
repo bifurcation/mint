@@ -256,5 +256,5 @@ func TestResumption(t *testing.T) {
 
 	assertContextEquals(t, client2.context, server2.context)
 	assertEquals(t, client2.context.params.mode, handshakeModePSK)
-	assertByteEquals(t, client2.context.SS, client1.context.masterSecret)
+	assertByteEquals(t, client2.context.SS, client1.context.resumptionSecret)
 }

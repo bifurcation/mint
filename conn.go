@@ -267,7 +267,7 @@ func (c *Conn) extendBuffer(n int) error {
 					logf(logTypeHandshake, "Storing new session ticket with identity [%v]", tkt.ticket)
 					psk := PreSharedKey{
 						Identity: tkt.ticket,
-						Key:      c.context.masterSecret,
+						Key:      c.context.resumptionSecret,
 					}
 					c.config.ClientPSKs[c.config.ServerName] = psk
 
@@ -955,7 +955,7 @@ func (c *Conn) serverHandshake() error {
 	if c.config.SendSessionTickets {
 		newPSK := PreSharedKey{
 			Identity: tkt.ticket,
-			Key:      ctx.masterSecret,
+			Key:      ctx.resumptionSecret,
 		}
 		c.config.ServerPSKs = append(c.config.ServerPSKs, newPSK)
 

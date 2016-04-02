@@ -106,7 +106,7 @@ var (
 			ivLen:  12,
 		},
 		TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
-			mode:   handshakeModeDH,
+			mode:   handshakeModePSKAndDH,
 			hash:   crypto.SHA384,
 			keyLen: 32,
 			ivLen:  12,
@@ -444,11 +444,13 @@ func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []
 }
 
 const (
-	labelMSS            = "expanded static secret"
-	labelMES            = "expanded ephemeral secret"
-	labelTrafficSecret  = "traffic secret"
-	labelServerFinished = "server finished"
-	labelClientFinished = "client finished"
+	labelMSS              = "expanded static secret"
+	labelMES              = "expanded ephemeral secret"
+	labelTrafficSecret    = "traffic secret"
+	labelResumptionSecret = "resumption master secret"
+	labelExporterSecret   = "exporter master secret"
+	labelServerFinished   = "server finished"
+	labelClientFinished   = "client finished"
 
 	phaseEarlyHandshake = "early handshake key expansion"
 	phaseEarlyData      = "early application data key expansion"
@@ -504,8 +506,10 @@ type cryptoContext struct {
 	clientFinishedData []byte
 	clientFinished     *finishedBody
 
-	trafficSecret   []byte
-	applicationKeys keySet
+	trafficSecret    []byte
+	resumptionSecret []byte
+	exporterSecret   []byte
+	applicationKeys  keySet
 }
 
 func (c *cryptoContext) marshalTranscript() []byte {
@@ -543,6 +547,9 @@ func (c *cryptoContext) Init(suite cipherSuite) error {
 }
 
 func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
+	logf(logTypeCrypto, "dhSecret: [%d] %x", len(dhSecret), dhSecret)
+        logf(logTypeCrypto, "pskSecret: [%d] %x", len(pskSecret), pskSecret)
+        
 	if c.state != ctxStateInit {
 		return fmt.Errorf("tls.cryptobase: wrong state")
 	}
@@ -550,6 +557,7 @@ func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
 	// Compute ES, SS
 	switch c.params.mode {
 	case handshakeModePSK:
+                logf(logTypeHandshake, "ComputeBaseSecrets(PSK)")
 		if pskSecret == nil {
 			return fmt.Errorf("tls.cryptobase: PSK selected but no PSK secret provided")
 		}
@@ -559,6 +567,7 @@ func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
 		copy(c.SS, pskSecret)
 		copy(c.ES, pskSecret)
 	case handshakeModePSKAndDH:
+                logf(logTypeHandshake, "ComputeBaseSecrets(PSK and DH)")
 		if pskSecret == nil {
 			return fmt.Errorf("tls.cryptobase: PSK selected but no PSK secret provided")
 		}
@@ -571,6 +580,7 @@ func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
 		copy(c.SS, pskSecret)
 		copy(c.ES, dhSecret)
 	case handshakeModeDH:
+                logf(logTypeHandshake, "ComputeBaseSecrets(DH)")        
 		if dhSecret == nil {
 			return fmt.Errorf("tls.cryptobase: DH selected but no DH secret provided")
 		}
@@ -638,12 +648,10 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	// Compute mSS, mES = HKDF-Expand-Label(xSS, label, handshake_hash, L)
 	L := c.params.hash.Size()
 	c.mSS = hkdfExpandLabel(c.params.hash, c.xSS, labelMSS, handshakeHash, L)
-	c.mES = hkdfExpandLabel(c.params.hash, c.xSS, labelMES, handshakeHash, L)
+	c.mES = hkdfExpandLabel(c.params.hash, c.xES, labelMES, handshakeHash, L)
 
-	// Compute master_secret, traffic_secret_0
+	// Compute master_secret and traffic secret
 	c.masterSecret = hkdfExtract(c.params.hash, c.mSS, c.mES)
-
-	// Compute traffic_secret_0
 	c.trafficSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelTrafficSecret, handshakeHash, L)
 
 	// Compute client and server Finished keys
@@ -678,8 +686,15 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 		verifyData:    c.clientFinishedData,
 	}
 
-	// application_key_0
+	// Compute application_key_0
 	c.applicationKeys = c.makeTrafficKeys(c.trafficSecret, phaseApplication, handshakeHash)
+
+	// Add clientFinished to transcript and compute the resumption / exporter secrets
+	clientFinishedMessage, _ := handshakeMessageFromBody(c.clientFinished)
+	h.Write(clientFinishedMessage.Marshal())
+	handshakeHash = h.Sum(nil)
+	c.resumptionSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelResumptionSecret, handshakeHash, L)
+	c.exporterSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelExporterSecret, handshakeHash, L)
 
 	c.state = ctxStateComplete
 	return nil
