@@ -421,7 +421,9 @@ func (cv *certificateVerifyBody) computeContext(transcript []*handshakeMessage) 
 			err = fmt.Errorf("tls.certverify: Nil message")
 			return
 		}
-		handshakeContext = append(handshakeContext, msg.Marshal()...)
+		data := msg.Marshal()
+		logf(logTypeHandshake, "Added Message to Handshake Context to be verified: [%d] %x", len(data), data)
+		handshakeContext = append(handshakeContext, data...)
 	}
 
 	hash, ok := hashMap[cv.alg.hash]
@@ -431,7 +433,10 @@ func (cv *certificateVerifyBody) computeContext(transcript []*handshakeMessage) 
 	}
 	h := hash.New()
 	h.Write(handshakeContext)
+
+	logf(logTypeHandshake, "Handshake Context to be verified: [%d] %x", len(handshakeContext), handshakeContext)
 	hashed = h.Sum(nil)
+	logf(logTypeHandshake, "Handshake Hash to be verified: [%d] %x", len(hashed), hashed)
 	return
 }
 
