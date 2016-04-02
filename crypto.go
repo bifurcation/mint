@@ -80,6 +80,24 @@ var (
 			keyLen: 16,
 			ivLen:  12,
 		},
+		TLS_PSK_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			mode:   handshakeModePSK,
+			hash:   crypto.SHA384,
+			keyLen: 32,
+			ivLen:  12,
+		},
+		TLS_DHE_RSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			mode:   handshakeModeDH,
+			hash:   crypto.SHA256,
+			keyLen: 16,
+			ivLen:  12,
+		},
+		TLS_DHE_RSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			mode:   handshakeModeDH,
+			hash:   crypto.SHA384,
+			keyLen: 32,
+			ivLen:  12,
+		},
 		// FAKE
 		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
 			mode:   handshakeModePSKAndDH,
