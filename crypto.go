@@ -444,11 +444,13 @@ func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []
 }
 
 const (
-	labelMSS            = "expanded static secret"
-	labelMES            = "expanded ephemeral secret"
-	labelTrafficSecret  = "traffic secret"
-	labelServerFinished = "server finished"
-	labelClientFinished = "client finished"
+	labelMSS              = "expanded static secret"
+	labelMES              = "expanded ephemeral secret"
+	labelTrafficSecret    = "traffic secret"
+	labelResumptionSecret = "resumption master secret"
+	labelExporterSecret   = "exporter master secret"
+	labelServerFinished   = "server finished"
+	labelClientFinished   = "client finished"
 
 	phaseEarlyHandshake = "early handshake key expansion"
 	phaseEarlyData      = "early application data key expansion"
@@ -504,8 +506,10 @@ type cryptoContext struct {
 	clientFinishedData []byte
 	clientFinished     *finishedBody
 
-	trafficSecret   []byte
-	applicationKeys keySet
+	trafficSecret    []byte
+	resumptionSecret []byte
+	exporterSecret   []byte
+	applicationKeys  keySet
 }
 
 func (c *cryptoContext) marshalTranscript() []byte {
@@ -640,11 +644,11 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	c.mSS = hkdfExpandLabel(c.params.hash, c.xSS, labelMSS, handshakeHash, L)
 	c.mES = hkdfExpandLabel(c.params.hash, c.xSS, labelMES, handshakeHash, L)
 
-	// Compute master_secret, traffic_secret_0
+	// Compute master_secret and its derivatives
 	c.masterSecret = hkdfExtract(c.params.hash, c.mSS, c.mES)
-
-	// Compute traffic_secret_0
 	c.trafficSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelTrafficSecret, handshakeHash, L)
+	c.resumptionSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelResumptionSecret, handshakeHash, L)
+	c.exporterSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelExporterSecret, handshakeHash, L)
 
 	// Compute client and server Finished keys
 	c.serverFinishedKey = hkdfExpandLabel(c.params.hash, c.masterSecret, labelServerFinished, []byte{}, L)
