@@ -1,12 +1,19 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+
 	"github.com/bifurcation/mint"
 )
 
+var addr string
+
 func main() {
-	conn, err := mint.Dial("tcp", "localhost:4430", nil)
+	flag.StringVar(&addr, "addr", "localhost:4430", "port")
+	flag.Parse()
+
+	conn, err := mint.Dial("tcp", addr, nil)
 
 	if err != nil {
 		fmt.Println("TLS handshake failed:", err)

@@ -73,7 +73,7 @@ type Config struct {
 	mutex sync.RWMutex
 }
 
-func (c *Config) init(isClient bool) error {
+func (c *Config) Init(isClient bool) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -402,7 +402,7 @@ func (c *Conn) Handshake() error {
 		return nil
 	}
 
-	if err := c.config.init(c.isClient); err != nil {
+	if err := c.config.Init(c.isClient); err != nil {
 		return err
 	}
 
@@ -425,24 +425,6 @@ func (c *Conn) Handshake() error {
 func (c *Conn) clientHandshake() error {
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
-
-	// XXX Config
-	/*
-		config := struct {
-			serverName    string
-			authCallback  func(chain []*x509.Certificate) error
-			preSharedKeys map[string]preSharedKey
-		}{
-			serverName:   "example.com",
-			authCallback: func(chain []*x509.Certificate) error { return nil },
-			preSharedKeys: map[string]preSharedKey{
-				"example.com": preSharedKey{
-					identity: []byte{0, 1, 2, 3},
-					key:      []byte("sixteen byte key"),
-				},
-			},
-		}
-	*/
 
 	// Construct some extensions
 	privateKeys := map[namedGroup][]byte{}
@@ -648,38 +630,6 @@ func (c *Conn) clientHandshake() error {
 func (c *Conn) serverHandshake() error {
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
-
-	// Config
-	/*
-		config := struct {
-			supportedGroup       map[namedGroup]bool
-			supportedCiphersuite map[cipherSuite]bool
-			privateKey           crypto.Signer
-			certicate            *x509.Certificate
-			preSharedKeys        []preSharedKey
-		}{
-			supportedGroup: map[namedGroup]bool{
-				namedGroupP256: true,
-				namedGroupP384: true,
-				namedGroupP521: true,
-			},
-			supportedCiphersuite: map[cipherSuite]bool{
-				//TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: true,
-				//TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   true,
-				TLS_PSK_WITH_AES_128_GCM_SHA256: true, // use to force PSK
-				//TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: true, // use to force PSK+DH
-			},
-			preSharedKeys: []preSharedKey{
-				preSharedKey{
-					identity: []byte{0, 1, 2, 3},
-					key:      []byte("sixteen byte key"),
-				},
-			},
-		}
-		config.privateKey, _ = newSigningKey(signatureAlgorithmRSA)
-		config.certicate, _ = newSelfSigned("example.com",
-			signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}, config.privateKey)
-	*/
 
 	// Read ClientHello and extract extensions
 	ch := new(clientHelloBody)

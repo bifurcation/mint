@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,9 +9,17 @@ import (
 	"github.com/bifurcation/mint"
 )
 
+var port string
+
 func main() {
-	service := "0.0.0.0:4430"
-	listener, err := mint.Listen("tcp", service, &mint.Config{})
+	var config mint.Config
+	config.Init(false)
+
+	flag.StringVar(&port, "port", "4430", "port")
+	flag.Parse()
+
+	service := "0.0.0.0:" + port
+	listener, err := mint.Listen("tcp", service, &config)
 
 	if err != nil {
 		log.Printf("Error: %v", err)
