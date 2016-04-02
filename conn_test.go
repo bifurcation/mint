@@ -146,6 +146,12 @@ var (
 		ServerPSKs:   serverPSKs,
 	}
 
+	resumptionConfig = &Config{
+		ServerName:         serverName,
+		Certificates:       certificates,
+		SendSessionTickets: true,
+	}
+
 	ffdhConfig = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
@@ -196,4 +202,59 @@ func TestBasicFlows(t *testing.T) {
 
 		assertContextEquals(t, client.context, server.context)
 	}
+}
+
+func TestResumption(t *testing.T) {
+	// Phase 1: Verify that the session ticket gets sent and stored
+	clientConfig := *resumptionConfig
+	serverConfig := *resumptionConfig
+
+	cConn1, sConn1 := pipe()
+	client1 := Client(cConn1, &clientConfig)
+	server1 := Server(sConn1, &serverConfig)
+
+	done := make(chan bool)
+	go func(t *testing.T) {
+		err := server1.Handshake()
+		assertNotError(t, err, "Server failed handshake")
+		done <- true
+	}(t)
+
+	err := client1.Handshake()
+	assertNotError(t, err, "Client failed handshake")
+
+	client1.Read(nil)
+	<-done
+
+	assertContextEquals(t, client1.context, server1.context)
+	assertEquals(t, len(clientConfig.ClientPSKs), 1)
+	assertEquals(t, len(serverConfig.ServerPSKs), 1)
+
+	serverPSK := serverConfig.ServerPSKs[0]
+	var clientPSK PreSharedKey
+	for _, key := range clientConfig.ClientPSKs {
+		clientPSK = key
+	}
+	assertDeepEquals(t, clientPSK, serverPSK)
+
+	// Phase 2: Verify that the session ticket gets used as a PSK
+	cConn2, sConn2 := pipe()
+	client2 := Client(cConn2, &clientConfig)
+	server2 := Server(sConn2, &serverConfig)
+
+	go func(t *testing.T) {
+		err := server2.Handshake()
+		assertNotError(t, err, "Server failed second handshake")
+		done <- true
+	}(t)
+
+	err = client2.Handshake()
+	assertNotError(t, err, "Client failed second handshake")
+
+	client2.Read(nil)
+	<-done
+
+	assertContextEquals(t, client2.context, server2.context)
+	assertEquals(t, client2.context.params.mode, handshakeModePSK)
+	assertByteEquals(t, client2.context.SS, client1.context.masterSecret)
 }

@@ -25,7 +25,7 @@ const (
 	// Omitted: *_RESERVED
 	handshakeTypeClientHello         handshakeType = 1
 	handshakeTypeServerHello         handshakeType = 2
-	handshakeTypeSessionTicket       handshakeType = 4
+	handshakeTypeNewSessionTicket    handshakeType = 4
 	handshakeTypeHelloRetryRequest   handshakeType = 6
 	handshakeTypeEncryptedExtensions handshakeType = 8
 	handshakeTypeCertificate         handshakeType = 11
