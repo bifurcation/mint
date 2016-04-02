@@ -50,6 +50,8 @@ func (hm handshakeMessage) toBody() (handshakeMessageBody, error) {
 		body = new(certificateVerifyBody)
 	case handshakeTypeFinished:
 		body = new(finishedBody)
+	case handshakeTypeNewSessionTicket:
+		body = new(newSessionTicketBody)
 	default:
 		return body, fmt.Errorf("tls.handshakemessage: Unsupported body type")
 	}
@@ -131,7 +133,7 @@ func (h *handshakeLayer) ReadMessageBody(body handshakeMessageBody) (*handshakeM
 	}
 
 	if hm.msgType != body.Type() {
-		return nil, fmt.Errorf("tls.handshakelayer: Unexpected message type %v", hm.msgType)
+		return nil, fmt.Errorf("tls.handshakelayer: Unexpected message type %v != %v", hm.msgType, body.Type())
 	}
 
 	read, err := body.Unmarshal(hm.body)

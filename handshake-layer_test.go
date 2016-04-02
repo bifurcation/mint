@@ -94,6 +94,7 @@ func TestMessageToBody(t *testing.T) {
 	encExtValid, _ := hex.DecodeString(encExtValidHex)
 	certValid, _ := hex.DecodeString(certValidHex)
 	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
+	ticketValid, _ := hex.DecodeString(ticketValidHex)
 
 	// Test successful marshal of ClientHello
 	hm := handshakeMessage{handshakeTypeClientHello, chValid}
@@ -125,10 +126,15 @@ func TestMessageToBody(t *testing.T) {
 	_, err = hm.toBody()
 	assertNotError(t, err, "Failed to convert Finished body")
 
-	// Test failure on unsupported body type
-	hm = handshakeMessage{handshakeTypeSessionTicket, []byte{}}
+	// Test successful marshal of NewSessionTicket
+	hm = handshakeMessage{handshakeTypeNewSessionTicket, ticketValid}
 	_, err = hm.toBody()
-	assertError(t, err, "Converted an empty message")
+	assertNotError(t, err, "Failed to convert NewSessionTicket body")
+
+	// Test failure on unsupported body type
+	hm = handshakeMessage{handshakeTypeHelloRetryRequest, []byte{}}
+	_, err = hm.toBody()
+	assertError(t, err, "Converted an unsupported message")
 
 	// Test failure on marshal failure
 	hm = handshakeMessage{handshakeTypeClientHello, []byte{}}

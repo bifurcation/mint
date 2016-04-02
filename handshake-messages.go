@@ -14,6 +14,7 @@ const (
 	maxExtensionDataLen      = (1 << 16) - 1
 	maxExtensionsLen         = (1 << 16) - 1
 	maxCertRequestContextLen = 255
+	maxTicketLen             = (1 << 16) - 1
 )
 
 type handshakeMessageBody interface {
@@ -453,4 +454,61 @@ func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript [
 	logf(logTypeHandshake, "Digest to be verified: [%d] %x", len(hashedData), hashedData)
 
 	return verify(cv.alg, publicKey, hashedData, contextCertificateVerify, cv.signature)
+}
+
+//  struct {
+//      uint32 ticket_lifetime_hint;
+//      opaque ticket<0..2^16-1>;
+//  } NewSessionTicket;
+type newSessionTicketBody struct {
+	lifetimeHint uint32
+	ticket       []byte
+}
+
+func newSessionTicket(lifetime uint32, ticketLen int) (*newSessionTicketBody, error) {
+	tkt := &newSessionTicketBody{
+		lifetimeHint: lifetime,
+		ticket:       make([]byte, ticketLen),
+	}
+	_, err := prng.Read(tkt.ticket)
+	return tkt, err
+}
+
+func (tkt newSessionTicketBody) Type() handshakeType {
+	return handshakeTypeNewSessionTicket
+}
+
+func (tkt newSessionTicketBody) Marshal() ([]byte, error) {
+	ticketLen := len(tkt.ticket)
+	if ticketLen > maxTicketLen {
+		return nil, fmt.Errorf("tls.ticket: Ticket too long to marshal")
+	}
+
+	header := []byte{
+		byte(tkt.lifetimeHint >> 24),
+		byte(tkt.lifetimeHint >> 16),
+		byte(tkt.lifetimeHint >> 8),
+		byte(tkt.lifetimeHint >> 0),
+		byte(ticketLen >> 8),
+		byte(ticketLen >> 0),
+	}
+	return append(header, tkt.ticket...), nil
+}
+
+func (tkt *newSessionTicketBody) Unmarshal(data []byte) (int, error) {
+	if len(data) < 6 {
+		return 0, fmt.Errorf("tls.ticket: Ticket too short to unmarshal")
+	}
+
+	tkt.lifetimeHint = (uint32(data[0]) << 24) + (uint32(data[1]) << 16) +
+		(uint32(data[2]) << 8) + (uint32(data[3]))
+
+	ticketLen := (int(data[4]) << 8) + int(data[5])
+	if len(data[6:]) < ticketLen {
+		return 0, fmt.Errorf("tls.ticket: Data too short to read ticket")
+	}
+	tkt.ticket = make([]byte, ticketLen)
+	copy(tkt.ticket, data[6:])
+
+	return 6 + ticketLen, nil
 }
