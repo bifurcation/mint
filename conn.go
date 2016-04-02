@@ -73,7 +73,7 @@ type Config struct {
 	mutex sync.RWMutex
 }
 
-func (c *Config) init(isClient bool) error {
+func (c *Config) Init(isClient bool) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -402,7 +402,7 @@ func (c *Conn) Handshake() error {
 		return nil
 	}
 
-	if err := c.config.init(c.isClient); err != nil {
+	if err := c.config.Init(c.isClient); err != nil {
 		return err
 	}
 
