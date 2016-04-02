@@ -105,7 +105,7 @@ func (r *recordLayer) encrypt(pt *tlsPlaintext, padLen int) *tlsPlaintext {
 
 	// Assemble the revised plaintext
 	out := &tlsPlaintext{
-		contentType: pt.contentType,
+		contentType: recordTypeApplicationData,
 		fragment:    make([]byte, ciphertextLen),
 	}
 	copy(out.fragment, pt.fragment)
