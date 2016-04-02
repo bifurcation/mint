@@ -115,7 +115,7 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*
 	hostname := addr[:colonPos]
 
 	if config == nil {
-		config = defaultConfig()
+		config = &Config{}
 	}
 	// If no ServerName is set, infer the ServerName
 	// from the hostname we're connecting to.
