@@ -797,6 +797,18 @@ func (c *Conn) serverHandshake() error {
 			break
 		}
 	}
+
+	// If there are no matching suites and PSK is present, check non-PSK
+	if !foundCipherSuite {
+		for _, suite := range ch.cipherSuites {
+			if c.config.enabledSuite[suite] {
+				chosenSuite = suite
+				foundCipherSuite = true
+				break
+			}
+		}
+	}
+
 	logf(logTypeCrypto, "Supported Client suites [%v]", ch.cipherSuites)
 	if !foundCipherSuite {
 		logf(logTypeHandshake, "No acceptable ciphersuites")
