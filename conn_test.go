@@ -151,6 +151,13 @@ var (
 		Certificates:       certificates,
 		SendSessionTickets: true,
 	}
+
+	ffdhConfig = &Config{
+		ServerName:   serverName,
+		Certificates: certificates,
+		CipherSuites: []cipherSuite{TLS_DHE_RSA_WITH_AES_128_GCM_SHA256},
+		Groups:       []namedGroup{namedGroupFF2048},
+	}
 )
 
 func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
@@ -175,7 +182,7 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 }
 
 func TestBasicFlows(t *testing.T) {
-	for _, conf := range []*Config{basicConfig, pskConfig, pskDHConfig} {
+	for _, conf := range []*Config{basicConfig, pskConfig, pskDHConfig, ffdhConfig} {
 		cConn, sConn := pipe()
 
 		client := Client(cConn, conf)

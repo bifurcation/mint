@@ -80,6 +80,24 @@ var (
 			keyLen: 16,
 			ivLen:  12,
 		},
+		TLS_PSK_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			mode:   handshakeModePSK,
+			hash:   crypto.SHA384,
+			keyLen: 32,
+			ivLen:  12,
+		},
+		TLS_DHE_RSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			mode:   handshakeModeDH,
+			hash:   crypto.SHA256,
+			keyLen: 16,
+			ivLen:  12,
+		},
+		TLS_DHE_RSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			mode:   handshakeModeDH,
+			hash:   crypto.SHA384,
+			keyLen: 32,
+			ivLen:  12,
+		},
 		// FAKE
 		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
 			mode:   handshakeModePSKAndDH,
@@ -139,6 +157,34 @@ func keyExchangeSizeFromNamedGroup(group namedGroup) (size int) {
 	return
 }
 
+func primeFromNamedGroup(group namedGroup) (p *big.Int) {
+	switch group {
+	case namedGroupFF2048:
+		p = finiteFieldPrime2048
+	case namedGroupFF3072:
+		p = finiteFieldPrime3072
+	case namedGroupFF4096:
+		p = finiteFieldPrime4096
+	case namedGroupFF6144:
+		p = finiteFieldPrime6144
+	case namedGroupFF8192:
+		p = finiteFieldPrime8192
+	}
+	return
+}
+
+func ffdheKeyShareFromPrime(p *big.Int) (priv, pub *big.Int, err error) {
+	// g = 2 for all ffdhe groups
+	priv, err = rand.Int(prng, p)
+	if err != nil {
+		return
+	}
+
+	pub = big.NewInt(0)
+	pub.Exp(big.NewInt(2), priv, p)
+	return
+}
+
 func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 	switch group {
 	case namedGroupP256, namedGroupP384, namedGroupP521:
@@ -151,6 +197,19 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 
 		pub = elliptic.Marshal(crv, x, y)
 		pub = append([]byte{byte(len(pub))}, pub...)
+		return
+
+	case namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
+		namedGroupFF6144, namedGroupFF8192:
+		p := primeFromNamedGroup(group)
+		x, X, err2 := ffdheKeyShareFromPrime(p)
+		if err2 != nil {
+			err = err2
+			return
+		}
+
+		priv = x.Bytes()
+		pub = X.Bytes()
 		return
 
 	default:
@@ -176,6 +235,14 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 			xBytes = append(bytes.Repeat([]byte{0}, curveSize-len(xBytes)), xBytes...)
 		}
 		return xBytes, nil
+
+	case namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
+		namedGroupFF6144, namedGroupFF8192:
+		p := primeFromNamedGroup(group)
+		x := big.NewInt(0).SetBytes(priv)
+		Y := big.NewInt(0).SetBytes(pub)
+		Z := big.NewInt(0).Exp(Y, x, p)
+		return Z.Bytes(), nil
 
 	default:
 		return nil, fmt.Errorf("tls.keyagreement: Unsupported group %v", group)
