@@ -518,6 +518,10 @@ func (c *Conn) clientHandshake() error {
 	ch := &clientHelloBody{
 		cipherSuites: c.config.CipherSuites,
 	}
+	_, err := prng.Read(ch.random[:])
+	if err != nil {
+		return err
+	}
 	for _, ext := range []extensionBody{&sni, &ks, &sg, &sa, &dv} {
 		err := ch.extensions.Add(ext)
 		if err != nil {
@@ -807,6 +811,10 @@ func (c *Conn) serverHandshake() error {
 	// Create the ServerHello
 	sh := &serverHelloBody{
 		cipherSuite: chosenSuite,
+	}
+	_, err = prng.Read(sh.random[:])
+	if err != nil {
+		return err
 	}
 	if sendKeyShare {
 		sh.extensions.Add(serverKeyShare)
