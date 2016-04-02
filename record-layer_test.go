@@ -15,9 +15,9 @@ const (
 	ivHex          = "2b7fbbf689f240e3e7aa44a6"
 	paddingLength  = 4
 	sequenceChange = 17
-	ciphertext0Hex = "1503010016621a75932c037ff74d2a9ec7776790e09dcd4811db97"
-	ciphertext1Hex = "150301001a621a75932c03076e386b3cebbb8dbf2f37e49ad3e82a70a17833"
-	ciphertext2Hex = "150301001a1da650d5da822b7f4eba67f954767fcbbbd4c4bc7f1c61daf701"
+	ciphertext0Hex = "1703010016621a75932c037ff74d2a9ec7776790e09dcd4811db97"
+	ciphertext1Hex = "170301001a621a75932c03076e386b3cebbb8dbf2f37e49ad3e82a70a17833"
+	ciphertext2Hex = "170301001a1da650d5da822b7f4eba67f954767fcbbbd4c4bc7f1c61daf701"
 )
 
 func TestRekey(t *testing.T) {
