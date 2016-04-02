@@ -43,9 +43,10 @@ func main() {
 	var cert []byte
 	var key []byte
 	var err error
+
 	if certFile != "" {
 		certPEM, err := ioutil.ReadFile(certFile)
-		if err != nil {
+		if err == nil {
 			var certBlock *pem.Block
 			certBlock, _ = pem.Decode(certPEM)
 			cert = certBlock.Bytes
@@ -63,24 +64,24 @@ func main() {
 		ServerName:         serverName,
 	}
 
-	log.Printf("Loading cert: %v key: %v", certFile, keyFile)
 	if cert != nil && key != nil {
 		log.Printf("Loading cert: %v key: %v", certFile, keyFile)
 		x5cert, err := x509.ParseCertificate(cert)
 		if err != nil {
 			log.Fatalf("Error parsing cert: %v, %v", cert, err)
 		}
-		chain := []*x509.Certificate{x5cert}
 		priv, err := parsePrivateKey(key)
 		if err != nil {
 			log.Fatalf("Error parsing key: %v", key, err)
 		}
 
-		configCert := mint.Certificate{
-			Chain:      chain,
-			PrivateKey: priv,
+		log.Printf("x5cert %v", x5cert.DNSNames)
+		config.Certificates = []*mint.Certificate{
+			&mint.Certificate{
+				Chain:      []*x509.Certificate{x5cert},
+				PrivateKey: priv,
+			},
 		}
-		config.Certificates = []*mint.Certificate{&configCert}
 	}
 	config.Init(false)
 
