@@ -106,7 +106,7 @@ var (
 			ivLen:  12,
 		},
 		TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
-			mode:   handshakeModeDH,
+			mode:   handshakeModePSKAndDH,
 			hash:   crypto.SHA384,
 			keyLen: 32,
 			ivLen:  12,
@@ -644,11 +644,9 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	c.mSS = hkdfExpandLabel(c.params.hash, c.xSS, labelMSS, handshakeHash, L)
 	c.mES = hkdfExpandLabel(c.params.hash, c.xSS, labelMES, handshakeHash, L)
 
-	// Compute master_secret and its derivatives
+	// Compute master_secret and traffic secret
 	c.masterSecret = hkdfExtract(c.params.hash, c.mSS, c.mES)
 	c.trafficSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelTrafficSecret, handshakeHash, L)
-	c.resumptionSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelResumptionSecret, handshakeHash, L)
-	c.exporterSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelExporterSecret, handshakeHash, L)
 
 	// Compute client and server Finished keys
 	c.serverFinishedKey = hkdfExpandLabel(c.params.hash, c.masterSecret, labelServerFinished, []byte{}, L)
@@ -682,8 +680,15 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 		verifyData:    c.clientFinishedData,
 	}
 
-	// application_key_0
+	// Compute application_key_0
 	c.applicationKeys = c.makeTrafficKeys(c.trafficSecret, phaseApplication, handshakeHash)
+
+	// Add clientFinished to transcript and compute the resumption / exporter secrets
+	clientFinishedMessage, _ := handshakeMessageFromBody(c.serverFinished)
+	h.Write(clientFinishedMessage.Marshal())
+	handshakeHash = h.Sum(nil)
+	c.resumptionSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelResumptionSecret, handshakeHash, L)
+	c.exporterSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelExporterSecret, handshakeHash, L)
 
 	c.state = ctxStateComplete
 	return nil
