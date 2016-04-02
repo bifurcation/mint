@@ -2,6 +2,8 @@ package mint
 
 import (
 	"fmt"
+	"io"
+	"net"
 )
 
 const (
@@ -95,11 +97,43 @@ func (h *handshakeLayer) extendBuffer(n int) error {
 			return err
 		}
 
-		if pt.contentType != recordTypeHandshake {
+		if pt.contentType != recordTypeHandshake &&
+			pt.contentType != recordTypeAlert {
 			return fmt.Errorf("tls.handshakelayer: Unexpected record type %04x", pt.contentType)
 		}
 
+		if pt.contentType == recordTypeAlert {
+			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(h.buffer), h.buffer)
+			if len(pt.fragment) < 2 {
+				h.sendAlert(alertUnexpectedMessage)
+				return io.EOF
+			}
+			if alert(pt.fragment[1]) == alertEndOfEarlyData {
+				// TODO: add a state change for 0-RTT here
+				return nil
+			} else {
+				return alert(pt.fragment[1])
+			}
+		}
+
 		h.buffer = append(h.buffer, pt.fragment...)
+	}
+	return nil
+}
+
+// sendAlert sends a TLS alert message.
+func (h *handshakeLayer) sendAlert(err alert) error {
+	tmp := make([]byte, 2)
+	tmp[0] = alertLevelError
+	tmp[1] = byte(err)
+	h.conn.WriteRecord(&tlsPlaintext{
+		contentType: recordTypeAlert,
+		fragment:    tmp},
+	)
+
+	// closeNotify is a special case in that it isn't an error:
+	if err != alertCloseNotify {
+		return &net.OpError{Op: "local error", Err: err}
 	}
 	return nil
 }
