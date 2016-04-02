@@ -32,10 +32,11 @@ const (
 )
 
 type cipherSuiteParams struct {
-	mode   handshakeMode // PSK, DH, or both
-	hash   crypto.Hash   // Hash function
-	keyLen int           // Key length in octets
-	ivLen  int           // IV length in octets
+	sig    signatureAlgorithm // RSA, ECDSA, or both
+	mode   handshakeMode      // PSK, DH, or both
+	hash   crypto.Hash        // Hash function
+	keyLen int                // Key length in octets
+	ivLen  int                // IV length in octets
 }
 
 var (
@@ -49,12 +50,14 @@ var (
 	cipherSuiteMap = map[cipherSuite]cipherSuiteParams{
 		// REQUIRED
 		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			sig:    signatureAlgorithmECDSA,
 			mode:   handshakeModeDH,
 			hash:   crypto.SHA256,
 			keyLen: 16,
 			ivLen:  12,
 		},
 		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			sig:    signatureAlgorithmRSA,
 			mode:   handshakeModeDH,
 			hash:   crypto.SHA256,
 			keyLen: 16,
@@ -62,12 +65,14 @@ var (
 		},
 		// RECOMMENDED
 		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			sig:    signatureAlgorithmECDSA,
 			mode:   handshakeModeDH,
 			hash:   crypto.SHA384,
 			keyLen: 32,
 			ivLen:  12,
 		},
 		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			sig:    signatureAlgorithmRSA,
 			mode:   handshakeModeDH,
 			hash:   crypto.SHA384,
 			keyLen: 32,
@@ -87,18 +92,19 @@ var (
 			ivLen:  12,
 		},
 		TLS_DHE_RSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			sig:    signatureAlgorithmRSA,
 			mode:   handshakeModeDH,
 			hash:   crypto.SHA256,
 			keyLen: 16,
 			ivLen:  12,
 		},
 		TLS_DHE_RSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			sig:    signatureAlgorithmRSA,
 			mode:   handshakeModeDH,
 			hash:   crypto.SHA384,
 			keyLen: 32,
 			ivLen:  12,
 		},
-		// FAKE
 		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
 			mode:   handshakeModePSKAndDH,
 			hash:   crypto.SHA256,
@@ -548,8 +554,8 @@ func (c *cryptoContext) Init(suite cipherSuite) error {
 
 func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
 	logf(logTypeCrypto, "dhSecret: [%d] %x", len(dhSecret), dhSecret)
-        logf(logTypeCrypto, "pskSecret: [%d] %x", len(pskSecret), pskSecret)
-        
+	logf(logTypeCrypto, "pskSecret: [%d] %x", len(pskSecret), pskSecret)
+
 	if c.state != ctxStateInit {
 		return fmt.Errorf("tls.cryptobase: wrong state")
 	}
@@ -557,7 +563,7 @@ func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
 	// Compute ES, SS
 	switch c.params.mode {
 	case handshakeModePSK:
-                logf(logTypeHandshake, "ComputeBaseSecrets(PSK)")
+		logf(logTypeHandshake, "ComputeBaseSecrets(PSK)")
 		if pskSecret == nil {
 			return fmt.Errorf("tls.cryptobase: PSK selected but no PSK secret provided")
 		}
@@ -567,7 +573,7 @@ func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
 		copy(c.SS, pskSecret)
 		copy(c.ES, pskSecret)
 	case handshakeModePSKAndDH:
-                logf(logTypeHandshake, "ComputeBaseSecrets(PSK and DH)")
+		logf(logTypeHandshake, "ComputeBaseSecrets(PSK and DH)")
 		if pskSecret == nil {
 			return fmt.Errorf("tls.cryptobase: PSK selected but no PSK secret provided")
 		}
@@ -580,7 +586,7 @@ func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
 		copy(c.SS, pskSecret)
 		copy(c.ES, dhSecret)
 	case handshakeModeDH:
-                logf(logTypeHandshake, "ComputeBaseSecrets(DH)")        
+		logf(logTypeHandshake, "ComputeBaseSecrets(DH)")
 		if dhSecret == nil {
 			return fmt.Errorf("tls.cryptobase: DH selected but no DH secret provided")
 		}
