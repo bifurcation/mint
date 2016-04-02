@@ -6,7 +6,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -19,6 +18,7 @@ var (
 	serverName string
 	certFile   string
 	keyFile    string
+        responseFile string
 )
 
 func parsePrivateKey(pemBytes []byte) (crypto.Signer, error) {
@@ -38,11 +38,14 @@ func main() {
 	flag.StringVar(&serverName, "name", "example.com", "hostname")
 	flag.StringVar(&certFile, "cert", "", "certificate")
 	flag.StringVar(&keyFile, "key", "", "key")
+        flag.StringVar(&responseFile, "response", "", "response")
 	flag.Parse()
 
 	var cert []byte
 	var key []byte
 	var err error
+        var response []byte
+        
 	if certFile != "" {
 		certPEM, err := ioutil.ReadFile(certFile)
 		if err != nil {
@@ -57,7 +60,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
-
+        if (responseFile != "") {
+                response, err = ioutil.ReadFile(responseFile)
+		if err != nil {
+			log.Fatalf("Error: %v", err)
+		}
+        } else {
+                response = []byte("Hello There!\n")
+        } 
+        
 	config := mint.Config{
 		SendSessionTickets: true,
 		ServerName:         serverName,
@@ -91,11 +102,12 @@ func main() {
 		log.Printf("Error: %v", err)
 	}
 
-	http.HandleFunc("/", handleClient)
+	http.HandleFunc("/",
+                func (w http.ResponseWriter, r *http.Request) {
+                                  w.Write(response)
+                })
+
 	s := &http.Server{}
 	s.Serve(listener)
 }
 
-func handleClient(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "Hi there!")
-}
