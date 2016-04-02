@@ -247,6 +247,7 @@ func (c *Conn) extendBuffer(n int) error {
 						return fmt.Errorf("Malformed handshake message [%v] != [%v]", read, len(hm.body))
 					}
 
+					logf(logTypeHandshake, "Storing new session ticket with identity [%v]", tkt.ticket)
 					psk := PreSharedKey{
 						Identity: tkt.ticket,
 						Key:      c.context.masterSecret,
