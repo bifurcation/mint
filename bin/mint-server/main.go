@@ -1,15 +1,25 @@
 package main
 
 import (
-	"github.com/bifurcation/mint"
+	"flag"
 	"log"
 	"net"
+
+	"github.com/bifurcation/mint"
 )
 
-func main() {
+var port string
 
-	service := "0.0.0.0:4430"
-	listener, err := mint.Listen("tcp", service, &mint.Config{})
+func main() {
+	var config mint.Config
+	config.Init(false)
+
+	flag.StringVar(&port, "port", "4430", "port")
+	flag.Parse()
+
+	service := "0.0.0.0:" + port
+	listener, err := mint.Listen("tcp", service, &config)
+
 	if err != nil {
 		log.Fatalf("server: listen: %s", err)
 	}

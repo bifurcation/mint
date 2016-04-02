@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -10,8 +11,10 @@ import (
 	"github.com/bifurcation/mint"
 )
 
+var url string
+
 func main() {
-	flagURL := flag.String("URL", "https://localhost:4430", "URL to send request")
+	url := flag.String("url", "https://localhost:4430", "URL to send request")
 	flag.Parse()
 	mintdial := func(network, addr string) (net.Conn, error) {
 		return mint.Dial(network, addr, nil)
@@ -23,16 +26,17 @@ func main() {
 	}
 	client := &http.Client{Transport: tr}
 
-	response, err := client.Get(*flagURL)
+	response, err := client.Get(*url)
 	if err != nil {
 		fmt.Println("err:", err)
 		return
 	}
 	defer response.Body.Close()
 
-	err = response.Write(os.Stdout)
+	contents, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		fmt.Println("err:", err)
-		return
+		fmt.Printf("%s", err)
+		os.Exit(1)
 	}
+	fmt.Printf("%s\n", string(contents))
 }
