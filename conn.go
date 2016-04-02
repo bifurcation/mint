@@ -55,8 +55,11 @@ type Config struct {
 	ClientPSKs      map[string]PreSharedKey
 
 	// Server fields
-	Certificates []*Certificate
-	ServerPSKs   []PreSharedKey
+	Certificates       []*Certificate
+	ServerPSKs         []PreSharedKey
+	SendSessionTickets bool
+	TicketLifetime     uint32
+	TicketLen          int
 
 	// Shared fields
 	CipherSuites        []cipherSuite
@@ -86,6 +89,9 @@ func (c *Config) init(isClient bool) error {
 	}
 	if len(c.SignatureAlgorithms) == 0 {
 		c.SignatureAlgorithms = defaultSignatureAlgorithms
+	}
+	if c.ClientPSKs == nil {
+		c.ClientPSKs = map[string]PreSharedKey{}
 	}
 
 	// If there is no certificate, generate one
@@ -213,8 +219,50 @@ func (c *Conn) extendBuffer(n int) error {
 
 		switch pt.contentType {
 		case recordTypeHandshake:
-			// TODO: Handle NewSessionTicket
-			// TODO: Handle KeyUpdate messages
+			// We do not support fragmentation of post-handshake handshake messages
+			// TODO: Factor this more elegantly; coalesce with handshakeLayer.ReadMessage()
+			start := 0
+			for start < len(pt.fragment) {
+				if len(pt.fragment[start:]) < handshakeHeaderLen {
+					return fmt.Errorf("Post-handshake handshake message too short for header")
+				}
+
+				hm := &handshakeMessage{}
+				hm.msgType = handshakeType(pt.fragment[start])
+				hmLen := (int(pt.fragment[start+1]) << 16) + (int(pt.fragment[start+2]) << 8) + int(pt.fragment[start+3])
+
+				if len(pt.fragment[start+handshakeHeaderLen:]) < hmLen {
+					return fmt.Errorf("Post-handshake handshake message too short for body")
+				}
+				hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
+
+				switch hm.msgType {
+				case handshakeTypeNewSessionTicket:
+					var tkt newSessionTicketBody
+					read, err := tkt.Unmarshal(hm.body)
+					if err != nil {
+						return err
+					}
+					if read != len(hm.body) {
+						return fmt.Errorf("Malformed handshake message [%v] != [%v]", read, len(hm.body))
+					}
+
+					psk := PreSharedKey{
+						Identity: tkt.ticket,
+						Key:      c.context.masterSecret,
+					}
+					c.config.ClientPSKs[c.config.ServerName] = psk
+
+				case handshakeTypeKeyUpdate:
+					// TODO: Support KeyUpdate
+					fallthrough
+				default:
+					c.sendAlert(alertUnexpectedMessage)
+					return fmt.Errorf("Unsupported post-handshake handshake message [%v]", hm.msgType)
+				}
+
+				start += handshakeHeaderLen + hmLen
+			}
 		case recordTypeAlert:
 			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(c.readBuffer), c.readBuffer)
 			if len(pt.fragment) != 2 {
@@ -446,6 +494,7 @@ func (c *Conn) clientHandshake() error {
 	*/
 
 	// Construct some extensions
+	logf(logTypeHandshake, "Constructing ClientHello")
 	privateKeys := map[namedGroup][]byte{}
 	ks := keyShareExtension{
 		roleIsServer: false,
@@ -468,10 +517,13 @@ func (c *Conn) clientHandshake() error {
 
 	var psk *preSharedKeyExtension
 	if key, ok := c.config.ClientPSKs[c.config.ServerName]; ok {
+		logf(logTypeHandshake, "Sending PSK")
 		psk = &preSharedKeyExtension{
 			roleIsServer: false,
 			identities:   [][]byte{key.Identity},
 		}
+	} else {
+		logf(logTypeHandshake, "No PSK found for [%v] in %+v", c.config.ServerName, c.config.ClientPSKs)
 	}
 
 	// Construct and write ClientHello
@@ -761,6 +813,12 @@ func (c *Conn) serverHandshake() error {
 	var chosenSuite cipherSuite
 	foundCipherSuite := false
 	for _, suite := range ch.cipherSuites {
+		// Only use PSK modes if we got a PSK
+		mode := cipherSuiteMap[suite].mode
+		if gotPSK && (mode != handshakeModePSK) && (mode != handshakeModePSKAndDH) {
+			continue
+		}
+
 		if c.config.enabledSuite[suite] {
 			chosenSuite = suite
 			foundCipherSuite = true
@@ -912,23 +970,25 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Send a new session ticket
-	tkt, err := newSessionTicket(config.ticketLifetime, config.ticketLen)
+	tkt, err := newSessionTicket(c.config.TicketLifetime, c.config.TicketLen)
 	if err != nil {
 		return err
 	}
 
-	newPSK := preSharedKey{
-		identity: tkt.ticket,
-		key:      ctx.masterSecret,
-	}
-	config.preSharedKeys = append(config.preSharedKeys, newPSK)
+	if c.config.SendSessionTickets {
+		newPSK := PreSharedKey{
+			Identity: tkt.ticket,
+			Key:      ctx.masterSecret,
+		}
+		c.config.ServerPSKs = append(c.config.ServerPSKs, newPSK)
 
-	logf(logTypeHandshake, "About to write NewSessionTicket %v", err)
-	_, err = hOut.WriteMessageBody(tkt)
-	logf(logTypeHandshake, "Wrote NewSessionTicket %v", err)
-	if err != nil {
-		logf(logTypeHandshake, "Returning error: %v", err)
-		return err
+		logf(logTypeHandshake, "About to write NewSessionTicket %v", err)
+		_, err = hOut.WriteMessageBody(tkt)
+		logf(logTypeHandshake, "Wrote NewSessionTicket %v", err)
+		if err != nil {
+			logf(logTypeHandshake, "Returning error: %v", err)
+			return err
+		}
 	}
 
 	c.context = ctx
