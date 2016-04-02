@@ -56,8 +56,8 @@ const (
 	TLS_DHE_RSA_WITH_AES_128_GCM_SHA256         cipherSuite = 0x009E
 	TLS_DHE_RSA_WITH_AES_256_GCM_SHA384         cipherSuite = 0x009F
 	// FAKE
-	TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256 cipherSuite = 0xFF01
-	TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384 cipherSuite = 0xFF02
+	TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256 cipherSuite = 0xD001
+	TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384 cipherSuite = 0xD002
 )
 
 // enum {...} HashAlgorithm
