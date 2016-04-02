@@ -684,7 +684,7 @@ func (c *cryptoContext) Update(messages []*handshakeMessage) error {
 	c.applicationKeys = c.makeTrafficKeys(c.trafficSecret, phaseApplication, handshakeHash)
 
 	// Add clientFinished to transcript and compute the resumption / exporter secrets
-	clientFinishedMessage, _ := handshakeMessageFromBody(c.serverFinished)
+	clientFinishedMessage, _ := handshakeMessageFromBody(c.clientFinished)
 	h.Write(clientFinishedMessage.Marshal())
 	handshakeHash = h.Sum(nil)
 	c.resumptionSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelResumptionSecret, handshakeHash, L)
