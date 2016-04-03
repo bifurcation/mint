@@ -3,6 +3,7 @@ package mint
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"testing"
 )
 
@@ -128,7 +129,7 @@ var (
 	}
 
 	// EarlyData test cases
-	edClientHex = "000400010203C02B" + "00120029000e000c000400010203000404050607" + "0404050607"
+	edClientHex = "000400010203C02B00120029000e000c0004000102030004040506070404050607"
 	edServerHex = ""
 	edClientIn  = &earlyDataExtension{
 		roleIsServer:    false,
@@ -530,6 +531,34 @@ func TestEarlyDataMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Failed to unmarshal valid EarlyData")
 	assertDeepEquals(t, ed, *edServerIn)
 	assertEquals(t, read, len(edServer))
+
+	// Test marshal failure on extensions too long
+	originalExt := edClientIn.extensions
+	edClientIn.extensions = extListTooLongIn
+	_, err = edClientIn.Marshal()
+	assertError(t, err, "Marshalled EarlyData with extensions too long")
+	edClientIn.extensions = originalExt
+
+	// Test marshal failure on configurationID too long
+	originalConfig := edClientIn.configurationID
+	edClientIn.configurationID = bytes.Repeat([]byte{0}, 0xFFFF+1)
+	_, err = edClientIn.Marshal()
+	assertError(t, err, "Marshalled EarlyData with configurationID too long")
+	edClientIn.configurationID = originalConfig
+
+	// Test marshal failure on context too long
+	originalContext := edClientIn.context
+	edClientIn.context = bytes.Repeat([]byte{0}, 0xFF+1)
+	_, err = edClientIn.Marshal()
+	assertError(t, err, "Marshalled EarlyData with configurationID too long")
+	edClientIn.context = originalContext
+
+	// Test unmarshal failure at various truncation points
+	for _, cut := range []int{1, 4, 11, 28, 30} {
+		ed := earlyDataExtension{}
+		_, err = ed.Unmarshal(edClient[:cut])
+		assertError(t, err, fmt.Sprintf("Unmarshalled EarlyData truncated to %d", cut))
+	}
 }
 
 func TestDraftVersionMarshalUnmarshal(t *testing.T) {

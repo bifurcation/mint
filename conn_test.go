@@ -3,7 +3,6 @@ package mint
 import (
 	"crypto/x509"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"net"
 	"testing"
