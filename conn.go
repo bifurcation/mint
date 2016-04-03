@@ -357,11 +357,6 @@ func (c *Conn) Read(buffer []byte) (int, error) {
 
 // Write application data
 func (c *Conn) Write(buffer []byte) (int, error) {
-	// XXX crypto/tls has an interlock with Close here.  Do we need that?
-	if err := c.Handshake(); err != nil {
-		return 0, err
-	}
-
 	// Lock the output channel
 	c.out.Lock()
 	defer c.out.Unlock()
@@ -415,8 +410,8 @@ func (c *Conn) sendAlert(err alert) error {
 		fragment:    tmp},
 	)
 
-	// closeNotify is a special case in that it isn't an error:
-	if err != alertCloseNotify {
+	// close_notify and end_of_early_data are not actually errors
+	if err != alertCloseNotify && err != alertEndOfEarlyData {
 		return &net.OpError{Op: "local error", Err: err}
 	}
 	return nil
@@ -599,7 +594,7 @@ func (c *Conn) clientHandshake() error {
 
 		// Rekey output to early data keys
 		logf(logTypeHandshake, "[client] Rekey -> application...")
-		err = c.out.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
+		err = c.out.Rekey(ctx.suite, ctx.earlyApplicationKeys.clientWriteKey, ctx.earlyApplicationKeys.clientWriteIV)
 		if err != nil {
 			return err
 		}
@@ -892,7 +887,7 @@ func (c *Conn) serverHandshake() error {
 
 		// Rekey read channel to early traffic keys
 		logf(logTypeHandshake, "[server] Rekey -> application...")
-		err = c.in.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
+		err = c.in.Rekey(ctx.suite, ctx.earlyApplicationKeys.clientWriteKey, ctx.earlyApplicationKeys.clientWriteIV)
 		if err != nil {
 			return err
 		}

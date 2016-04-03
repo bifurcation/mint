@@ -273,13 +273,11 @@ func Test0xRTT(t *testing.T) {
 	done := make(chan bool)
 	go func(t *testing.T) {
 		err := server.Handshake()
-		fmt.Println("Server error:", err)
 		assertNotError(t, err, "Server failed handshake")
 		done <- true
 	}(t)
 
 	err := client.Handshake()
-	fmt.Println("Client error:", err)
 	assertNotError(t, err, "Client failed handshake")
 
 	<-done
