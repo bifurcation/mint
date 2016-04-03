@@ -847,6 +847,146 @@ func (c *Conn) serverHandshake() error {
 		}
 	}
 
+	// Pick a ciphersuite
+	var chosenSuite cipherSuite
+	foundCipherSuite := false
+	for _, suite := range ch.cipherSuites {
+		// Only use PSK modes if we got a PSK
+		mode := cipherSuiteMap[suite].mode
+		if gotPSK && (mode != handshakeModePSK) && (mode != handshakeModePSKAndDH) {
+			continue
+		}
+
+		if c.config.enabledSuite[suite] {
+			chosenSuite = suite
+			foundCipherSuite = true
+			break
+		}
+	}
+	logf(logTypeCrypto, "Supported Client suites [%v]", ch.cipherSuites)
+	if !foundCipherSuite {
+		logf(logTypeHandshake, "No acceptable ciphersuites")
+		return fmt.Errorf("tls.server: No acceptable ciphersuites")
+	}
+	logf(logTypeHandshake, "Chose CipherSuite %x", chosenSuite)
+
+	// Init context and decide whether to send KeyShare/PreSharedKey
+	ctx := cryptoContext{}
+	err = ctx.Init(chosenSuite)
+	if err != nil {
+		return err
+	}
+	sendKeyShare := (ctx.params.mode == handshakeModePSKAndDH) || (ctx.params.mode == handshakeModeDH)
+	sendPSK := (ctx.params.mode == handshakeModePSK) || (ctx.params.mode == handshakeModePSKAndDH)
+	logf(logTypeHandshake, "Initialized context %v %v", sendKeyShare, sendPSK)
+
+	err = ctx.ComputeBaseSecrets(dhSecret, pskSecret)
+	if err != nil {
+		logf(logTypeHandshake, "Unable to compute base secrets %v", err)
+		return err
+	}
+	logf(logTypeHandshake, "Computed base secrets")
+
+	// Create the ServerHello
+	sh := &serverHelloBody{
+		cipherSuite: chosenSuite,
+	}
+	_, err = prng.Read(sh.random[:])
+	if err != nil {
+		return err
+	}
+	if sendKeyShare {
+		sh.extensions.Add(serverKeyShare)
+	}
+	if sendPSK {
+		sh.extensions.Add(serverPSK)
+	}
+	logf(logTypeHandshake, "Done creating ServerHello")
+
+	// Write ServerHello and update the crypto context
+	shm, err := hOut.WriteMessageBody(sh)
+	if err != nil {
+		logf(logTypeHandshake, "Unable to send ServerHello %v", err)
+		return err
+	}
+	logf(logTypeHandshake, "Wrote ServerHello")
+	err = ctx.UpdateWithHellos(chm, shm)
+	if err != nil {
+		return err
+	}
+
+	err = c.out.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
+	if err != nil {
+		return err
+	}
+
+	// Send an EncryptedExtensions message (even if it's empty)
+	ee := &encryptedExtensionsBody{}
+	eem, err := hOut.WriteMessageBody(ee)
+	if err != nil {
+		return err
+	}
+	transcript := []*handshakeMessage{eem}
+
+	// Authenticate with a certificate if required
+	if !sendPSK {
+		// Select a certificate
+		var privateKey crypto.Signer
+		var chain []*x509.Certificate
+		for _, cert := range c.config.Certificates {
+			for _, name := range cert.Chain[0].DNSNames {
+				if name == string(*serverName) {
+					chain = cert.Chain
+					privateKey = cert.PrivateKey
+				}
+			}
+		}
+
+		// If there's no name match, use the first in the list or fail
+		if chain == nil {
+			if len(c.config.Certificates) > 0 {
+				chain = c.config.Certificates[0].Chain
+				privateKey = c.config.Certificates[0].PrivateKey
+			} else {
+				return fmt.Errorf("No certificate found for %s", string(*serverName))
+			}
+		}
+
+		// Create and send Certificate, CertificateVerify
+		// TODO Certificate selection based on ClientHello
+		certificate := &certificateBody{
+			certificateList: chain,
+		}
+		certm, err := hOut.WriteMessageBody(certificate)
+		if err != nil {
+			return err
+		}
+
+		certificateVerify := &certificateVerifyBody{
+			alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
+		}
+		err = certificateVerify.Sign(privateKey, []*handshakeMessage{chm, shm, eem, certm})
+		if err != nil {
+			return err
+		}
+		certvm, err := hOut.WriteMessageBody(certificateVerify)
+		if err != nil {
+			return err
+		}
+
+		transcript = append(transcript, []*handshakeMessage{certm, certvm}...)
+	}
+
+	// Update the crypto context
+	ctx.Update(transcript)
+
+	// Create and write server Finished
+	_, err = hOut.WriteMessageBody(ctx.serverFinished)
+	if err != nil {
+		return err
+	}
+
+
 	// Find early_data extension and handle early data
 	if gotEarlyData {
 		logf(logTypeHandshake, "[server] Processing early data")
@@ -920,147 +1060,9 @@ func (c *Conn) serverHandshake() error {
 
 		logf(logTypeHandshake, "[server] Done reading early data [%d] %x", len(c.readBuffer), c.readBuffer)
 	}
-
-	// Pick a ciphersuite
-	var chosenSuite cipherSuite
-	foundCipherSuite := false
-	for _, suite := range ch.cipherSuites {
-		// Only use PSK modes if we got a PSK
-		mode := cipherSuiteMap[suite].mode
-		if gotPSK && (mode != handshakeModePSK) && (mode != handshakeModePSKAndDH) {
-			continue
-		}
-
-		if c.config.enabledSuite[suite] {
-			chosenSuite = suite
-			foundCipherSuite = true
-			break
-		}
-	}
-	logf(logTypeCrypto, "Supported Client suites [%v]", ch.cipherSuites)
-	if !foundCipherSuite {
-		logf(logTypeHandshake, "No acceptable ciphersuites")
-		return fmt.Errorf("tls.server: No acceptable ciphersuites")
-	}
-	logf(logTypeHandshake, "Chose CipherSuite %x", chosenSuite)
-
-	// Init context and decide whether to send KeyShare/PreSharedKey
-	ctx := cryptoContext{}
-	err = ctx.Init(chosenSuite)
-	if err != nil {
-		return err
-	}
-	sendKeyShare := (ctx.params.mode == handshakeModePSKAndDH) || (ctx.params.mode == handshakeModeDH)
-	sendPSK := (ctx.params.mode == handshakeModePSK) || (ctx.params.mode == handshakeModePSKAndDH)
-	logf(logTypeHandshake, "Initialized context %v %v", sendKeyShare, sendPSK)
-
-	err = ctx.ComputeBaseSecrets(dhSecret, pskSecret)
-	if err != nil {
-		logf(logTypeHandshake, "Unable to compute base secrets %v", err)
-		return err
-	}
-	logf(logTypeHandshake, "Computed base secrets")
-
-	// Create the ServerHello
-	sh := &serverHelloBody{
-		cipherSuite: chosenSuite,
-	}
-	_, err = prng.Read(sh.random[:])
-	if err != nil {
-		return err
-	}
-	if sendKeyShare {
-		sh.extensions.Add(serverKeyShare)
-	}
-	if sendPSK {
-		sh.extensions.Add(serverPSK)
-	}
-	logf(logTypeHandshake, "Done creating ServerHello")
-
-	// Write ServerHello and update the crypto context
-	shm, err := hOut.WriteMessageBody(sh)
-	if err != nil {
-		logf(logTypeHandshake, "Unable to send ServerHello %v", err)
-		return err
-	}
-	logf(logTypeHandshake, "Wrote ServerHello")
-	err = ctx.UpdateWithHellos(chm, shm)
-	if err != nil {
-		return err
-	}
-
+        
 	// Rekey to handshake keys
 	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
-	if err != nil {
-		return err
-	}
-	err = c.out.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
-	if err != nil {
-		return err
-	}
-
-	// Send an EncryptedExtensions message (even if it's empty)
-	ee := &encryptedExtensionsBody{}
-	eem, err := hOut.WriteMessageBody(ee)
-	if err != nil {
-		return err
-	}
-	transcript := []*handshakeMessage{eem}
-
-	// Authenticate with a certificate if required
-	if !sendPSK {
-		// Select a certificate
-		var privateKey crypto.Signer
-		var chain []*x509.Certificate
-		for _, cert := range c.config.Certificates {
-			for _, name := range cert.Chain[0].DNSNames {
-				if name == string(*serverName) {
-					chain = cert.Chain
-					privateKey = cert.PrivateKey
-				}
-			}
-		}
-
-		// If there's no name match, use the first in the list or fail
-		if chain == nil {
-			if len(c.config.Certificates) > 0 {
-				chain = c.config.Certificates[0].Chain
-				privateKey = c.config.Certificates[0].PrivateKey
-			} else {
-				return fmt.Errorf("No certificate found for %s", string(*serverName))
-			}
-		}
-
-		// Create and send Certificate, CertificateVerify
-		// TODO Certificate selection based on ClientHello
-		certificate := &certificateBody{
-			certificateList: chain,
-		}
-		certm, err := hOut.WriteMessageBody(certificate)
-		if err != nil {
-			return err
-		}
-
-		certificateVerify := &certificateVerifyBody{
-			alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
-		}
-		err = certificateVerify.Sign(privateKey, []*handshakeMessage{chm, shm, eem, certm})
-		if err != nil {
-			return err
-		}
-		certvm, err := hOut.WriteMessageBody(certificateVerify)
-		if err != nil {
-			return err
-		}
-
-		transcript = append(transcript, []*handshakeMessage{certm, certvm}...)
-	}
-
-	// Update the crypto context
-	ctx.Update(transcript)
-
-	// Create and write server Finished
-	_, err = hOut.WriteMessageBody(ctx.serverFinished)
 	if err != nil {
 		return err
 	}
