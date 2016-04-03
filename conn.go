@@ -203,6 +203,9 @@ type Conn struct {
 	conn     net.Conn
 	isClient bool
 
+	earlyData        []byte
+	earlyCipherSuite cipherSuite
+
 	handshakeMutex    sync.Mutex
 	handshakeErr      error
 	handshakeComplete bool
@@ -526,6 +529,17 @@ func (c *Conn) clientHandshake() error {
 		logf(logTypeHandshake, "No PSK found for [%v] in %+v", c.config.ServerName, c.config.ClientPSKs)
 	}
 
+	var ed *earlyDataExtension
+	if c.earlyData != nil {
+		if psk == nil {
+			return fmt.Errorf("tls.client: Can't send early data without a PSK")
+		}
+
+		ed = &earlyDataExtension{
+			cipherSuite: c.earlyCipherSuite,
+		}
+	}
+
 	// Construct and write ClientHello
 	ch := &clientHelloBody{
 		cipherSuites: c.config.CipherSuites,
@@ -542,6 +556,12 @@ func (c *Conn) clientHandshake() error {
 	}
 	if psk != nil {
 		err := ch.extensions.Add(psk)
+		if err != nil {
+			return err
+		}
+	}
+	if ed != nil {
+		err := ch.extensions.Add(ed)
 		if err != nil {
 			return err
 		}
@@ -577,6 +597,43 @@ func (c *Conn) clientHandshake() error {
 		if ok {
 			// XXX: Ignore error; ctx.Init() will error on dhSecret being nil
 			dhSecret, _ = keyAgreement(sks.group, sks.keyExchange, priv)
+		}
+	}
+
+	// Send early data
+	if ed != nil {
+		ctx := cryptoContext{}
+		ctx.Init(c.earlyCipherSuite)
+		ctx.ComputeEarlySecrets(pskSecret, chm)
+
+		// Rekey output to early handshake keys
+		err = c.in.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
+		if err != nil {
+			return err
+		}
+
+		// Send early finished message
+		_, err = hOut.WriteMessageBody(ctx.earlyFinished)
+		if err != nil {
+			return err
+		}
+
+		// Rekey output to early data keys
+		err = c.in.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
+		if err != nil {
+			return err
+		}
+
+		// Send early application data
+		_, err = c.Write(c.earlyData)
+		if err != nil {
+			return err
+		}
+
+		// Send end_of_earlyData
+		err = c.sendAlert(alertEndOfEarlyData)
+		if err != nil {
+			return err
 		}
 	}
 
