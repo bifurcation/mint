@@ -493,6 +493,8 @@ func (c *Conn) Handshake() error {
 }
 
 func (c *Conn) clientHandshake() error {
+	logf(logTypeHandshake, "Starting clientHandshake")
+
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
 
@@ -572,6 +574,51 @@ func (c *Conn) clientHandshake() error {
 	}
 	logf(logTypeHandshake, "Sent ClientHello")
 
+	// Send early data
+	if ed != nil {
+		logf(logTypeHandshake, "[client] Processing early data...")
+		// We will only get here if we sent exactly one PSK, and this is it
+		pskSecret := c.config.ClientPSKs[c.config.ServerName].Key
+		ctx := cryptoContext{}
+		ctx.Init(c.earlyCipherSuite)
+		ctx.ComputeEarlySecrets(pskSecret, chm)
+
+		// Rekey output to early handshake keys
+		logf(logTypeHandshake, "[client] Rekey -> handshake...")
+		err = c.out.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
+		if err != nil {
+			return err
+		}
+
+		// Send early finished message
+		logf(logTypeHandshake, "[client] Sending Finished...")
+		_, err = hOut.WriteMessageBody(ctx.earlyFinished)
+		if err != nil {
+			return err
+		}
+
+		// Rekey output to early data keys
+		logf(logTypeHandshake, "[client] Rekey -> application...")
+		err = c.out.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
+		if err != nil {
+			return err
+		}
+
+		// Send early application data
+		logf(logTypeHandshake, "[client] Sending data...")
+		_, err = c.Write(c.earlyData)
+		if err != nil {
+			return err
+		}
+
+		// Send end_of_earlyData
+		logf(logTypeHandshake, "[client] Sending end_of_early_data...")
+		err = c.sendAlert(alertEndOfEarlyData)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Read ServerHello
 	sh := new(serverHelloBody)
 	shm, err := hIn.ReadMessageBody(sh)
@@ -597,43 +644,6 @@ func (c *Conn) clientHandshake() error {
 		if ok {
 			// XXX: Ignore error; ctx.Init() will error on dhSecret being nil
 			dhSecret, _ = keyAgreement(sks.group, sks.keyExchange, priv)
-		}
-	}
-
-	// Send early data
-	if ed != nil {
-		ctx := cryptoContext{}
-		ctx.Init(c.earlyCipherSuite)
-		ctx.ComputeEarlySecrets(pskSecret, chm)
-
-		// Rekey output to early handshake keys
-		err = c.in.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
-		if err != nil {
-			return err
-		}
-
-		// Send early finished message
-		_, err = hOut.WriteMessageBody(ctx.earlyFinished)
-		if err != nil {
-			return err
-		}
-
-		// Rekey output to early data keys
-		err = c.in.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
-		if err != nil {
-			return err
-		}
-
-		// Send early application data
-		_, err = c.Write(c.earlyData)
-		if err != nil {
-			return err
-		}
-
-		// Send end_of_earlyData
-		err = c.sendAlert(alertEndOfEarlyData)
-		if err != nil {
-			return err
 		}
 	}
 
@@ -760,6 +770,8 @@ func (c *Conn) clientHandshake() error {
 }
 
 func (c *Conn) serverHandshake() error {
+	logf(logTypeHandshake, "Starting serverHandshake")
+
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
 
@@ -842,6 +854,8 @@ func (c *Conn) serverHandshake() error {
 
 	// Find early_data extension and handle early data
 	if gotEarlyData {
+		logf(logTypeHandshake, "[server] Processing early data")
+
 		// Can't do early data if we don't have a PSK
 		// TODO Handle this more elegantly
 		if pskSecret == nil {
@@ -852,17 +866,20 @@ func (c *Conn) serverHandshake() error {
 		}
 
 		// Compute early handshake / traffic keys from pskSecret
+		logf(logTypeHandshake, "[server] Computing early secrets...")
 		ctx := cryptoContext{}
 		ctx.Init(clientEarlyData.cipherSuite)
 		ctx.ComputeEarlySecrets(pskSecret, chm)
 
 		// Rekey read channel to early handshake keys
+		logf(logTypeHandshake, "[server] Rekey -> handshake...")
 		err = c.in.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
 		if err != nil {
 			return err
 		}
 
 		// Read finished message and verify
+		logf(logTypeHandshake, "[server] Reading finished...")
 		earlyFin := new(finishedBody)
 		earlyFin.verifyDataLen = ctx.earlyFinished.verifyDataLen
 		_, err = hIn.ReadMessageBody(earlyFin)
@@ -874,10 +891,39 @@ func (c *Conn) serverHandshake() error {
 		}
 
 		// Rekey read channel to early traffic keys
+		logf(logTypeHandshake, "[server] Rekey -> application...")
 		err = c.in.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
 		if err != nil {
 			return err
 		}
+
+		// Read to end of early data
+		logf(logTypeHandshake, "[server] Reading early data...")
+		done := false
+		for !done {
+			logf(logTypeHandshake, "  Record!")
+			pt, err := c.in.ReadRecord()
+			if err != nil {
+				return err
+			}
+
+			switch pt.contentType {
+			case recordTypeAlert:
+				alertType := alert(pt.fragment[1])
+				if alertType == alertEndOfEarlyData {
+					done = true
+				} else {
+					return fmt.Errorf("tls.server: Unexpected alert in early data [%v]", alertType)
+				}
+			case recordTypeApplicationData:
+				// XXX: Should expose early data differently
+				c.readBuffer = append(c.readBuffer, pt.fragment...)
+			default:
+				return fmt.Errorf("tls.server: Unexpected content type in early data [%v] %x", pt.contentType, pt.fragment)
+			}
+		}
+
+		logf(logTypeHandshake, "[server] Done reading early data [%d] %x", len(c.readBuffer), c.readBuffer)
 	}
 
 	// Pick a ciphersuite
@@ -948,7 +994,11 @@ func (c *Conn) serverHandshake() error {
 		return err
 	}
 
-	// Rekey output channel to handshake keys
+	// Rekey to handshake keys
+	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
+	if err != nil {
+		return err
+	}
 	err = c.out.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
 	if err != nil {
 		return err
@@ -1016,38 +1066,6 @@ func (c *Conn) serverHandshake() error {
 
 	// Create and write server Finished
 	_, err = hOut.WriteMessageBody(ctx.serverFinished)
-	if err != nil {
-		return err
-	}
-
-	// Read to end of early data
-	if gotEarlyData {
-		done := false
-		for !done {
-			pt, err := c.in.ReadRecord()
-			if err != nil {
-				return err
-			}
-
-			switch pt.contentType {
-			case recordTypeAlert:
-				alertType := alert(pt.fragment[1])
-				if alertType == alertEndOfEarlyData {
-					done = true
-				} else {
-					return fmt.Errorf("tls.server: Unexpected alert in early data [%v]", alertType)
-				}
-			case recordTypeApplicationData:
-				// XXX: Should expose early data differently
-				c.readBuffer = append(c.readBuffer, pt.fragment...)
-			default:
-				return fmt.Errorf("tls.server: Unexpected content type in early data [%v]", pt.contentType)
-			}
-		}
-	}
-
-	// Rekey input channel to handshake keys
-	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
 	if err != nil {
 		return err
 	}

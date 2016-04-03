@@ -580,7 +580,7 @@ func (c *cryptoContext) ComputeEarlySecrets(SS []byte, chm *handshakeMessage) er
 	c.earlyApplicationKeys = c.makeTrafficKeys(c.xSS, phaseEarlyData, handshakeHash)
 
 	L := c.params.hash.Size()
-	c.earlyFinishedKey = hkdfExpandLabel(c.params.hash, c.xSS, labelServerFinished, []byte{}, L)
+	c.earlyFinishedKey = hkdfExpandLabel(c.params.hash, c.xSS, labelClientFinished, []byte{}, L)
 
 	earlyFinishedMAC := hmac.New(c.params.hash.New, c.earlyFinishedKey)
 	earlyFinishedMAC.Write(handshakeHash)
