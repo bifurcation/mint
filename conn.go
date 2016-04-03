@@ -986,7 +986,6 @@ func (c *Conn) serverHandshake() error {
 		return err
 	}
 
-
 	// Find early_data extension and handle early data
 	if gotEarlyData {
 		logf(logTypeHandshake, "[server] Processing early data")
@@ -1060,7 +1059,7 @@ func (c *Conn) serverHandshake() error {
 
 		logf(logTypeHandshake, "[server] Done reading early data [%d] %x", len(c.readBuffer), c.readBuffer)
 	}
-        
+
 	// Rekey to handshake keys
 	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
 	if err != nil {
