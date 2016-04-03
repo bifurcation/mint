@@ -38,7 +38,9 @@ func (l *listener) Accept() (c net.Conn, err error) {
 	if err != nil {
 		return
 	}
-	c = Server(c, l.config)
+	server := Server(c, l.config)
+	err = server.Handshake()
+	c = server
 	return
 }
 

@@ -3,6 +3,7 @@ package mint
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"testing"
 )
 
@@ -125,6 +126,20 @@ var (
 		identities: [][]byte{
 			[]byte{0, 1, 2, 3, 4, 5, 6, 7},
 		},
+	}
+
+	// EarlyData test cases
+	edClientHex = "000400010203C02B00120029000e000c0004000102030004040506070404050607"
+	edServerHex = ""
+	edClientIn  = &earlyDataExtension{
+		roleIsServer:    false,
+		configurationID: []byte{0, 1, 2, 3},
+		cipherSuite:     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		extensions:      extensionList{},
+		context:         []byte{4, 5, 6, 7},
+	}
+	edServerIn = &earlyDataExtension{
+		roleIsServer: true,
 	}
 
 	// DraftVersion test cases
@@ -422,30 +437,6 @@ func TestSignatureAlgorithmsMarshalUnmarshal(t *testing.T) {
 	signatureAlgorithms[1]++
 }
 
-func TestDraftVersionMarshalUnmarshal(t *testing.T) {
-	draftVersion, _ := hex.DecodeString(draftVersionHex)
-
-	// Test extension type
-	assertEquals(t, draftVersionExtension{}.Type(), extensionTypeDraftVersion)
-
-	// Test successful marshal
-	out, err := draftVersionIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid DraftVersion")
-	assertByteEquals(t, out, draftVersion)
-
-	// Test successful unmarshal
-	dv := draftVersionExtension{}
-	read, err := dv.Unmarshal(draftVersion)
-	assertNotError(t, err, "Failed to unmarshal valid DraftVersion")
-	assertDeepEquals(t, dv, draftVersionIn)
-	assertEquals(t, read, len(draftVersion))
-
-	// Test unmarshal failure on wrong data length
-	dv = draftVersionExtension{}
-	read, err = dv.Unmarshal(draftVersion[:1])
-	assertError(t, err, "Unmarshaled a DraftVersion with the wrong length")
-}
-
 func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
 	pskClient, _ := hex.DecodeString(pskClientHex)
 	pskServer, _ := hex.DecodeString(pskServerHex)
@@ -507,4 +498,89 @@ func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
 	id = []byte{0, 1, 2, 4}
 	found = pskClientIn.HasIdentity(id)
 	assert(t, !found, "Found a not-present identity")
+}
+
+func TestEarlyDataMarshalUnmarshal(t *testing.T) {
+	edClient, _ := hex.DecodeString(edClientHex)
+	edServer, _ := hex.DecodeString(edServerHex)
+	edClientIn.extensions.Add(pskClientIn)
+
+	// Test extension type
+	assertEquals(t, earlyDataExtension{}.Type(), extensionTypeEarlyData)
+
+	// Test successful marshal (client side)
+	out, err := edClientIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid EarlyData")
+	assertByteEquals(t, out, edClient)
+
+	// Test successful unmarshal (client side)
+	ed := earlyDataExtension{roleIsServer: false}
+	read, err := ed.Unmarshal(edClient)
+	assertNotError(t, err, "Failed to unmarshal valid EarlyData")
+	assertDeepEquals(t, ed, *edClientIn)
+	assertEquals(t, read, len(edClient))
+
+	// Test successful marshal (server side)
+	out, err = edServerIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid EarlyData")
+	assertByteEquals(t, out, edServer)
+
+	// Test successful unmarshal (server side)
+	ed = earlyDataExtension{roleIsServer: true}
+	read, err = ed.Unmarshal(edServer)
+	assertNotError(t, err, "Failed to unmarshal valid EarlyData")
+	assertDeepEquals(t, ed, *edServerIn)
+	assertEquals(t, read, len(edServer))
+
+	// Test marshal failure on extensions too long
+	originalExt := edClientIn.extensions
+	edClientIn.extensions = extListTooLongIn
+	_, err = edClientIn.Marshal()
+	assertError(t, err, "Marshalled EarlyData with extensions too long")
+	edClientIn.extensions = originalExt
+
+	// Test marshal failure on configurationID too long
+	originalConfig := edClientIn.configurationID
+	edClientIn.configurationID = bytes.Repeat([]byte{0}, 0xFFFF+1)
+	_, err = edClientIn.Marshal()
+	assertError(t, err, "Marshalled EarlyData with configurationID too long")
+	edClientIn.configurationID = originalConfig
+
+	// Test marshal failure on context too long
+	originalContext := edClientIn.context
+	edClientIn.context = bytes.Repeat([]byte{0}, 0xFF+1)
+	_, err = edClientIn.Marshal()
+	assertError(t, err, "Marshalled EarlyData with configurationID too long")
+	edClientIn.context = originalContext
+
+	// Test unmarshal failure at various truncation points
+	for _, cut := range []int{1, 4, 11, 28, 30} {
+		ed := earlyDataExtension{}
+		_, err = ed.Unmarshal(edClient[:cut])
+		assertError(t, err, fmt.Sprintf("Unmarshalled EarlyData truncated to %d", cut))
+	}
+}
+
+func TestDraftVersionMarshalUnmarshal(t *testing.T) {
+	draftVersion, _ := hex.DecodeString(draftVersionHex)
+
+	// Test extension type
+	assertEquals(t, draftVersionExtension{}.Type(), extensionTypeDraftVersion)
+
+	// Test successful marshal
+	out, err := draftVersionIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid DraftVersion")
+	assertByteEquals(t, out, draftVersion)
+
+	// Test successful unmarshal
+	dv := draftVersionExtension{}
+	read, err := dv.Unmarshal(draftVersion)
+	assertNotError(t, err, "Failed to unmarshal valid DraftVersion")
+	assertDeepEquals(t, dv, draftVersionIn)
+	assertEquals(t, read, len(draftVersion))
+
+	// Test unmarshal failure on wrong data length
+	dv = draftVersionExtension{}
+	read, err = dv.Unmarshal(draftVersion[:1])
+	assertError(t, err, "Unmarshaled a DraftVersion with the wrong length")
 }

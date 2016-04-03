@@ -466,6 +466,107 @@ func (psk preSharedKeyExtension) HasIdentity(id []byte) bool {
 	return false
 }
 
+//   struct {
+//       select (Role) {
+//           case client:
+//               opaque configuration_id<1..2^16-1>;
+//               CipherSuite cipher_suite;
+//               Extension extensions<0..2^16-1>;
+//               opaque context<0..255>;
+//
+//           case server:
+//              struct {};
+//       }
+//   } EarlyDataIndication;
+//
+//   | 2 | opaque | 2 | 2 | extList | 1 | opaque |
+
+type earlyDataExtension struct {
+	roleIsServer    bool
+	configurationID []byte
+	cipherSuite     cipherSuite
+	extensions      extensionList
+	context         []byte
+	version         int
+}
+
+func (ed earlyDataExtension) Type() helloExtensionType {
+	return extensionTypeEarlyData
+}
+
+func (ed earlyDataExtension) Marshal() ([]byte, error) {
+	if ed.roleIsServer {
+		return []byte{}, nil
+	}
+
+	extData, err := ed.extensions.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	configLen := len(ed.configurationID)
+	extLen := len(extData)
+	contextLen := len(ed.context)
+
+	if configLen > 0xFFFF {
+		return nil, fmt.Errorf("tls.earlydata: ConfigurationID too large to marshal")
+	}
+
+	if contextLen > 0xFF {
+		return nil, fmt.Errorf("tls.earlydata: Context too large to marshal")
+	}
+
+	data := make([]byte, 2+configLen+2+extLen+1+contextLen)
+	data[0] = byte(configLen >> 8)
+	data[1] = byte(configLen)
+	copy(data[2:], ed.configurationID)
+	data[2+configLen] = byte(ed.cipherSuite >> 8)
+	data[2+configLen+1] = byte(ed.cipherSuite)
+	copy(data[2+configLen+2:], extData)
+	data[2+configLen+2+extLen] = byte(contextLen)
+	copy(data[2+configLen+2+extLen+1:], ed.context)
+
+	return data, nil
+}
+
+func (ed *earlyDataExtension) Unmarshal(data []byte) (int, error) {
+	if ed.roleIsServer {
+		return 0, nil
+	}
+
+	if len(data) < 2 {
+		return 0, fmt.Errorf("tls.earlydata: Too short for config header")
+	}
+
+	configLen := (int(data[0]) << 8) + int(data[1])
+	if len(data) < 2+configLen+2 {
+		return 0, fmt.Errorf("tls.earlydata: Too short for config")
+	}
+
+	ed.configurationID = make([]byte, configLen)
+	copy(ed.configurationID, data[2:])
+
+	ed.cipherSuite = (cipherSuite(data[2+configLen]) << 8) + cipherSuite(data[2+configLen+1])
+
+	extLen, err := ed.extensions.Unmarshal(data[2+configLen+2:])
+	if err != nil {
+		return 0, fmt.Errorf("tls.earlydata: Error unmarshaling extensions")
+	}
+	if len(data) < 2+configLen+2+extLen+1 {
+		return 0, fmt.Errorf("tls.earlydata: Too short for context header")
+	}
+
+	contextLen := int(data[2+configLen+2+extLen])
+	if len(data) < 2+configLen+2+extLen+1+contextLen {
+		return 0, fmt.Errorf("tls.earlydata: Too short for context")
+	}
+
+	ed.context = make([]byte, contextLen)
+	copy(ed.context, data[2+configLen+2+extLen+1:])
+
+	return 2 + configLen + 2 + extLen + 1 + contextLen, nil
+}
+
 // This is required for NSS
 type draftVersionExtension struct {
 	version int
