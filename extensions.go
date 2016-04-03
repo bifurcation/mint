@@ -561,9 +561,6 @@ func (ed *earlyDataExtension) Unmarshal(data []byte) (int, error) {
 		return 0, fmt.Errorf("tls.earlydata: Too short for context")
 	}
 
-	fmt.Println("cut 1:", 2+configLen+2+extLen+1)
-	fmt.Println("cut 2:", 2+configLen+2+extLen+1+contextLen)
-
 	ed.context = make([]byte, contextLen)
 	copy(ed.context, data[2+configLen+2+extLen+1:])
 
