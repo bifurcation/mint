@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	sequenceNumberLen = 8       // sequence number length
-	recordHeaderLen   = 5       // record header length
-	maxFragmentLen    = 1 << 14 // max number of bytes in a record
+	sequenceNumberLen   = 8       // sequence number length
+	recordHeaderLen     = 5       // record header length
+	maxFragmentLen      = 1 << 14 // max number of bytes in a record
+	maxPlainFragmentLen = 1 << 13 // max number of plain bytes to send
 )
 
 // struct {
