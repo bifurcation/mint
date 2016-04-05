@@ -4,7 +4,6 @@ import (
 	"crypto"
 	"crypto/x509"
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -14,10 +13,11 @@ import (
 )
 
 var (
-	port       string
-	serverName string
-	certFile   string
-	keyFile    string
+	port         string
+	serverName   string
+	certFile     string
+	keyFile      string
+	responseFile string
 )
 
 func main() {
@@ -25,12 +25,15 @@ func main() {
 	flag.StringVar(&serverName, "host", "example.com", "hostname")
 	flag.StringVar(&certFile, "cert", "", "certificate chain in PEM or DER")
 	flag.StringVar(&keyFile, "key", "", "private key in PEM format")
+	flag.StringVar(&responseFile, "response", "", "file to serve")
 	flag.Parse()
 
 	var certChain []*x509.Certificate
 	var priv crypto.Signer
+	var response []byte
 	var err error
 
+	// Load the key and certificate chain
 	if certFile != "" {
 		certs, err := ioutil.ReadFile(certFile)
 		if err != nil {
@@ -52,6 +55,17 @@ func main() {
 	}
 	if err != nil {
 		log.Fatalf("Error: %v", err)
+	}
+
+	// Load response file
+	if responseFile != "" {
+		log.Printf("Loading response file: %v", responseFile)
+		response, err = ioutil.ReadFile(responseFile)
+		if err != nil {
+			log.Fatalf("Error: %v", err)
+		}
+	} else {
+		response = []byte("Welcome to the TLS 1.3 zone!")
 	}
 
 	config := mint.Config{
@@ -77,11 +91,10 @@ func main() {
 		log.Printf("Error: %v", err)
 	}
 
-	http.HandleFunc("/", handleClient)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write(response)
+	})
+
 	s := &http.Server{}
 	s.Serve(listener)
-}
-
-func handleClient(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "Welcome to the TLS 1.3 zone!")
 }
