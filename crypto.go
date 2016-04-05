@@ -492,7 +492,6 @@ const (
 	ctxStateComplete
 )
 
-// XXX: This might be specific to 1xRTT; we'll figure out how to adapt later
 type cryptoContext struct {
 	state ctxState
 
@@ -522,6 +521,13 @@ type cryptoContext struct {
 	resumptionSecret []byte
 	exporterSecret   []byte
 	applicationKeys  keySet
+
+	// 0xRTT early data
+	earlyHandshakeKeys   keySet
+	earlyApplicationKeys keySet
+	earlyFinishedKey     []byte
+	earlyFinishedData    []byte
+	earlyFinished        *finishedBody
 }
 
 func (c *cryptoContext) marshalTranscript() []byte {
@@ -555,6 +561,43 @@ func (c *cryptoContext) Init(suite cipherSuite) error {
 	c.params = params
 
 	c.state = ctxStateInit
+	return nil
+}
+
+func (c *cryptoContext) ComputeEarlySecrets(SS []byte, chm *handshakeMessage) error {
+	if c.state != ctxStateInit {
+		return fmt.Errorf("tls.cryptobase: wrong state")
+	}
+
+	c.SS = make([]byte, len(SS))
+	copy(c.SS, SS)
+
+	c.xSS = hkdfExtract(c.params.hash, nil, c.SS)
+
+	// XXX: Assumes ClientHello is the only message in the client's first flight,
+	//      i.e., no client authentication
+	c.transcript = []*handshakeMessage{chm}
+	context := c.marshalTranscript()
+	h := c.params.hash.New()
+	h.Write(context)
+	handshakeHash := h.Sum(nil)
+
+	c.earlyHandshakeKeys = c.makeTrafficKeys(c.xSS, phaseEarlyHandshake, handshakeHash)
+	c.earlyApplicationKeys = c.makeTrafficKeys(c.xSS, phaseEarlyData, handshakeHash)
+
+	L := c.params.hash.Size()
+	c.earlyFinishedKey = hkdfExpandLabel(c.params.hash, c.xSS, labelClientFinished, []byte{}, L)
+
+	earlyFinishedMAC := hmac.New(c.params.hash.New, c.earlyFinishedKey)
+	earlyFinishedMAC.Write(handshakeHash)
+	c.earlyFinishedData = earlyFinishedMAC.Sum(nil)
+	logf(logTypeCrypto, "client Finished data: [%d] %x", len(handshakeHash), handshakeHash)
+
+	c.earlyFinished = &finishedBody{
+		verifyDataLen: L,
+		verifyData:    c.earlyFinishedData,
+	}
+
 	return nil
 }
 
