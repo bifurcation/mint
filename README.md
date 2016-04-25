@@ -42,7 +42,7 @@ Documentation is available on
 ## Interoperability testing
 
 The `mint-client` and `mint-server` executables are included to make it easy to
-do basic interoperability tests with othe TLS 1.3 implementations.  The steps
+do basic interoperability tests with other TLS 1.3 implementations.  The steps
 for testing against NSS are as follows.
 
 ```
