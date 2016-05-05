@@ -58,6 +58,9 @@ USE_64=1 ENABLE_TLS_1_3=1 BUILD_GTESTS=1 make nss_build_all
 
 # Run NSS tests (this creates data for the server to use)
 cd tests
+# You may need to set DIST and OBJDIR to point at the 'dist' directory next
+# to $nss and $nspr, and the name of the object subdirectory, in order for
+# the tests to succeed
 NSS_TESTS=ssl_gtests NSS_CYCLES=standard ./all.sh
 
 # Test with client=mint server=NSS (fill in $PLATFORM and $HOST as needed)
