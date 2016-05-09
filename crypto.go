@@ -118,6 +118,18 @@ var (
 			keyLen: 32,
 			ivLen:  12,
 		},
+		TLS_DHE_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			mode:   handshakeModePSKAndDH,
+			hash:   crypto.SHA256,
+			keyLen: 16,
+			ivLen:  12,
+		},
+		TLS_DHE_PSK_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			mode:   handshakeModePSKAndDH,
+			hash:   crypto.SHA384,
+			keyLen: 32,
+			ivLen:  12,
+		},
 	}
 
 	x509AlgMap = map[signatureAlgorithm]map[hashAlgorithm]x509.SignatureAlgorithm{
