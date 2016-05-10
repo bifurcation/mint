@@ -54,7 +54,7 @@ cd $NSS_ROOT # wherever you want to put NSS
 hg clone $nss
 hg clone $nspr
 cd nss
-USE_64=1 ENABLE_TLS_1_3=1 BUILD_GTESTS=1 make nss_build_all
+USE_64=1 NSS_ENABLE_TLS_1_3=1 BUILD_GTESTS=1 make nss_build_all
 
 # Run NSS tests (this creates data for the server to use)
 cd tests
