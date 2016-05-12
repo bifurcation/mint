@@ -42,34 +42,43 @@ Documentation is available on
 ## Interoperability testing
 
 The `mint-client` and `mint-server` executables are included to make it easy to
-do basic interoperability tests with othe TLS 1.3 implementations.  The steps
+do basic interoperability tests with other TLS 1.3 implementations.  The steps
 for testing against NSS are as follows.
 
 ```
 # Install mint
 go get github.com/bifurcation/mint
 
-# Install and build NSS
-cd $NSS_ROOT # wherever you want to put NSS
-hg clone $nss
-hg clone $nspr
+# Environment for NSS
+NSS_ROOT=<whereever you want to put NSS>
+export USE_64=1
+export ENABLE_TLS_1_3=1
+export DYLD_LIBRARY_PATH=dist/$PLATFORM/lib
+export LD_LIBRARY_PATH=dist/$PLATFORM/lib
+export HOST=localhost
+# You can just copy this once NSS builds
+export PLATFORM=$(uname -s)$(uname -r | cut -f 1-2 -d . -)_$(uname -m)_${CC:-cc}_glibc_PTH_64_$([ -n "$BUILD_OPT" ] && echo OPT || echo DBG).OBJ
+
+# Build NSS
+hg clone https://hg.mozilla.org/projects/nss
+hg clone https://hg.mozilla.org/projects/nspr
 cd nss
-USE_64=1 ENABLE_TLS_1_3=1 BUILD_GTESTS=1 make nss_build_all
+make nss_build_all
 
 # Run NSS tests (this creates data for the server to use)
-cd tests
-NSS_TESTS=ssl_gtests NSS_CYCLES=standard ./all.sh
+cd tests/ssl_gtests
+./ssl_gtests.sh
 
-# Test with client=mint server=NSS (fill in $PLATFORM and $HOST as needed)
+# Test with client=mint server=NSS
 cd $NSS_ROOT
-SSLTRACE=100 DYLD_LIBRARY_PATH=dist/$PLATFORM/lib/ dist/$PLATFORM/bin/selfserv -d tests_results/security/$HOST/ssl_gtests/ -n server -p 4430
+dist/$PLATFORM/bin/selfserv -d tests_results/security/$HOST/ssl_gtests/ -n rsa -p 4430
 # ...
 go run $GOPATH/src/github.com/bifurcation/mint/bin/mint-client/main.go
 
-# Test with client=NSS server=mint (fill in $PLATFORM and $HOST as needed)
-cd $NSS_ROOT
-SSLTRACE=100 DYLD_LIBRARY_PATH=dist/$PLATFORM/lib/ dist/$PLATFORM/bin/tstclnt -d tests_results/security/$HOST/ssl_gtests/ -V tls1.3:tls1.3 -h 127.0.0.1 -p 4430 -o -O
-# ...
+# Test with client=NSS server=mint
 go run $GOPATH/src/github.com/bifurcation/mint/bin/mint-server/main.go
+# ...
+cd $NSS_ROOT
+dist/$PLATFORM/bin/tstclnt -d tests_results/security/$HOST/ssl_gtests/ -V tls1.3:tls1.3 -h 127.0.0.1 -p 4430 -o -O
 ```
 
