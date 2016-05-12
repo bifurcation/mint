@@ -57,7 +57,10 @@ func (r *recordLayer) Rekey(suite cipherSuite, key []byte, iv []byte) error {
 		TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
 		TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
 		TLS_PSK_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256:
+		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256,
+		TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384,
+		TLS_DHE_PSK_WITH_AES_128_GCM_SHA256,
+		TLS_DHE_PSK_WITH_AES_256_GCM_SHA384:
 		params := cipherSuiteMap[suite]
 
 		if len(key) != params.keyLen || len(iv) != params.ivLen {

@@ -138,9 +138,17 @@ var (
 		ServerPSKs:   serverPSKs,
 	}
 
-	pskDHConfig = &Config{
+	pskECDHEConfig = &Config{
 		ServerName:   serverName,
 		CipherSuites: []cipherSuite{TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256},
+		Certificates: certificates,
+		ClientPSKs:   clientPSKs,
+		ServerPSKs:   serverPSKs,
+	}
+
+	pskDHEConfig = &Config{
+		ServerName:   serverName,
+		CipherSuites: []cipherSuite{TLS_DHE_PSK_WITH_AES_128_GCM_SHA256},
 		Certificates: certificates,
 		ClientPSKs:   clientPSKs,
 		ServerPSKs:   serverPSKs,
@@ -182,7 +190,7 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 }
 
 func TestBasicFlows(t *testing.T) {
-	for _, conf := range []*Config{basicConfig, pskConfig, pskDHConfig, ffdhConfig} {
+	for _, conf := range []*Config{basicConfig, pskConfig, pskECDHEConfig, pskDHEConfig, ffdhConfig} {
 		cConn, sConn := pipe()
 
 		client := Client(cConn, conf)

@@ -118,6 +118,18 @@ var (
 			keyLen: 32,
 			ivLen:  12,
 		},
+		TLS_DHE_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
+			mode:   handshakeModePSKAndDH,
+			hash:   crypto.SHA256,
+			keyLen: 16,
+			ivLen:  12,
+		},
+		TLS_DHE_PSK_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
+			mode:   handshakeModePSKAndDH,
+			hash:   crypto.SHA384,
+			keyLen: 32,
+			ivLen:  12,
+		},
 	}
 
 	x509AlgMap = map[signatureAlgorithm]map[hashAlgorithm]x509.SignatureAlgorithm{
@@ -160,6 +172,16 @@ func keyExchangeSizeFromNamedGroup(group namedGroup) (size int) {
 		size = 98
 	case namedGroupP521:
 		size = 134
+	case namedGroupFF2048:
+		size = 258
+	case namedGroupFF3072:
+		size = 386
+	case namedGroupFF4096:
+		size = 514
+	case namedGroupFF6144:
+		size = 770
+	case namedGroupFF8192:
+		size = 1026
 	}
 	return
 }
@@ -216,7 +238,8 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 		}
 
 		priv = x.Bytes()
-		pub = X.Bytes()
+		l := []byte{byte(len(X.Bytes()) >> 8), byte(len(X.Bytes()) & 0xff)}
+		pub = append(l, X.Bytes()...)
 		return
 
 	default:
@@ -245,9 +268,13 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 
 	case namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
 		namedGroupFF6144, namedGroupFF8192:
+		pubLen := int(pub[0])<<8 | int(pub[1])
+		if len(pub) != keyExchangeSizeFromNamedGroup(group) || len(pub) != pubLen+2 {
+			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
+		}
 		p := primeFromNamedGroup(group)
 		x := big.NewInt(0).SetBytes(priv)
-		Y := big.NewInt(0).SetBytes(pub)
+		Y := big.NewInt(0).SetBytes(pub[2:])
 		Z := big.NewInt(0).Exp(Y, x, p)
 		return Z.Bytes(), nil
 
