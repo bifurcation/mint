@@ -52,7 +52,7 @@ go get github.com/bifurcation/mint
 # Environment for NSS
 NSS_ROOT=<whereever you want to put NSS>
 export USE_64=1
-export ENABLE_TLS_1_3=1
+export NSS_ENABLE_TLS_1_3=1
 export DYLD_LIBRARY_PATH=dist/$PLATFORM/lib
 export LD_LIBRARY_PATH=dist/$PLATFORM/lib
 export HOST=localhost
