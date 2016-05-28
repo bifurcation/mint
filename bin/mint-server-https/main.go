@@ -31,7 +31,6 @@ func main() {
 	var certChain []*x509.Certificate
 	var priv crypto.Signer
 	var response []byte
-	var err error
 
 	// Load the key and certificate chain
 	if certFile != "" {
@@ -52,18 +51,19 @@ func main() {
 		} else {
 			priv, err = helpers.ParsePrivateKeyPEM(keyPEM)
 		}
-	}
-	if err != nil {
-		log.Fatalf("Error: %v", err)
+		if err != nil {
+			log.Fatalf("Error: %v", err)
+		}
 	}
 
 	// Load response file
 	if responseFile != "" {
 		log.Printf("Loading response file: %v", responseFile)
-		response, err = ioutil.ReadFile(responseFile)
+		resp, err := ioutil.ReadFile(responseFile)
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		}
+		response = resp
 	} else {
 		response = []byte("Welcome to the TLS 1.3 zone!")
 	}
