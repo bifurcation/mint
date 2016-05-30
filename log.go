@@ -13,6 +13,7 @@ const logConfigVar = "MINT_LOG"
 
 // Pre-defined log types
 const (
+        logTypeConn	 = "conn"
 	logTypeCrypto    = "crypto"
 	logTypeHandshake = "handshake"
 	logTypeIO        = "io"
