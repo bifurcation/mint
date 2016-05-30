@@ -756,6 +756,8 @@ func (c *Conn) clientHandshake() error {
 		return err
 	}
 
+	logf(logTypeConn, "Handshake complete")
+
 	// Rekey to application keys
 	err = c.in.Rekey(ctx.suite, ctx.applicationKeys.serverWriteKey, ctx.applicationKeys.serverWriteIV)
 	if err != nil {
@@ -798,7 +800,7 @@ func (c *Conn) serverHandshake() error {
 	gotKeyShares := ch.extensions.Find(clientKeyShares)
 	gotPSK := ch.extensions.Find(clientPSK)
 	gotEarlyData := ch.extensions.Find(clientEarlyData)
-	if !gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms {
+	if !gotSupportedGroups || !gotSignatureAlgorithms {
 		logf(logTypeHandshake, "Insufficient extensions")
 		return fmt.Errorf("tls.server: Missing extension in ClientHello (%v %v %v %v)",
 			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
@@ -1093,6 +1095,8 @@ func (c *Conn) serverHandshake() error {
 	if !bytes.Equal(cfin.verifyData, ctx.clientFinished.verifyData) {
 		return fmt.Errorf("tls.client: Client's Finished failed to verify")
 	}
+
+	logf(logTypeConn, "Handshake complete")
 
 	// Rekey to application keys
 	err = c.in.Rekey(ctx.suite, ctx.applicationKeys.clientWriteKey, ctx.applicationKeys.clientWriteIV)
