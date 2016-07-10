@@ -79,6 +79,6 @@ go run $GOPATH/src/github.com/bifurcation/mint/bin/mint-client/main.go
 go run $GOPATH/src/github.com/bifurcation/mint/bin/mint-server/main.go
 # ...
 cd $NSS_ROOT
-dist/$PLATFORM/bin/tstclnt -d tests_results/security/$HOST/ssl_gtests/ -V tls1.3:tls1.3 -h 127.0.0.1 -p 4430 -o -O
+dist/$PLATFORM/bin/tstclnt -d tests_results/security/$HOST/ssl_gtests/ -V tls1.3:tls1.3 -h 127.0.0.1 -p 4430 -o
 ```
 
