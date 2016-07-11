@@ -19,6 +19,7 @@ type Certificate struct {
 type PreSharedKey struct {
 	Identity []byte
 	Key      []byte
+	Context  []byte
 }
 
 // Config is the struct used to pass configuration settings to a TLS client or
@@ -276,7 +277,8 @@ func (c *Conn) extendBuffer(n int) error {
 					logf(logTypeHandshake, "Storing new session ticket with identity [%v]", tkt.ticket)
 					psk := PreSharedKey{
 						Identity: tkt.ticket,
-						Key:      c.context.resumptionSecret,
+						Key:      c.context.resumptionPSK,
+						Context:  c.context.resumptionContext,
 					}
 					c.config.ClientPSKs[c.config.ServerName] = psk
 
@@ -580,9 +582,10 @@ func (c *Conn) clientHandshake() error {
 		logf(logTypeHandshake, "[client] Processing early data...")
 		// We will only get here if we sent exactly one PSK, and this is it
 		pskSecret := c.config.ClientPSKs[c.config.ServerName].Key
+		pskContext := c.config.ClientPSKs[c.config.ServerName].Context
 		ctx := cryptoContext{}
 		ctx.init(c.earlyCipherSuite, pskSecret)
-		ctx.updateWithClientHello(chm, nil)
+		ctx.updateWithClientHello(chm, pskContext)
 
 		// Rekey output to early handshake keys (in case we decide to send EE later)
 		logf(logTypeHandshake, "[client] Rekey -> handshake...")
@@ -641,9 +644,10 @@ func (c *Conn) clientHandshake() error {
 	serverKeyShare := keyShareExtension{roleIsServer: true}
 	foundKeyShare := sh.extensions.Find(&serverKeyShare)
 
-	var pskSecret, dhSecret []byte
+	var pskSecret, pskContext, dhSecret []byte
 	if foundPSK && psk.HasIdentity(serverPSK.identities[0]) {
 		pskSecret = c.config.ClientPSKs[c.config.ServerName].Key
+		pskContext = c.config.ClientPSKs[c.config.ServerName].Context
 		logf(logTypeHandshake, "[client] got PSK extension")
 	}
 	if foundKeyShare {
@@ -663,7 +667,7 @@ func (c *Conn) clientHandshake() error {
 	if err != nil {
 		return err
 	}
-	err = ctx.updateWithClientHello(chm, nil)
+	err = ctx.updateWithClientHello(chm, pskContext)
 	if err != nil {
 		return err
 	}
@@ -822,6 +826,7 @@ func (c *Conn) serverHandshake() error {
 	// Find pre_shared_key extension and look it up
 	var serverPSK *preSharedKeyExtension
 	var pskSecret []byte
+	var pskContext []byte
 	if gotPSK {
 		logf(logTypeHandshake, "[server] Got PSK extension; processing")
 		for _, id := range clientPSK.identities {
@@ -834,6 +839,8 @@ func (c *Conn) serverHandshake() error {
 				logf(logTypeHandshake, "Matched %x", key.Identity)
 				pskSecret = make([]byte, len(key.Key))
 				copy(pskSecret, key.Key)
+				pskContext = make([]byte, len(key.Context))
+				copy(pskContext, key.Context)
 
 				serverPSK = &preSharedKeyExtension{
 					roleIsServer: true,
@@ -882,10 +889,13 @@ func (c *Conn) serverHandshake() error {
 		}
 
 		// Compute early handshake / traffic keys from pskSecret
+		// XXX: We init different contexts for early vs. main handshakes, that
+		// means that in principle, we could end up with different ciphersuites for
+		// early data vs. the main record flow.  Probably not ideal.
 		logf(logTypeHandshake, "[server] Computing early secrets...")
 		ctx := cryptoContext{}
 		ctx.init(clientEarlyData.cipherSuite, pskSecret)
-		ctx.updateWithClientHello(chm, nil)
+		ctx.updateWithClientHello(chm, pskContext)
 
 		// Rekey read channel to early handshake keys
 		logf(logTypeHandshake, "[server] Rekey -> handshake...")
@@ -1009,7 +1019,7 @@ func (c *Conn) serverHandshake() error {
 	if err != nil {
 		return err
 	}
-	err = ctx.updateWithClientHello(chm, nil)
+	err = ctx.updateWithClientHello(chm, pskContext)
 	if err != nil {
 		return err
 	}
@@ -1162,7 +1172,8 @@ func (c *Conn) serverHandshake() error {
 	if c.config.SendSessionTickets {
 		newPSK := PreSharedKey{
 			Identity: tkt.ticket,
-			Key:      ctx.resumptionSecret,
+			Key:      ctx.resumptionPSK,
+			Context:  ctx.resumptionContext,
 		}
 		c.config.ServerPSKs = append(c.config.ServerPSKs, newPSK)
 
