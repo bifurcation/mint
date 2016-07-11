@@ -1,7 +1,7 @@
 package mint
 
 var (
-	draftVersionImplemented = 11
+	draftVersionImplemented = 13
 
 	// Flags for some minor compat issues
 	allowEmptyEncryptedExtensions = false
