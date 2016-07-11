@@ -483,10 +483,6 @@ func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []
 	return derived
 }
 
-func deriveSecret(hash crypto.Hash, secret []byte, label string, hashValue []byte, resumptionContext []byte) []byte {
-	return hkdfExpandLabel(hash, secret, label, append(hashValue, resumptionContext...), hash.Size())
-}
-
 const (
 	labelEarlyTrafficSecret       = "early traffic secret"
 	labelHandshakeTrafficSecret   = "handshake traffic secret"
@@ -516,285 +512,17 @@ type keySet struct {
 	serverWriteIV  []byte
 }
 
+// Sine the steps have to be performed linearly (except for early data), we use
+// a state variable to indicate the last operation performed.
 type ctxState uint8
 
 const (
 	ctxStateNew ctxState = iota
-	ctxStateInit
-	ctxStateBase
-	ctxStateHello
-	ctxStateComplete
+	ctxStateClientHello
+	ctxStateServerHello
+	ctxStateServerFirstFlight
+	ctxStateClientSecondFlight
 )
-
-type cryptoContext struct {
-	state ctxState
-
-	suite  cipherSuite
-	params cipherSuiteParams
-
-	needKeyShare bool
-	needPSK      bool
-
-	transcript []*handshakeMessage
-
-	ES, SS        []byte
-	xES, xSS      []byte
-	handshakeKeys keySet
-
-	mES, mSS           []byte
-	masterSecret       []byte
-	serverFinishedKey  []byte
-	serverFinishedData []byte
-	serverFinished     *finishedBody
-
-	clientFinishedKey  []byte
-	clientFinishedData []byte
-	clientFinished     *finishedBody
-
-	trafficSecret    []byte
-	resumptionSecret []byte
-	exporterSecret   []byte
-	applicationKeys  keySet
-
-	// 0xRTT early data
-	earlyHandshakeKeys   keySet
-	earlyApplicationKeys keySet
-	earlyFinishedKey     []byte
-	earlyFinishedData    []byte
-	earlyFinished        *finishedBody
-}
-
-func (c *cryptoContext) marshalTranscript() []byte {
-	data := []byte{}
-	for _, msg := range c.transcript {
-		data = append(data, msg.Marshal()...)
-	}
-	return data
-}
-
-func (c *cryptoContext) makeTrafficKeys(secret []byte, phase string, handshakeHash []byte) keySet {
-	return keySet{
-		clientWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeClientWriteKey, handshakeHash, c.params.keyLen),
-		serverWriteKey: hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeServerWriteKey, handshakeHash, c.params.keyLen),
-		clientWriteIV:  hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeClientWriteIV, handshakeHash, c.params.ivLen),
-		serverWriteIV:  hkdfExpandLabel(c.params.hash, secret, phase+", "+purposeServerWriteIV, handshakeHash, c.params.ivLen),
-	}
-}
-
-func (c *cryptoContext) Init(suite cipherSuite) error {
-	if c.state != ctxStateNew {
-		return fmt.Errorf("tls.cryptoinit: wrong state")
-	}
-
-	// Configure based on cipherSuite
-	params, ok := cipherSuiteMap[suite]
-	if !ok {
-		return fmt.Errorf("tls.cryptoinit: Unsupported ciphersuite")
-	}
-	c.suite = suite
-	c.params = params
-
-	c.state = ctxStateInit
-	return nil
-}
-
-func (c *cryptoContext) ComputeEarlySecrets(SS []byte, chm *handshakeMessage) error {
-	if c.state != ctxStateInit {
-		return fmt.Errorf("tls.cryptobase: wrong state")
-	}
-
-	c.SS = make([]byte, len(SS))
-	copy(c.SS, SS)
-
-	c.xSS = hkdfExtract(c.params.hash, nil, c.SS)
-
-	// XXX: Assumes ClientHello is the only message in the client's first flight,
-	//      i.e., no client authentication
-	c.transcript = []*handshakeMessage{chm}
-	context := c.marshalTranscript()
-	h := c.params.hash.New()
-	h.Write(context)
-	handshakeHash := h.Sum(nil)
-
-	c.earlyHandshakeKeys = c.makeTrafficKeys(c.xSS, phaseEarlyHandshake, handshakeHash)
-	c.earlyApplicationKeys = c.makeTrafficKeys(c.xSS, phaseEarlyData, handshakeHash)
-
-	L := c.params.hash.Size()
-	c.earlyFinishedKey = hkdfExpandLabel(c.params.hash, c.xSS, labelClientFinished, []byte{}, L)
-
-	earlyFinishedMAC := hmac.New(c.params.hash.New, c.earlyFinishedKey)
-	earlyFinishedMAC.Write(handshakeHash)
-	c.earlyFinishedData = earlyFinishedMAC.Sum(nil)
-	logf(logTypeCrypto, "client Finished data: [%d] %x", len(handshakeHash), handshakeHash)
-
-	c.earlyFinished = &finishedBody{
-		verifyDataLen: L,
-		verifyData:    c.earlyFinishedData,
-	}
-
-	return nil
-}
-
-func (c *cryptoContext) ComputeBaseSecrets(dhSecret, pskSecret []byte) error {
-	logf(logTypeCrypto, "dhSecret: [%d] %x", len(dhSecret), dhSecret)
-	logf(logTypeCrypto, "pskSecret: [%d] %x", len(pskSecret), pskSecret)
-
-	if c.state != ctxStateInit {
-		return fmt.Errorf("tls.cryptobase: wrong state")
-	}
-
-	// Compute ES, SS
-	switch c.params.mode {
-	case handshakeModePSK:
-		logf(logTypeHandshake, "ComputeBaseSecrets(PSK)")
-		if pskSecret == nil {
-			return fmt.Errorf("tls.cryptobase: PSK selected but no PSK secret provided")
-		}
-
-		c.SS = make([]byte, len(pskSecret))
-		c.ES = make([]byte, len(pskSecret))
-		copy(c.SS, pskSecret)
-		copy(c.ES, pskSecret)
-	case handshakeModePSKAndDH:
-		logf(logTypeHandshake, "ComputeBaseSecrets(PSK and DH)")
-		if pskSecret == nil {
-			return fmt.Errorf("tls.cryptobase: PSK selected but no PSK secret provided")
-		}
-		if dhSecret == nil {
-			return fmt.Errorf("tls.cryptobase: DH selected but no DH secret provided")
-		}
-
-		c.SS = make([]byte, len(pskSecret))
-		c.ES = make([]byte, len(dhSecret))
-		copy(c.SS, pskSecret)
-		copy(c.ES, dhSecret)
-	case handshakeModeDH:
-		logf(logTypeHandshake, "ComputeBaseSecrets(DH)")
-		if dhSecret == nil {
-			return fmt.Errorf("tls.cryptobase: DH selected but no DH secret provided")
-		}
-
-		c.SS = make([]byte, len(dhSecret))
-		c.ES = make([]byte, len(dhSecret))
-		copy(c.SS, dhSecret)
-		copy(c.ES, dhSecret)
-	default:
-		return fmt.Errorf("tls.cryptobase: Unknown handshake mode")
-	}
-
-	// Compute xES, xSS = HKDF-Extract(0, XS)
-	c.xSS = hkdfExtract(c.params.hash, nil, c.SS)
-	c.xES = hkdfExtract(c.params.hash, nil, c.ES)
-
-	c.state = ctxStateBase
-	return nil
-}
-
-func (c *cryptoContext) UpdateWithHellos(chm, shm *handshakeMessage) error {
-	if c.state != ctxStateBase {
-		return fmt.Errorf("tls.cryptohello: wrong state")
-	}
-
-	// Set up transcript and initialize transcript hash
-	c.transcript = []*handshakeMessage{}
-
-	// Add ClientHello, ServerHello to transcript
-	if chm == nil || shm == nil {
-		return fmt.Errorf("tls.cryptohello: Nil message provided")
-	}
-	c.transcript = append(c.transcript, []*handshakeMessage{chm, shm}...)
-
-	// Compute handshakeKeys
-	context := c.marshalTranscript()
-	h := c.params.hash.New()
-	h.Write(context)
-	handshakeHash := h.Sum(nil)
-	c.handshakeKeys = c.makeTrafficKeys(c.xES, phaseHandshake, handshakeHash)
-
-	c.state = ctxStateBase
-	return nil
-}
-
-func (c *cryptoContext) Update(messages []*handshakeMessage) error {
-	if c.state != ctxStateBase {
-		return fmt.Errorf("tls.cryptoupdate: wrong state")
-	}
-
-	// Add messages to transcript
-	for _, msg := range messages {
-		if msg == nil {
-			return fmt.Errorf("tls.cryptoupdate: Nil message")
-		}
-	}
-	c.transcript = append(c.transcript, messages...)
-	handshakeSoFar := c.marshalTranscript()
-
-	// Compute handshake hash
-	h := c.params.hash.New()
-	h.Write(handshakeSoFar)
-	handshakeHash := h.Sum(nil)
-
-	// Compute mSS, mES = HKDF-Expand-Label(xSS, label, handshake_hash, L)
-	L := c.params.hash.Size()
-	//XXX c.mSS = hkdfExpandLabel(c.params.hash, c.xSS, labelMSS, handshakeHash, L)
-	//XXX c.mES = hkdfExpandLabel(c.params.hash, c.xES, labelMES, handshakeHash, L)
-
-	// Compute master_secret and traffic secret
-	c.masterSecret = hkdfExtract(c.params.hash, c.mSS, c.mES)
-	//XXX c.trafficSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelTrafficSecret, handshakeHash, L)
-
-	// Compute client and server Finished keys
-	c.serverFinishedKey = hkdfExpandLabel(c.params.hash, c.masterSecret, labelServerFinished, []byte{}, L)
-	c.clientFinishedKey = hkdfExpandLabel(c.params.hash, c.masterSecret, labelClientFinished, []byte{}, L)
-
-	// Compute ServerFinished and add to transcript
-	serverFinishedMAC := hmac.New(c.params.hash.New, c.serverFinishedKey)
-	serverFinishedMAC.Write(handshakeHash)
-	c.serverFinishedData = serverFinishedMAC.Sum(nil)
-	c.serverFinished = &finishedBody{
-		verifyDataLen: len(c.serverFinishedData),
-		verifyData:    c.serverFinishedData,
-	}
-
-	// This call can only fail if there's a length mismatch, which can't happen here
-	finishedMessage, _ := handshakeMessageFromBody(c.serverFinished)
-	c.transcript = append(c.transcript, finishedMessage)
-
-	// Compute client_finished_key and client Finished
-	h.Write(finishedMessage.Marshal())
-	handshakeHash = h.Sum(nil)
-	logf(logTypeCrypto, "handshake hash for client Finished: [%d] %x", len(handshakeHash), handshakeHash)
-
-	clientFinishedMAC := hmac.New(c.params.hash.New, c.clientFinishedKey)
-	clientFinishedMAC.Write(handshakeHash)
-	c.clientFinishedData = clientFinishedMAC.Sum(nil)
-	logf(logTypeCrypto, "client Finished data: [%d] %x", len(c.clientFinishedData), c.clientFinishedData)
-
-	c.clientFinished = &finishedBody{
-		verifyDataLen: L,
-		verifyData:    c.clientFinishedData,
-	}
-
-	// Compute application_key_0
-	c.applicationKeys = c.makeTrafficKeys(c.trafficSecret, phaseApplication, handshakeHash)
-
-	// Add clientFinished to transcript and compute the resumption / exporter secrets
-	clientFinishedMessage, _ := handshakeMessageFromBody(c.clientFinished)
-	h.Write(clientFinishedMessage.Marshal())
-	handshakeHash = h.Sum(nil)
-	c.resumptionSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelResumptionSecret, handshakeHash, L)
-	c.exporterSecret = hkdfExpandLabel(c.params.hash, c.masterSecret, labelExporterSecret, handshakeHash, L)
-
-	c.state = ctxStateComplete
-	return nil
-}
-
-func (c *cryptoContext) UpdateKeys() {
-	// XXX: Assumes that nothing further has been added after the ServerFinished
-	handshakeThroughFinished := c.marshalTranscript()
-	//XXX c.trafficSecret = hkdfExpandLabel(c.params.hash, c.trafficSecret, labelTrafficSecret, []byte{}, c.params.hash.Size())
-	c.applicationKeys = c.makeTrafficKeys(c.trafficSecret, phaseApplication, handshakeThroughFinished)
-}
 
 // All crypto computations from -13
 //
@@ -891,14 +619,8 @@ func (c *cryptoContext) UpdateKeys() {
 //                     => exporter_master_secret
 //                     => resumption_secret
 
-// DONE init(PSK?, suite) // PSK != nil indicates early handshake
-// DONE updateWithClientHello(ClientHello, resumptionContext)
-// DONE updateWithEarlyHandshake(...)
-// DONE updateWithServerHello(ServerHello, dhSecret?)
-//      updateWithServerFirstFlight(...)
-//      addClientSecondFlight(...)
-
-type cryptoContext13 struct {
+type cryptoContext struct {
+	state  ctxState
 	suite  cipherSuite
 	params cipherSuiteParams
 	zero   []byte
@@ -947,23 +669,26 @@ type cryptoContext13 struct {
 	resumptionContext []byte
 }
 
-func (ctx cryptoContext13) deriveSecret(secret []byte, label string, messageHash []byte) []byte {
+func (ctx cryptoContext) deriveSecret(secret []byte, label string, messageHash []byte) []byte {
 	return hkdfExpandLabel(ctx.params.hash, secret, label, append(messageHash, ctx.resumptionHash...), ctx.params.hash.Size())
 }
 
-func (ctx cryptoContext13) makeTrafficKeys(secret []byte, phase string, handshakeHash []byte) keySet {
+func (ctx cryptoContext) makeTrafficKeys(secret []byte, phase string) keySet {
+	logf(logTypeCrypto, "making traffic keys: secret=%x phase=[%s]", secret, phase)
 	Lk := ctx.params.keyLen
 	Liv := ctx.params.ivLen
 	H := ctx.params.hash
 	return keySet{
-		clientWriteKey: hkdfExpandLabel(H, secret, phase+", "+purposeClientWriteKey, handshakeHash, Lk),
-		serverWriteKey: hkdfExpandLabel(H, secret, phase+", "+purposeServerWriteKey, handshakeHash, Lk),
-		clientWriteIV:  hkdfExpandLabel(H, secret, phase+", "+purposeClientWriteIV, handshakeHash, Liv),
-		serverWriteIV:  hkdfExpandLabel(H, secret, phase+", "+purposeServerWriteIV, handshakeHash, Liv),
+		clientWriteKey: hkdfExpandLabel(H, secret, phase+", "+purposeClientWriteKey, []byte{}, Lk),
+		serverWriteKey: hkdfExpandLabel(H, secret, phase+", "+purposeServerWriteKey, []byte{}, Lk),
+		clientWriteIV:  hkdfExpandLabel(H, secret, phase+", "+purposeClientWriteIV, []byte{}, Liv),
+		serverWriteIV:  hkdfExpandLabel(H, secret, phase+", "+purposeServerWriteIV, []byte{}, Liv),
 	}
 }
 
-func (ctx *cryptoContext13) init(suite cipherSuite, pskSecret []byte) error {
+func (ctx *cryptoContext) init(suite cipherSuite, pskSecret []byte) error {
+	logf(logTypeCrypto, "Initializing crypto context")
+
 	// Configure based on cipherSuite
 	params, ok := cipherSuiteMap[suite]
 	if !ok {
@@ -973,14 +698,13 @@ func (ctx *cryptoContext13) init(suite cipherSuite, pskSecret []byte) error {
 	ctx.params = params
 	ctx.zero = bytes.Repeat([]byte{0}, ctx.params.hash.Size())
 
-	// Import the PSK secret
+	// Import the PSK secret if required by the ciphersuite
 	if pskSecret != nil {
 		ctx.pskSecret = make([]byte, len(pskSecret))
 		copy(ctx.pskSecret, pskSecret)
+	} else if ctx.params.mode == handshakeModePSK || ctx.params.mode == handshakeModePSKAndDH {
+		return fmt.Errorf("tls.cryptoinit: PSK required by ciphersuite and not provided")
 	} else {
-		if ctx.params.mode == handshakeModePSK || ctx.params.mode == handshakeModePSKAndDH {
-			return fmt.Errorf("tls.cryptoinit: PSK required by ciphersuite and not provided")
-		}
 		ctx.pskSecret = make([]byte, len(ctx.zero))
 		copy(ctx.pskSecret, ctx.zero)
 	}
@@ -988,10 +712,17 @@ func (ctx *cryptoContext13) init(suite cipherSuite, pskSecret []byte) error {
 	// Compute the early secret
 	ctx.earlySecret = hkdfExtract(ctx.params.hash, ctx.pskSecret, ctx.zero)
 
+	ctx.state = ctxStateNew
 	return nil
 }
 
-func (ctx *cryptoContext13) updateWithClientHello(chm *handshakeMessage, resumptionContext []byte) error {
+func (ctx *cryptoContext) updateWithClientHello(chm *handshakeMessage, resumptionContext []byte) error {
+	logf(logTypeCrypto, "Updating crypto context with ClientHello")
+
+	if ctx.state != ctxStateNew {
+		return fmt.Errorf("cryptoContext.updateWithClientHello called with invalid state %v", ctx.state)
+	}
+
 	// Start up the handshake hash
 	ctx.handshakeHash = ctx.params.hash.New()
 	ctx.handshakeHash.Write(chm.Marshal())
@@ -1009,14 +740,21 @@ func (ctx *cryptoContext13) updateWithClientHello(chm *handshakeMessage, resumpt
 
 	// Derive keys derived from earlySecret
 	ctx.earlyTrafficSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyTrafficSecret, ctx.h1)
-	ctx.earlyHandshakeKeys = ctx.makeTrafficKeys(ctx.earlyTrafficSecret, phaseEarlyHandshake, ctx.h1)
-	ctx.earlyApplicationKeys = ctx.makeTrafficKeys(ctx.earlyTrafficSecret, phaseEarlyData, ctx.h1)
+	ctx.earlyHandshakeKeys = ctx.makeTrafficKeys(ctx.earlyTrafficSecret, phaseEarlyHandshake)
+	ctx.earlyApplicationKeys = ctx.makeTrafficKeys(ctx.earlyTrafficSecret, phaseEarlyData)
 	ctx.earlyFinishedKey = hkdfExpandLabel(ctx.params.hash, ctx.earlyTrafficSecret, labelClientFinished, []byte{}, ctx.params.hash.Size())
 
+	ctx.state = ctxStateClientHello
 	return nil
 }
 
-func (ctx *cryptoContext13) updateWithEarlyHandshake(msgs []*handshakeMessage) error {
+func (ctx *cryptoContext) updateWithEarlyHandshake(msgs []*handshakeMessage) error {
+	logf(logTypeCrypto, "Updating crypto context with early handshake")
+
+	if ctx.state != ctxStateClientHello {
+		return fmt.Errorf("cryptoContext.updateWithEarlyHandshake called with invalid state %v", ctx.state)
+	}
+
 	// Compute the early Finished message
 	for _, msg := range msgs {
 		ctx.earlyHandshakeHash.Write(msg.Marshal())
@@ -1039,7 +777,13 @@ func (ctx *cryptoContext13) updateWithEarlyHandshake(msgs []*handshakeMessage) e
 	return nil
 }
 
-func (ctx *cryptoContext13) updateWithServerHello(shm *handshakeMessage, dhSecret []byte) error {
+func (ctx *cryptoContext) updateWithServerHello(shm *handshakeMessage, dhSecret []byte) error {
+	logf(logTypeCrypto, "Updating crypto context with ServerHello")
+
+	if ctx.state != ctxStateClientHello {
+		return fmt.Errorf("cryptoContext.updateWithServerHello called with invalid state %v", ctx.state)
+	}
+
 	// Update the handshake hash
 	ctx.handshakeHash.Write(shm.Marshal())
 	ctx.h2 = ctx.handshakeHash.Sum(nil)
@@ -1048,10 +792,9 @@ func (ctx *cryptoContext13) updateWithServerHello(shm *handshakeMessage, dhSecre
 	if dhSecret != nil {
 		ctx.dhSecret = make([]byte, len(dhSecret))
 		copy(ctx.dhSecret, dhSecret)
+	} else if ctx.params.mode == handshakeModeDH || ctx.params.mode == handshakeModePSKAndDH {
+		return fmt.Errorf("tls.cryptoinit: DH info required by ciphersuite and not provided")
 	} else {
-		if ctx.params.mode == handshakeModeDH || ctx.params.mode == handshakeModePSKAndDH {
-			return fmt.Errorf("tls.cryptoinit: DH info required by ciphersuite and not provided")
-		}
 		ctx.dhSecret = make([]byte, len(ctx.zero))
 		copy(ctx.dhSecret, ctx.zero)
 	}
@@ -1059,15 +802,22 @@ func (ctx *cryptoContext13) updateWithServerHello(shm *handshakeMessage, dhSecre
 	// Compute the handshake secret and derived secrets
 	ctx.handshakeSecret = hkdfExtract(ctx.params.hash, ctx.dhSecret, ctx.earlySecret)
 	ctx.handshakeTrafficSecret = ctx.deriveSecret(ctx.handshakeSecret, labelHandshakeTrafficSecret, ctx.h2)
-	ctx.handshakeKeys = ctx.makeTrafficKeys(ctx.handshakeTrafficSecret, phaseHandshake, ctx.h2)
+	ctx.handshakeKeys = ctx.makeTrafficKeys(ctx.handshakeTrafficSecret, phaseHandshake)
 
 	// Compute the master secret
 	ctx.masterSecret = hkdfExtract(ctx.params.hash, ctx.zero, ctx.handshakeSecret)
 
+	ctx.state = ctxStateServerHello
 	return nil
 }
 
-func (ctx *cryptoContext13) updateWithServerFirstFlight(msgs []*handshakeMessage) error {
+func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) error {
+	logf(logTypeCrypto, "Updating crypto context with server's first flight")
+
+	if ctx.state != ctxStateServerHello {
+		return fmt.Errorf("cryptoContext.updateWithServerFirstFlight called with invalid state %v", ctx.state)
+	}
+
 	// Update the handshake hash
 	for _, msg := range msgs {
 		ctx.handshakeHash.Write(msg.Marshal())
@@ -1100,12 +850,19 @@ func (ctx *cryptoContext13) updateWithServerFirstFlight(msgs []*handshakeMessage
 	// flight as well?  Do we expect the server to start sending before it gets
 	// the client's Finished message?
 	ctx.trafficSecret = ctx.deriveSecret(ctx.masterSecret, labelApplicationTrafficSecret, ctx.h4)
-	ctx.trafficKeys = ctx.makeTrafficKeys(ctx.trafficSecret, phaseApplication, ctx.h4)
+	ctx.trafficKeys = ctx.makeTrafficKeys(ctx.trafficSecret, phaseApplication)
 
+	ctx.state = ctxStateServerFirstFlight
 	return nil
 }
 
-func (ctx *cryptoContext13) updateWithClientSecondFlight(msgs []*handshakeMessage) error {
+func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*handshakeMessage) error {
+	logf(logTypeCrypto, "Updating crypto context with client's second flight")
+
+	if ctx.state != ctxStateServerFirstFlight {
+		return fmt.Errorf("cryptoContext.updateWithClientSecondFlight called with invalid state %v", ctx.state)
+	}
+
 	// Update the handshake hash
 	// XXX:RLB: I'm going to use h5 for the client Finished, even though the spec
 	// shows the hash there using a weird ordering of the messages
@@ -1139,7 +896,21 @@ func (ctx *cryptoContext13) updateWithClientSecondFlight(msgs []*handshakeMessag
 	ctx.exporterSecret = ctx.deriveSecret(ctx.masterSecret, labelExporterSecret, ctx.h6)
 	ctx.resumptionSecret = ctx.deriveSecret(ctx.masterSecret, labelResumptionSecret, ctx.h6)
 	ctx.resumptionPSK = hkdfExpandLabel(ctx.params.hash, ctx.resumptionSecret, labelResumptionPSK, []byte{}, ctx.params.hash.Size())
-	ctx.resumptionPSK = hkdfExpandLabel(ctx.params.hash, ctx.resumptionSecret, labelResumptionContext, []byte{}, ctx.params.hash.Size())
+	ctx.resumptionContext = hkdfExpandLabel(ctx.params.hash, ctx.resumptionSecret, labelResumptionContext, []byte{}, ctx.params.hash.Size())
 
+	ctx.state = ctxStateClientSecondFlight
+	return nil
+}
+
+func (ctx *cryptoContext) updateKeys() error {
+	logf(logTypeCrypto, "Updating crypto context new keys")
+
+	if ctx.state != ctxStateClientSecondFlight {
+		return fmt.Errorf("cryptoContext.UpdateKeys called with invalid state %v", ctx.state)
+	}
+
+	ctx.trafficSecret = hkdfExpandLabel(ctx.params.hash, ctx.trafficSecret, labelApplicationTrafficSecret,
+		[]byte{}, ctx.params.hash.Size())
+	ctx.trafficKeys = ctx.makeTrafficKeys(ctx.trafficSecret, phaseApplication)
 	return nil
 }
