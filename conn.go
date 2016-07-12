@@ -688,6 +688,7 @@ func (c *Conn) clientHandshake() error {
 		return err
 	}
 	logf(logTypeHandshake, "[client] Completed rekey")
+	dumpCryptoContext("client", ctx)
 
 	// Read to Finished
 	transcript := []*handshakeMessage{}
@@ -737,7 +738,7 @@ func (c *Conn) clientHandshake() error {
 		logf(logTypeHandshake, "===")
 
 		serverPublicKey := cert.certificateList[0].PublicKey
-		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify); err != nil {
+		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify, ctx.resumptionHash); err != nil {
 			return err
 		}
 
@@ -988,13 +989,13 @@ func (c *Conn) serverHandshake() error {
 		sendKeyShare = (mode == handshakeModeDH || mode == handshakeModePSKAndDH)
 		sendPSK = (mode == handshakeModePSK || mode == handshakeModePSKAndDH)
 
-		// Only use DH modes if we have DH information
-		if sendKeyShare && (serverKeyShare == nil) {
+		// Use a DH mode iff we have DH information
+		if (sendKeyShare && (serverKeyShare == nil)) && (!sendKeyShare && (serverKeyShare != nil)) {
 			continue
 		}
 
-		// Only use PSK modes if we got a PSK
-		if sendPSK && (serverPSK == nil) {
+		// Use a PSK mode iff we have a PSK
+		if (sendPSK && (serverPSK == nil)) || (!sendPSK && (serverPSK != nil)) {
 			continue
 		}
 
@@ -1084,6 +1085,7 @@ func (c *Conn) serverHandshake() error {
 		return err
 	}
 	logf(logTypeHandshake, "[server] Completed rekey")
+	dumpCryptoContext("server", ctx)
 
 	// Send an EncryptedExtensions message (even if it's empty)
 	ee := &encryptedExtensionsBody{}

@@ -43,8 +43,8 @@ var (
 	// KeyShare test cases
 	len256           = keyExchangeSizeFromNamedGroup(namedGroupP256)
 	len521           = keyExchangeSizeFromNamedGroup(namedGroupP521)
-	p256             = append([]byte{byte(len256 - 1)}, bytes.Repeat([]byte{0}, len256-1)...)
-	p521             = append([]byte{byte(len521 - 1)}, bytes.Repeat([]byte{0}, len521-1)...)
+	p256             = bytes.Repeat([]byte{0}, len256)
+	p521             = bytes.Repeat([]byte{0}, len521)
 	keyShareClientIn = &keyShareExtension{
 		roleIsServer: false,
 		shares: []keyShare{
@@ -64,9 +64,9 @@ var (
 			keyShare{group: namedGroupP256, keyExchange: []byte{0}},
 		},
 	}
-	keyShareClientHex = "00d0" + "00170042" + hex.EncodeToString(p256) +
-		"00190086" + hex.EncodeToString(p521)
-	keyShareServerHex  = "00170042" + hex.EncodeToString(p256)
+	keyShareClientHex = "00ce" + "00170041" + hex.EncodeToString(p256) +
+		"00190085" + hex.EncodeToString(p521)
+	keyShareServerHex  = "00170041" + hex.EncodeToString(p256)
 	keyShareInvalidHex = "0017000100"
 
 	// Add/Find test cases

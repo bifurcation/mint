@@ -454,14 +454,14 @@ func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*ha
 	return err
 }
 
-func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*handshakeMessage) error {
+func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*handshakeMessage, resumptionHash []byte) error {
 	_, hashedData, err := cv.computeContext(transcript)
 	if err != nil {
 		return err
 	}
 
+	hashedData = append(hashedData, resumptionHash...)
 	logf(logTypeHandshake, "Digest to be verified: [%d] %x", len(hashedData), hashedData)
-
 	return verify(cv.alg, publicKey, hashedData, contextCertificateVerify, cv.signature)
 }
 
@@ -576,12 +576,13 @@ func (tkt *newSessionTicketBody) Unmarshal(data []byte) (int, error) {
 			extensionType: extType,
 			extensionData: data[read : read+extLen],
 		})
+		read += extLen
 	}
 	if read != base+extensionsLen {
 		return 0, fmt.Errorf("tls.ticket: Extensions length mismatch")
 	}
-	if read+2 < dataLen {
-		return 0, fmt.Errorf("tls.ticket: Ticket data too short to read ticket length")
+	if read+2 > dataLen {
+		return 0, fmt.Errorf("tls.ticket: Ticket data too short to read ticket length %d %d")
 	}
 
 	ticketLen := (int(data[read]) << 8) + int(data[read+1])

@@ -21,7 +21,7 @@ var (
 		namedGroupFF6144, namedGroupFF8192}
 	dhGroups = append(ecGroups, ffGroups...)
 
-	shortKeyPubHex = "4104e9f6076620ddf6a24e4398162057eccd3077892f046b412" +
+	shortKeyPubHex = "04e9f6076620ddf6a24e4398162057eccd3077892f046b412" +
 		"0ffcb9fa31cdfd385c8727b222f9a6091e442e48f32ba145" +
 		"bd3d68c0631b0ed8faf298c40c404bf59"
 	shortKeyPrivHex = "6f28e305a0975ead3b95c228082adcae852fca6af0c9385f670531657966cd6a"
@@ -48,7 +48,7 @@ func TestNewKeyShare(t *testing.T) {
 		assertNotError(t, err, "Failed to generate new key pair")
 
 		crv := curveFromNamedGroup(group)
-		x, y := elliptic.Unmarshal(crv, pub[1:])
+		x, y := elliptic.Unmarshal(crv, pub)
 		assert(t, x != nil && y != nil, "Public key failed to unmarshal")
 		assert(t, crv.Params().IsOnCurve(x, y), "Public key not on curve")
 	}
