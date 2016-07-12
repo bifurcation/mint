@@ -981,10 +981,20 @@ func (c *Conn) serverHandshake() error {
 	// Pick a ciphersuite
 	var chosenSuite cipherSuite
 	foundCipherSuite := false
+	sendKeyShare := false
+	sendPSK := false
 	for _, suite := range ch.cipherSuites {
-		// Only use PSK modes if we got a PSK
 		mode := cipherSuiteMap[suite].mode
-		if gotPSK && (mode != handshakeModePSK) && (mode != handshakeModePSKAndDH) {
+		sendKeyShare = (mode == handshakeModeDH || mode == handshakeModePSKAndDH)
+		sendPSK = (mode == handshakeModePSK || mode == handshakeModePSKAndDH)
+
+		// Only use DH modes if we have DH information
+		if sendKeyShare && (serverKeyShare == nil) {
+			continue
+		}
+
+		// Only use PSK modes if we got a PSK
+		if sendPSK && (serverPSK == nil) {
 			continue
 		}
 
@@ -1023,9 +1033,6 @@ func (c *Conn) serverHandshake() error {
 	if err != nil {
 		return err
 	}
-
-	sendKeyShare := (ctx.params.mode == handshakeModePSKAndDH) || (ctx.params.mode == handshakeModeDH)
-	sendPSK := (ctx.params.mode == handshakeModePSK) || (ctx.params.mode == handshakeModePSKAndDH)
 	logf(logTypeHandshake, "[server] Initialized context %v %v", sendKeyShare, sendPSK)
 
 	// Create the ServerHello
@@ -1037,12 +1044,21 @@ func (c *Conn) serverHandshake() error {
 		return err
 	}
 	if sendKeyShare {
-		sh.extensions.Add(serverKeyShare)
+		logf(logTypeHandshake, "[server] sending key share extension")
+		err = sh.extensions.Add(serverKeyShare)
+		if err != nil {
+			return err
+		}
 	} else {
+		logf(logTypeHandshake, "[server] not key share extension; deleting DH secret")
 		dhSecret = nil
 	}
 	if sendPSK {
-		sh.extensions.Add(serverPSK)
+		logf(logTypeHandshake, "[server] sending PSK extension")
+		err = sh.extensions.Add(serverPSK)
+		if err != nil {
+			return err
+		}
 	}
 	logf(logTypeHandshake, "[server] Done creating ServerHello")
 
@@ -1114,7 +1130,7 @@ func (c *Conn) serverHandshake() error {
 		certificateVerify := &certificateVerifyBody{
 			alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
 		}
-		err = certificateVerify.Sign(privateKey, []*handshakeMessage{chm, shm, eem, certm})
+		err = certificateVerify.Sign(privateKey, []*handshakeMessage{chm, shm, eem, certm}, ctx.resumptionHash)
 		if err != nil {
 			return err
 		}
@@ -1164,10 +1180,11 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Send a new session ticket
-	tkt, err := newSessionTicket(c.config.TicketLifetime, c.config.TicketLen)
+	tkt, err := newSessionTicket(c.config.TicketLen)
 	if err != nil {
 		return err
 	}
+	tkt.lifetime = c.config.TicketLifetime
 
 	if c.config.SendSessionTickets {
 		newPSK := PreSharedKey{
@@ -1177,13 +1194,14 @@ func (c *Conn) serverHandshake() error {
 		}
 		c.config.ServerPSKs = append(c.config.ServerPSKs, newPSK)
 
-		logf(logTypeHandshake, "About to write NewSessionTicket %v", tkt.ticket)
+		ticketBytes, err := tkt.Marshal()
+		logf(logTypeHandshake, "About to write NewSessionTicket %x", ticketBytes)
 		_, err = hOut.WriteMessageBody(tkt)
-		logf(logTypeHandshake, "Wrote NewSessionTicket %v", tkt.ticket)
 		if err != nil {
-			logf(logTypeHandshake, "Returning error: %v", err)
+			logf(logTypeHandshake, "Returning error: %x", ticketBytes)
 			return err
 		}
+		logf(logTypeHandshake, "Wrote NewSessionTicket %x", tkt.ticket)
 	}
 
 	c.context = ctx

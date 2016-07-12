@@ -168,21 +168,21 @@ func keyExchangeSizeFromNamedGroup(group namedGroup) (size int) {
 	size = 0
 	switch group {
 	case namedGroupP256:
-		size = 66
+		size = 65
 	case namedGroupP384:
-		size = 98
+		size = 97
 	case namedGroupP521:
-		size = 134
+		size = 133
 	case namedGroupFF2048:
-		size = 258
+		size = 256
 	case namedGroupFF3072:
-		size = 386
+		size = 384
 	case namedGroupFF4096:
-		size = 514
+		size = 512
 	case namedGroupFF6144:
-		size = 770
+		size = 768
 	case namedGroupFF8192:
-		size = 1026
+		size = 1024
 	}
 	return
 }
@@ -226,7 +226,6 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 		}
 
 		pub = elliptic.Marshal(crv, x, y)
-		pub = append([]byte{byte(len(pub))}, pub...)
 		return
 
 	case namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
@@ -239,8 +238,7 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 		}
 
 		priv = x.Bytes()
-		l := []byte{byte(len(X.Bytes()) >> 8), byte(len(X.Bytes()) & 0xff)}
-		pub = append(l, X.Bytes()...)
+		pub = X.Bytes()
 		return
 
 	default:
@@ -251,13 +249,12 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 	switch group {
 	case namedGroupP256, namedGroupP384, namedGroupP521:
-		pubLen := int(pub[0])
-		if len(pub) != keyExchangeSizeFromNamedGroup(group) || len(pub) != pubLen+1 {
+		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
 			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
 		}
 
 		crv := curveFromNamedGroup(group)
-		pubX, pubY := elliptic.Unmarshal(crv, pub[1:])
+		pubX, pubY := elliptic.Unmarshal(crv, pub)
 		x, _ := crv.Params().ScalarMult(pubX, pubY, priv)
 
 		curveSize := len(crv.Params().P.Bytes())
@@ -269,13 +266,12 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 
 	case namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
 		namedGroupFF6144, namedGroupFF8192:
-		pubLen := int(pub[0])<<8 | int(pub[1])
-		if len(pub) != keyExchangeSizeFromNamedGroup(group) || len(pub) != pubLen+2 {
+		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
 			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
 		}
 		p := primeFromNamedGroup(group)
 		x := big.NewInt(0).SetBytes(priv)
-		Y := big.NewInt(0).SetBytes(pub[2:])
+		Y := big.NewInt(0).SetBytes(pub)
 		Z := big.NewInt(0).Exp(Y, x, p)
 		return Z.Bytes(), nil
 
@@ -304,8 +300,13 @@ func newSelfSigned(name string, alg signatureAndHashAlgorithm, priv crypto.Signe
 		return nil, fmt.Errorf("tls.selfsigned: No name provided")
 	}
 
+	serial, err := rand.Int(rand.Reader, big.NewInt(0xA0A0A0A0))
+	if err != nil {
+		return nil, err
+	}
+
 	template := &x509.Certificate{
-		SerialNumber:       big.NewInt(0xA0A0A0A0),
+		SerialNumber:       serial,
 		NotBefore:          time.Now(),
 		NotAfter:           time.Now().AddDate(0, 0, 1),
 		SignatureAlgorithm: sigAlg,
@@ -428,7 +429,14 @@ func hkdfExtract(hash crypto.Hash, saltIn, input []byte) []byte {
 
 	h := hmac.New(hash.New, salt)
 	h.Write(input)
-	return h.Sum(nil)
+	out := h.Sum(nil)
+
+	logf(logTypeCrypto, "HKDF Extract:\n")
+	logf(logTypeCrypto, "Salt [%d]: %x\n", len(salt), salt)
+	logf(logTypeCrypto, "Input [%d]: %x\n", len(input), input)
+	logf(logTypeCrypto, "Output [%d]: %x\n", len(out), out)
+
+	return out
 }
 
 // struct HkdfLabel {
@@ -710,7 +718,7 @@ func (ctx *cryptoContext) init(suite cipherSuite, pskSecret []byte) error {
 	}
 
 	// Compute the early secret
-	ctx.earlySecret = hkdfExtract(ctx.params.hash, ctx.pskSecret, ctx.zero)
+	ctx.earlySecret = hkdfExtract(ctx.params.hash, ctx.zero, ctx.pskSecret)
 
 	ctx.state = ctxStateNew
 	return nil
@@ -724,19 +732,28 @@ func (ctx *cryptoContext) updateWithClientHello(chm *handshakeMessage, resumptio
 	}
 
 	// Start up the handshake hash
+	bytes := chm.Marshal()
+	logf(logTypeCrypto, "input to handshake hash [%d]: %x", len(bytes), bytes)
 	ctx.handshakeHash = ctx.params.hash.New()
-	ctx.handshakeHash.Write(chm.Marshal())
+	ctx.handshakeHash.Write(bytes)
 	ctx.h1 = ctx.handshakeHash.Sum(nil)
+	logf(logTypeCrypto, "handshake hash 1 [%d]: %x", len(ctx.h1), ctx.h1)
 
 	// ... and it's early-handshake cousin
 	ctx.earlyHandshakeHash = ctx.params.hash.New()
-	ctx.earlyHandshakeHash.Write(chm.Marshal())
+	ctx.earlyHandshakeHash.Write(bytes)
 
 	// Import the resumption context
-	// XXX:RLB: Unclear from the spec whether to use empty or zero.  Assume empty for now
+	contextOrZero := ctx.zero
+	if resumptionContext == nil {
+		ctx.resumptionContext = make([]byte, len(resumptionContext))
+		copy(ctx.resumptionContext, resumptionContext)
+	}
 	h := ctx.params.hash.New()
-	h.Write(resumptionContext)
+	h.Write(contextOrZero)
 	ctx.resumptionHash = h.Sum(nil)
+	logf(logTypeCrypto, "Resumption context [%d]: %x", len(contextOrZero), contextOrZero)
+	logf(logTypeCrypto, "Hash of resumption context [%d]: %x", len(ctx.resumptionHash), ctx.resumptionHash)
 
 	// Derive keys derived from earlySecret
 	ctx.earlyTrafficSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyTrafficSecret, ctx.h1)
@@ -785,8 +802,11 @@ func (ctx *cryptoContext) updateWithServerHello(shm *handshakeMessage, dhSecret 
 	}
 
 	// Update the handshake hash
-	ctx.handshakeHash.Write(shm.Marshal())
+	bytes := shm.Marshal()
+	logf(logTypeCrypto, "input to handshake hash [%d]: %x", len(bytes), bytes)
+	ctx.handshakeHash.Write(bytes)
 	ctx.h2 = ctx.handshakeHash.Sum(nil)
+	logf(logTypeCrypto, "handshake hash 2 [%d]: %x", len(ctx.h2), ctx.h2)
 
 	// Import the DH secret
 	if dhSecret != nil {
@@ -800,12 +820,12 @@ func (ctx *cryptoContext) updateWithServerHello(shm *handshakeMessage, dhSecret 
 	}
 
 	// Compute the handshake secret and derived secrets
-	ctx.handshakeSecret = hkdfExtract(ctx.params.hash, ctx.dhSecret, ctx.earlySecret)
+	ctx.handshakeSecret = hkdfExtract(ctx.params.hash, ctx.earlySecret, ctx.dhSecret)
 	ctx.handshakeTrafficSecret = ctx.deriveSecret(ctx.handshakeSecret, labelHandshakeTrafficSecret, ctx.h2)
 	ctx.handshakeKeys = ctx.makeTrafficKeys(ctx.handshakeTrafficSecret, phaseHandshake)
 
 	// Compute the master secret
-	ctx.masterSecret = hkdfExtract(ctx.params.hash, ctx.zero, ctx.handshakeSecret)
+	ctx.masterSecret = hkdfExtract(ctx.params.hash, ctx.handshakeSecret, ctx.zero)
 
 	ctx.state = ctxStateServerHello
 	return nil
@@ -820,9 +840,12 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) 
 
 	// Update the handshake hash
 	for _, msg := range msgs {
-		ctx.handshakeHash.Write(msg.Marshal())
+		bytes := msg.Marshal()
+		logf(logTypeCrypto, "input to handshake hash [%d]: %x", len(bytes), bytes)
+		ctx.handshakeHash.Write(bytes)
 	}
-	ctx.h3 = ctx.earlyHandshakeHash.Sum(nil)
+	ctx.h3 = ctx.handshakeHash.Sum(nil)
+	logf(logTypeCrypto, "handshake hash 3 [%d]: %x", len(ctx.h3), ctx.h3)
 	logf(logTypeCrypto, "handshake hash for server Finished: [%d] %x", len(ctx.h3), ctx.h3)
 	logf(logTypeCrypto, "resumption hash for server Finished: [%d] %x", len(ctx.resumptionHash), ctx.resumptionHash)
 
@@ -844,6 +867,7 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) 
 	finishedMessage, _ := handshakeMessageFromBody(ctx.serverFinished)
 	ctx.handshakeHash.Write(finishedMessage.Marshal())
 	ctx.h4 = ctx.handshakeHash.Sum(nil)
+	logf(logTypeCrypto, "handshake hash 4 [%d]: %x", len(ctx.h4), ctx.h4)
 
 	// Compute the traffic secret and keys
 	// XXX:RLB: Why not make the traffic secret include the client's second
@@ -867,11 +891,14 @@ func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*handshakeMessage)
 	// XXX:RLB: I'm going to use h5 for the client Finished, even though the spec
 	// shows the hash there using a weird ordering of the messages
 	for _, msg := range msgs {
-		ctx.handshakeHash.Write(msg.Marshal())
+		bytes := msg.Marshal()
+		logf(logTypeCrypto, "input to handshake hash [%d]: %x", len(bytes), bytes)
+		ctx.handshakeHash.Write(bytes)
 	}
-	ctx.h5 = ctx.earlyHandshakeHash.Sum(nil)
+	ctx.h5 = ctx.handshakeHash.Sum(nil)
 	logf(logTypeCrypto, "handshake hash for client Finished: [%d] %x", len(ctx.h5), ctx.h5)
 	logf(logTypeCrypto, "resumption hash for client Finished: [%d] %x", len(ctx.resumptionHash), ctx.resumptionHash)
+	logf(logTypeCrypto, "handshake hash 5 [%d]: %x", len(ctx.h5), ctx.h5)
 
 	// Compute the server Finished message
 	ctx.clientFinishedKey = hkdfExpandLabel(ctx.params.hash, ctx.handshakeTrafficSecret, labelClientFinished, []byte{}, ctx.params.hash.Size())
@@ -891,6 +918,7 @@ func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*handshakeMessage)
 	finishedMessage, _ := handshakeMessageFromBody(ctx.clientFinished)
 	ctx.handshakeHash.Write(finishedMessage.Marshal())
 	ctx.h6 = ctx.handshakeHash.Sum(nil)
+	logf(logTypeCrypto, "handshake hash 6 [%d]: %x", len(ctx.h6), ctx.h6)
 
 	// Compute the exporter and resumption secrets
 	ctx.exporterSecret = ctx.deriveSecret(ctx.masterSecret, labelExporterSecret, ctx.h6)
