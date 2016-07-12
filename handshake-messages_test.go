@@ -131,17 +131,25 @@ var (
 		},
 		signature: []byte{0, 0, 0, 0},
 	}
-	certVerifyValidHex = "0403000400000000"
+	certVerifyValidHex          = "0403000400000000"
+	certVerifyResumptionHashHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 
 	// NewSessionTicket test cases
-	ticketValidHex = "00010203000404050607"
+	ticketValidHex = "0001020304050607000600ff00021122000404050607"
 	ticketValidIn  = newSessionTicketBody{
-		lifetimeHint: 0x00010203,
-		ticket:       []byte{4, 5, 6, 7},
+		lifetime: 0x00010203,
+		flags:    0x04050607,
+		extensions: []ticketExtension{
+			ticketExtension{
+				extensionType: 0x00ff,
+				extensionData: []byte{0x11, 0x22},
+			},
+		},
+		ticket: []byte{4, 5, 6, 7},
 	}
 	ticketTooBigIn = newSessionTicketBody{
-		lifetimeHint: 0x00010203,
-		ticket:       make([]byte, maxTicketLen+1),
+		lifetime: 0x00010203,
+		ticket:   make([]byte, maxTicketLen+1),
 	}
 )
 
@@ -442,6 +450,7 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
+	certVerifyResumptionHash, _ := hex.DecodeString(certVerifyResumptionHashHex)
 
 	chMessage, _ := handshakeMessageFromBody(&chValidIn)
 	shMessage, _ := handshakeMessageFromBody(&shValidIn)
@@ -474,34 +483,34 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a CertificateVerify with no header")
 
 	// Test successful sign
-	err = certVerifyValidIn.Sign(privRSA, transcript)
+	err = certVerifyValidIn.Sign(privRSA, transcript, certVerifyResumptionHash)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
 
 	// Test sign failure on handshake marshal failure
-	err = certVerifyValidIn.Sign(privRSA, nilTranscript)
+	err = certVerifyValidIn.Sign(privRSA, nilTranscript, certVerifyResumptionHash)
 	assertError(t, err, "Signed CertificateVerify despite nil message")
 	chValidIn.extensions = extListValidIn
 
 	// Test sign failure on bad hash algorithm
 	certVerifyValidIn.alg.hash = hashAlgorithm(0)
-	err = certVerifyValidIn.Sign(privRSA, transcript)
+	err = certVerifyValidIn.Sign(privRSA, transcript, certVerifyResumptionHash)
 	assertError(t, err, "Signed CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.alg.hash = hashAlgorithmSHA256
 
 	// Test successful verify
-	err = certVerifyValidIn.Sign(privRSA, transcript)
+	err = certVerifyValidIn.Sign(privRSA, transcript, certVerifyResumptionHash)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
-	err = certVerifyValidIn.Verify(privRSA.Public(), transcript)
+	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, certVerifyResumptionHash)
 	assertNotError(t, err, "Failed to verify CertificateVerify")
 
 	// Test verify failure on bad hash algorithm
 	certVerifyValidIn.alg.hash = hashAlgorithm(0)
-	err = certVerifyValidIn.Verify(privRSA.Public(), transcript)
+	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, certVerifyResumptionHash)
 	assertError(t, err, "Verified CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.alg.hash = hashAlgorithmSHA256
 
 	// Test veirfy failure on nil message
-	err = certVerifyValidIn.Verify(privRSA.Public(), nilTranscript)
+	err = certVerifyValidIn.Verify(privRSA.Public(), nilTranscript, certVerifyResumptionHash)
 	assertError(t, err, "Verified CertificateVerify despite nil message")
 }
 
@@ -512,9 +521,10 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 	assertEquals(t, (newSessionTicketBody{}).Type(), handshakeTypeNewSessionTicket)
 
 	// Test creation of a new random ticket
-	tkt, err := newSessionTicket(uint32(3), 16)
+	tkt, err := newSessionTicket(16)
+	tkt.lifetime = uint32(3)
 	assertNotError(t, err, "Failed to create session ticket")
-	assertEquals(t, tkt.lifetimeHint, uint32(3))
+	assertEquals(t, tkt.lifetime, uint32(3))
 	assertEquals(t, len(tkt.ticket), 16)
 
 	// Test successful marshal

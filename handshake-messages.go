@@ -7,14 +7,17 @@ import (
 )
 
 const (
-	fixedClientHelloBodyLen  = 39
-	fixedServerHelloBodyLen  = 36
-	maxCipherSuites          = 1 << 15
-	extensionHeaderLen       = 4
-	maxExtensionDataLen      = (1 << 16) - 1
-	maxExtensionsLen         = (1 << 16) - 1
-	maxCertRequestContextLen = 255
-	maxTicketLen             = (1 << 16) - 1
+	fixedClientHelloBodyLen      = 39
+	fixedServerHelloBodyLen      = 36
+	fixedNewSessionTicketBodyLen = 12
+	maxCipherSuites              = 1 << 15
+	extensionHeaderLen           = 4
+	maxExtensionDataLen          = (1 << 16) - 1
+	maxExtensionsLen             = (1 << 16) - 1
+	maxCertRequestContextLen     = 255
+	maxTicketLen                 = (1 << 16) - 1
+	maxTicketExtensionLen        = (1 << 16) - 1
+	maxTicketExtensionsLen       = (1 << 16) - 1
 )
 
 type handshakeMessageBody interface {
@@ -440,42 +443,65 @@ func (cv *certificateVerifyBody) computeContext(transcript []*handshakeMessage) 
 	return
 }
 
-func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*handshakeMessage) error {
+func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*handshakeMessage, resumptionHash []byte) error {
 	hash, hashedData, err := cv.computeContext(transcript)
 	if err != nil {
 		return err
 	}
 
+	hashedData = append(hashedData, resumptionHash...)
 	cv.alg.signature, cv.signature, err = sign(hash, privateKey, hashedData, contextCertificateVerify)
 	return err
 }
 
-func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*handshakeMessage) error {
+func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*handshakeMessage, resumptionHash []byte) error {
 	_, hashedData, err := cv.computeContext(transcript)
 	if err != nil {
 		return err
 	}
 
+	hashedData = append(hashedData, resumptionHash...)
 	logf(logTypeHandshake, "Digest to be verified: [%d] %x", len(hashedData), hashedData)
-
 	return verify(cv.alg, publicKey, hashedData, contextCertificateVerify, cv.signature)
 }
 
-//  struct {
-//      uint32 ticket_lifetime_hint;
-//      opaque ticket<0..2^16-1>;
-//  } NewSessionTicket;
+// enum { (65535) } TicketExtensionType;
+//
+// struct {
+//     TicketExtensionType extension_type;
+//     opaque extension_data<1..2^16-1>;
+// } TicketExtension;
+//
+// struct {
+//     uint32 ticket_lifetime;
+//     uint32 flags;
+//     uint32 ticket_age_add;
+//     TicketExtension extensions<2..2^16-2>;
+//     opaque ticket<0..2^16-1>;
+// } NewSessionTicket;
+type ticketExtension struct {
+	extensionType uint16
+	extensionData []byte
+}
 type newSessionTicketBody struct {
-	lifetimeHint uint32
-	ticket       []byte
+	lifetime   uint32
+	flags      uint32
+	extensions []ticketExtension
+	ticket     []byte
 }
 
-func newSessionTicket(lifetime uint32, ticketLen int) (*newSessionTicketBody, error) {
+func newSessionTicket(ticketLen int) (*newSessionTicketBody, error) {
 	tkt := &newSessionTicketBody{
-		lifetimeHint: lifetime,
-		ticket:       make([]byte, ticketLen),
+		ticket: make([]byte, ticketLen),
 	}
 	_, err := prng.Read(tkt.ticket)
+
+	// XXX: The spec appears to require a dummy extension
+	tkt.extensions = []ticketExtension{ticketExtension{
+		extensionType: 0,
+		extensionData: []byte{0},
+	}}
+
 	return tkt, err
 }
 
@@ -488,32 +514,83 @@ func (tkt newSessionTicketBody) Marshal() ([]byte, error) {
 	if ticketLen > maxTicketLen {
 		return nil, fmt.Errorf("tls.ticket: Ticket too long to marshal")
 	}
+	ticket := append([]byte{byte(ticketLen >> 8), byte(ticketLen)}, tkt.ticket...)
 
-	header := []byte{
-		byte(tkt.lifetimeHint >> 24),
-		byte(tkt.lifetimeHint >> 16),
-		byte(tkt.lifetimeHint >> 8),
-		byte(tkt.lifetimeHint >> 0),
-		byte(ticketLen >> 8),
-		byte(ticketLen >> 0),
+	extensions := []byte{}
+	for _, ext := range tkt.extensions {
+		extLen := len(ext.extensionData)
+		if extLen > maxTicketExtensionLen {
+			return nil, fmt.Errorf("tls.ticket: Extension too long to marshal")
+		}
+		extHeader := []byte{
+			byte(ext.extensionType >> 8), byte(ext.extensionType),
+			byte(extLen >> 8), byte(extLen),
+		}
+		extensions = append(extensions, extHeader...)
+		extensions = append(extensions, ext.extensionData...)
 	}
-	return append(header, tkt.ticket...), nil
+	if len(extensions) > maxTicketExtensionsLen {
+		return nil, fmt.Errorf("tls.ticket: Extensions too long to marshal")
+	}
+	extLen := len(extensions)
+	extensions = append([]byte{byte(extLen >> 8), byte(extLen)}, extensions...)
+
+	data := []byte{
+		byte(tkt.lifetime >> 24), byte(tkt.lifetime >> 16),
+		byte(tkt.lifetime >> 8), byte(tkt.lifetime >> 0),
+		byte(tkt.flags >> 24), byte(tkt.flags >> 16),
+		byte(tkt.flags >> 8), byte(tkt.flags >> 0),
+	}
+	data = append(data, extensions...)
+	data = append(data, ticket...)
+	return data, nil
 }
 
 func (tkt *newSessionTicketBody) Unmarshal(data []byte) (int, error) {
-	if len(data) < 6 {
+	dataLen := len(data)
+	if dataLen < fixedNewSessionTicketBodyLen {
 		return 0, fmt.Errorf("tls.ticket: Ticket too short to unmarshal")
 	}
 
-	tkt.lifetimeHint = (uint32(data[0]) << 24) + (uint32(data[1]) << 16) +
+	tkt.lifetime = (uint32(data[0]) << 24) + (uint32(data[1]) << 16) +
 		(uint32(data[2]) << 8) + (uint32(data[3]))
+	tkt.flags = (uint32(data[4]) << 24) + (uint32(data[5]) << 16) +
+		(uint32(data[6]) << 8) + (uint32(data[7]))
+	extensionsLen := (int(data[8]) << 8) + int(data[9])
 
-	ticketLen := (int(data[4]) << 8) + int(data[5])
-	if len(data[6:]) < ticketLen {
-		return 0, fmt.Errorf("tls.ticket: Data too short to read ticket")
+	base := 10
+	read := base
+	if base+extensionsLen+2 > dataLen {
+		return 0, fmt.Errorf("tls.ticket: Extensions too long to unmarshal")
+	}
+	tkt.extensions = []ticketExtension{}
+	for read-base < extensionsLen-4 {
+		extType := (uint16(data[read]) << 8) + uint16(data[read+1])
+		extLen := (int(data[read+2]) << 8) + int(data[read+3])
+		read += 4
+
+		if read+extLen > dataLen {
+			return 0, fmt.Errorf("tls.ticket: Extension too long to unmarshal")
+		}
+		tkt.extensions = append(tkt.extensions, ticketExtension{
+			extensionType: extType,
+			extensionData: data[read : read+extLen],
+		})
+		read += extLen
+	}
+	if read != base+extensionsLen {
+		return 0, fmt.Errorf("tls.ticket: Extensions length mismatch")
+	}
+	if read+2 > dataLen {
+		return 0, fmt.Errorf("tls.ticket: Ticket data too short to read ticket length %d %d")
+	}
+
+	ticketLen := (int(data[read]) << 8) + int(data[read+1])
+	if read+2+ticketLen > dataLen {
+		return 0, fmt.Errorf("tls.ticket: Ticket data too short to read ticket")
 	}
 	tkt.ticket = make([]byte, ticketLen)
-	copy(tkt.ticket, data[6:])
+	copy(tkt.ticket, data[read+2:])
 
-	return 6 + ticketLen, nil
+	return read + 2 + ticketLen, nil
 }
