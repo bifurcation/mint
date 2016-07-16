@@ -417,7 +417,14 @@ func (cv *certificateVerifyBody) Unmarshal(data []byte) (int, error) {
 	return 4 + sigLen, nil
 }
 
-func (cv *certificateVerifyBody) computeContext(transcript []*handshakeMessage) (hash crypto.Hash, hashed []byte, err error) {
+func (cv *certificateVerifyBody) computeContext(ctx cryptoContext, transcript []*handshakeMessage) (sigHash crypto.Hash, hashed []byte, err error) {
+	// Look up the
+	sigHash, ok := hashMap[cv.alg.hash]
+	if !ok {
+		err = fmt.Errorf("tls.certverify: Unsupported hash algorithm")
+		return
+	}
+
 	handshakeContext := []byte{}
 	for _, msg := range transcript {
 		if msg == nil {
@@ -429,38 +436,33 @@ func (cv *certificateVerifyBody) computeContext(transcript []*handshakeMessage) 
 		handshakeContext = append(handshakeContext, data...)
 	}
 
-	hash, ok := hashMap[cv.alg.hash]
-	if !ok {
-		err = fmt.Errorf("tls.certverify: Unsupported hash algorithm")
-		return
-	}
-	h := hash.New()
+	h := ctx.params.hash.New()
 	h.Write(handshakeContext)
-
-	logf(logTypeHandshake, "Handshake Context to be verified: [%d] %x", len(handshakeContext), handshakeContext)
 	hashed = h.Sum(nil)
+	logf(logTypeHandshake, "Handshake Context to be verified: [%d] %x", len(handshakeContext), handshakeContext)
 	logf(logTypeHandshake, "Handshake Hash to be verified: [%d] %x", len(hashed), hashed)
 	return
 }
 
-func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*handshakeMessage, resumptionHash []byte) error {
-	hash, hashedData, err := cv.computeContext(transcript)
+func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*handshakeMessage, ctx cryptoContext) error {
+	hash, hashedData, err := cv.computeContext(ctx, transcript)
 	if err != nil {
 		return err
 	}
 
-	hashedData = append(hashedData, resumptionHash...)
+	hashedData = append(hashedData, ctx.resumptionHash...)
 	cv.alg.signature, cv.signature, err = sign(hash, privateKey, hashedData, contextCertificateVerify)
 	return err
 }
 
-func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*handshakeMessage, resumptionHash []byte) error {
-	_, hashedData, err := cv.computeContext(transcript)
+func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*handshakeMessage, ctx cryptoContext) error {
+	_, hashedData, err := cv.computeContext(ctx, transcript)
 	if err != nil {
 		return err
 	}
 
-	hashedData = append(hashedData, resumptionHash...)
+	hashedData = append(hashedData, ctx.resumptionHash...)
+	logf(logTypeHandshake, "Algorithm being used: signature=[%d] hash=[%d]", cv.alg.signature, cv.alg.hash)
 	logf(logTypeHandshake, "Digest to be verified: [%d] %x", len(hashedData), hashedData)
 	return verify(cv.alg, publicKey, hashedData, contextCertificateVerify, cv.signature)
 }

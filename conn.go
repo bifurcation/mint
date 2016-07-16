@@ -738,7 +738,7 @@ func (c *Conn) clientHandshake() error {
 		logf(logTypeHandshake, "===")
 
 		serverPublicKey := cert.certificateList[0].PublicKey
-		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify, ctx.resumptionHash); err != nil {
+		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify, ctx); err != nil {
 			return err
 		}
 
@@ -1132,7 +1132,7 @@ func (c *Conn) serverHandshake() error {
 		certificateVerify := &certificateVerifyBody{
 			alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
 		}
-		err = certificateVerify.Sign(privateKey, []*handshakeMessage{chm, shm, eem, certm}, ctx.resumptionHash)
+		err = certificateVerify.Sign(privateKey, []*handshakeMessage{chm, shm, eem, certm}, ctx)
 		if err != nil {
 			return err
 		}
