@@ -131,8 +131,9 @@ var (
 		},
 		signature: []byte{0, 0, 0, 0},
 	}
-	certVerifyValidHex          = "0403000400000000"
-	certVerifyResumptionHashHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+	certVerifyValidHex             = "0403000400000000"
+	certVerifyResumptionContextHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+	certVerifyCipherSuite          = TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
 
 	// NewSessionTicket test cases
 	ticketValidHex = "0001020304050607000600ff00021122000404050607"
@@ -450,7 +451,7 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
-	certVerifyResumptionHash, _ := hex.DecodeString(certVerifyResumptionHashHex)
+	certVerifyResumptionContext, _ := hex.DecodeString(certVerifyResumptionContextHex)
 
 	chMessage, _ := handshakeMessageFromBody(&chValidIn)
 	shMessage, _ := handshakeMessageFromBody(&shValidIn)
@@ -458,6 +459,10 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	nilTranscript := append(transcript, nil)
 	privRSA, err := newSigningKey(signatureAlgorithmRSA)
 	assertNotError(t, err, "failed to generate RSA private key")
+
+	ctx := cryptoContext{}
+	ctx.init(certVerifyCipherSuite, nil)
+	ctx.updateWithClientHello(chMessage, certVerifyResumptionContext)
 
 	// Test correctness of handshake type
 	assertEquals(t, (certificateVerifyBody{}).Type(), handshakeTypeCertificateVerify)
@@ -483,34 +488,34 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a CertificateVerify with no header")
 
 	// Test successful sign
-	err = certVerifyValidIn.Sign(privRSA, transcript, certVerifyResumptionHash)
+	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
 
 	// Test sign failure on handshake marshal failure
-	err = certVerifyValidIn.Sign(privRSA, nilTranscript, certVerifyResumptionHash)
+	err = certVerifyValidIn.Sign(privRSA, nilTranscript, ctx)
 	assertError(t, err, "Signed CertificateVerify despite nil message")
 	chValidIn.extensions = extListValidIn
 
 	// Test sign failure on bad hash algorithm
 	certVerifyValidIn.alg.hash = hashAlgorithm(0)
-	err = certVerifyValidIn.Sign(privRSA, transcript, certVerifyResumptionHash)
+	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
 	assertError(t, err, "Signed CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.alg.hash = hashAlgorithmSHA256
 
 	// Test successful verify
-	err = certVerifyValidIn.Sign(privRSA, transcript, certVerifyResumptionHash)
+	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
-	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, certVerifyResumptionHash)
+	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, ctx)
 	assertNotError(t, err, "Failed to verify CertificateVerify")
 
 	// Test verify failure on bad hash algorithm
 	certVerifyValidIn.alg.hash = hashAlgorithm(0)
-	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, certVerifyResumptionHash)
+	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, ctx)
 	assertError(t, err, "Verified CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.alg.hash = hashAlgorithmSHA256
 
 	// Test veirfy failure on nil message
-	err = certVerifyValidIn.Verify(privRSA.Public(), nilTranscript, certVerifyResumptionHash)
+	err = certVerifyValidIn.Verify(privRSA.Public(), nilTranscript, ctx)
 	assertError(t, err, "Verified CertificateVerify despite nil message")
 }
 

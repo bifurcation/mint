@@ -385,6 +385,7 @@ func verify(alg signatureAndHashAlgorithm, publicKey crypto.PublicKey, data []by
 	switch pub := publicKey.(type) {
 	case *rsa.PublicKey:
 		if allowPKCS1 && alg.signature == signatureAlgorithmRSA {
+			logf(logTypeHandshake, "verifying with PKCS1, hashSize=[%d]", hash.Size())
 			return rsa.VerifyPKCS1v15(pub, hash, digest, sig)
 		}
 
