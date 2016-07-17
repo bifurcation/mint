@@ -196,8 +196,8 @@ func (r *recordLayer) ReadRecord() (*tlsPlaintext, error) {
 
 	// Validate size < max
 	size := (int(header[3]) << 8) + int(header[4])
-	if size > maxFragmentLen {
-		return nil, fmt.Errorf("tls.record: Record size too big")
+	if size > maxFragmentLen+256 {
+		return nil, fmt.Errorf("tls.record: Ciphertext size too big")
 	}
 
 	// Attempt to read fragment
@@ -213,6 +213,11 @@ func (r *recordLayer) ReadRecord() (*tlsPlaintext, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	// Check that plaintext length is not too long
+	if len(pt.fragment) > maxFragmentLen {
+		return nil, fmt.Errorf("tls.record: Plaintext size too big")
 	}
 
 	logf(logTypeIO, "recordLayer.ReadRecord [%d] [%x]", pt.contentType, pt.fragment)
