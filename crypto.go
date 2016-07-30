@@ -238,7 +238,13 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 		}
 
 		priv = x.Bytes()
-		pub = X.Bytes()
+		pubBytes := X.Bytes()
+
+		numBytes := keyExchangeSizeFromNamedGroup(group)
+
+		pub = make([]byte, numBytes)
+		copy(pub[numBytes-len(pubBytes):], pubBytes)
+
 		return
 
 	default:
@@ -256,24 +262,30 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 		crv := curveFromNamedGroup(group)
 		pubX, pubY := elliptic.Unmarshal(crv, pub)
 		x, _ := crv.Params().ScalarMult(pubX, pubY, priv)
-
-		curveSize := len(crv.Params().P.Bytes())
 		xBytes := x.Bytes()
-		if len(xBytes) < curveSize {
-			xBytes = append(bytes.Repeat([]byte{0}, curveSize-len(xBytes)), xBytes...)
-		}
-		return xBytes, nil
+
+		numBytes := len(crv.Params().P.Bytes())
+
+		ret := make([]byte, numBytes)
+		copy(ret[numBytes-len(xBytes):], xBytes)
+
+		return ret, nil
 
 	case namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
 		namedGroupFF6144, namedGroupFF8192:
-		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
+		numBytes := keyExchangeSizeFromNamedGroup(group)
+		if len(pub) != numBytes {
 			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
 		}
 		p := primeFromNamedGroup(group)
 		x := big.NewInt(0).SetBytes(priv)
 		Y := big.NewInt(0).SetBytes(pub)
-		Z := big.NewInt(0).Exp(Y, x, p)
-		return Z.Bytes(), nil
+		ZBytes := big.NewInt(0).Exp(Y, x, p).Bytes()
+
+		ret := make([]byte, numBytes)
+		copy(ret[numBytes-len(ZBytes):], ZBytes)
+
+		return ret, nil
 
 	default:
 		return nil, fmt.Errorf("tls.keyagreement: Unsupported group %v", group)
