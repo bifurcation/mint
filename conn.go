@@ -66,6 +66,7 @@ type Config struct {
 	CipherSuites        []cipherSuite
 	Groups              []namedGroup
 	SignatureAlgorithms []signatureAndHashAlgorithm
+	NextProtos          []string
 
 	// Hidden fields (used for caching in convenient form)
 	enabledSuite map[cipherSuite]bool
