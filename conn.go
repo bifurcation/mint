@@ -66,10 +66,12 @@ type Config struct {
 	CipherSuites        []cipherSuite
 	Groups              []namedGroup
 	SignatureAlgorithms []signatureAndHashAlgorithm
+	NextProtos          []string
 
 	// Hidden fields (used for caching in convenient form)
 	enabledSuite map[cipherSuite]bool
 	enabledGroup map[namedGroup]bool
+	enabledProto map[string]bool
 	certsByName  map[string]*Certificate
 
 	// The same config object can be shared among different connections, so it
@@ -126,6 +128,7 @@ func (c *Config) Init(isClient bool) error {
 	// Build caches
 	c.enabledSuite = map[cipherSuite]bool{}
 	c.enabledGroup = map[namedGroup]bool{}
+	c.enabledProto = map[string]bool{}
 	c.certsByName = map[string]*Certificate{}
 
 	for _, group := range c.Groups {
@@ -152,6 +155,9 @@ func (c *Config) Init(isClient bool) error {
 				c.enabledSuite[suite] = true
 			}
 		}
+	}
+	for _, proto := range c.NextProtos {
+		c.enabledProto[proto] = true
 	}
 	logf(logTypeCrypto, "Enabled suites [%v]", c.enabledSuite)
 
@@ -523,6 +529,11 @@ func (c *Conn) clientHandshake() error {
 	sa := signatureAlgorithmsExtension{algorithms: c.config.SignatureAlgorithms}
 	dv := draftVersionExtension{version: draftVersionImplemented}
 
+	var alpn *alpnExtension
+	if (c.config.NextProtos != nil) && (len(c.config.NextProtos) > 0) {
+		alpn = &alpnExtension{protocols: c.config.NextProtos}
+	}
+
 	var psk *preSharedKeyExtension
 	if key, ok := c.config.ClientPSKs[c.config.ServerName]; ok {
 		logf(logTypeHandshake, "Sending PSK")
@@ -555,6 +566,15 @@ func (c *Conn) clientHandshake() error {
 	}
 	for _, ext := range []extensionBody{&sni, &ks, &sg, &sa, &dv} {
 		err := ch.extensions.Add(ext)
+		if err != nil {
+			return err
+		}
+	}
+
+	// XXX: These can't be folded into the above because Go interface-typed
+	// values are never reported as nil
+	if alpn != nil {
+		err := ch.extensions.Add(alpn)
 		if err != nil {
 			return err
 		}
@@ -811,6 +831,7 @@ func (c *Conn) serverHandshake() error {
 	clientKeyShares := &keyShareExtension{roleIsServer: false}
 	clientPSK := &preSharedKeyExtension{roleIsServer: false}
 	clientEarlyData := &earlyDataExtension{roleIsServer: false}
+	clientALPN := new(alpnExtension)
 
 	gotServerName := ch.extensions.Find(serverName)
 	gotSupportedGroups := ch.extensions.Find(supportedGroups)
@@ -818,6 +839,7 @@ func (c *Conn) serverHandshake() error {
 	gotKeyShares := ch.extensions.Find(clientKeyShares)
 	gotPSK := ch.extensions.Find(clientPSK)
 	gotEarlyData := ch.extensions.Find(clientEarlyData)
+	gotALPN := ch.extensions.Find(clientALPN)
 	if !gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms {
 		logf(logTypeHandshake, "[server] Insufficient extensions")
 		return fmt.Errorf("tls.server: Missing extension in ClientHello (%v %v %v %v)",
@@ -847,6 +869,17 @@ func (c *Conn) serverHandshake() error {
 					roleIsServer: true,
 					identities:   [][]byte{key.Identity},
 				}
+			}
+		}
+	}
+
+	// Find the ALPN extension and select a protocol
+	var serverALPN *alpnExtension
+	if gotALPN {
+		for _, proto := range clientALPN.protocols {
+			if c.config.enabledProto[proto] {
+				serverALPN = &alpnExtension{protocols: []string{proto}}
+				break
 			}
 		}
 	}
@@ -1057,6 +1090,13 @@ func (c *Conn) serverHandshake() error {
 	if sendPSK {
 		logf(logTypeHandshake, "[server] sending PSK extension")
 		err = sh.extensions.Add(serverPSK)
+		if err != nil {
+			return err
+		}
+	}
+	if serverALPN != nil {
+		logf(logTypeHandshake, "[server] sending ALPN extension")
+		err = sh.extensions.Add(serverALPN)
 		if err != nil {
 			return err
 		}

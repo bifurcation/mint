@@ -142,6 +142,13 @@ var (
 		roleIsServer: true,
 	}
 
+	// ALPN test cases
+	alpnValidHex    = "000c08687474702f312e31026832"
+	alpnTooShortHex = "0003046874"
+	alpnValidIn     = &alpnExtension{
+		protocols: []string{"http/1.1", "h2"},
+	}
+
 	// DraftVersion test cases
 	draftVersionIn  = draftVersionExtension{0x2030}
 	draftVersionHex = "2030"
@@ -559,6 +566,41 @@ func TestEarlyDataMarshalUnmarshal(t *testing.T) {
 		_, err = ed.Unmarshal(edClient[:cut])
 		assertError(t, err, fmt.Sprintf("Unmarshalled EarlyData truncated to %d", cut))
 	}
+}
+
+func TestALPNMarshalUnmarshal(t *testing.T) {
+	alpnValid, _ := hex.DecodeString(alpnValidHex)
+	alpnTooShort, _ := hex.DecodeString(alpnTooShortHex)
+
+	// Test extension type
+	assertEquals(t, alpnExtension{}.Type(), extensionTypeALPN)
+
+	// Test successful marshal
+	out, err := alpnValidIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid ALPN extension")
+	assertByteEquals(t, out, alpnValid)
+
+	// Test successful unmarshal
+	alpn := &alpnExtension{}
+	read, err := alpn.Unmarshal(alpnValid)
+	assertNotError(t, err, "Failed to unmarshal valid ALPN extension")
+	assertDeepEquals(t, alpn, alpnValidIn)
+	assertEquals(t, read, len(alpnValid))
+
+	// Test unmarshal failure on data too short for the length
+	alpn = &alpnExtension{}
+	read, err = alpn.Unmarshal(alpnValid[:1])
+	assertError(t, err, "Unmarshaled a ALPN extension that's too short for the length")
+
+	// Test unmarshal failure on data shorter than the stated length
+	alpn = &alpnExtension{}
+	read, err = alpn.Unmarshal(alpnValid[:4])
+	assertError(t, err, "Unmarshaled a ALPN extension that's shorter than the stated length")
+
+	// Test unmarshal failure on data too short
+	alpn = &alpnExtension{}
+	read, err = alpn.Unmarshal(alpnTooShort)
+	assertError(t, err, "Unmarshaled a ALPN extension with a too-long interior length")
 }
 
 func TestDraftVersionMarshalUnmarshal(t *testing.T) {

@@ -567,6 +567,56 @@ func (ed *earlyDataExtension) Unmarshal(data []byte) (int, error) {
 	return 2 + configLen + 2 + extLen + 1 + contextLen, nil
 }
 
+// opaque ProtocolName<1..2^8-1>;
+//
+// struct {
+//     ProtocolName protocol_name_list<2..2^16-1>
+// } ProtocolNameList;
+type alpnExtension struct {
+	protocols []string
+}
+
+func (alpn alpnExtension) Type() helloExtensionType {
+	return extensionTypeALPN
+}
+
+func (alpn alpnExtension) Marshal() ([]byte, error) {
+	listData := []byte{}
+	for _, proto := range alpn.protocols {
+		listData = append(listData, byte(len(proto)))
+		listData = append(listData, []byte(proto)...)
+	}
+
+	listLen := len(listData)
+	lenData := []byte{byte(listLen >> 8), byte(listLen)}
+	return append(lenData, listData...), nil
+}
+
+func (alpn *alpnExtension) Unmarshal(data []byte) (int, error) {
+	if len(data) < 2 {
+		return 0, fmt.Errorf("tls.alpn: Too short for list length")
+	}
+
+	listLen := (int(data[0]) << 8) + int(data[1])
+	if len(data) < 2+listLen {
+		return 0, fmt.Errorf("tls.alpn: Too short for proto list")
+	}
+
+	read := 2
+	alpn.protocols = []string{}
+	for read < listLen+2 {
+		itemLen := int(data[read])
+		read += 1 + itemLen
+		if 2+listLen < read {
+			return 0, fmt.Errorf("tls.alpn: List element length exceeds list length")
+		}
+
+		alpn.protocols = append(alpn.protocols, string(data[read-itemLen:read]))
+	}
+
+	return read, nil
+}
+
 // This is required for NSS
 type draftVersionExtension struct {
 	version int

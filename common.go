@@ -103,6 +103,7 @@ const (
 	extensionTypeServerName          helloExtensionType = 0
 	extensionTypeSupportedGroups     helloExtensionType = 10
 	extensionTypeSignatureAlgorithms helloExtensionType = 13
+	extensionTypeALPN                helloExtensionType = 16
 	extensionTypeKeyShare            helloExtensionType = 40
 	extensionTypePreSharedKey        helloExtensionType = 41
 	extensionTypeEarlyData           helloExtensionType = 42

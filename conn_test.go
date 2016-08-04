@@ -131,6 +131,12 @@ var (
 		Certificates: certificates,
 	}
 
+	alpnConfig = &Config{
+		ServerName:   serverName,
+		Certificates: certificates,
+		NextProtos:   []string{"http/1.1", "h2"},
+	}
+
 	pskConfig = &Config{
 		ServerName:   serverName,
 		CipherSuites: []cipherSuite{TLS_PSK_WITH_AES_128_GCM_SHA256},
@@ -210,7 +216,7 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 }
 
 func TestBasicFlows(t *testing.T) {
-	for _, conf := range []*Config{basicConfig, pskConfig, pskECDHEConfig, pskDHEConfig, ffdhConfig} {
+	for _, conf := range []*Config{basicConfig, alpnConfig, pskConfig, pskECDHEConfig, pskDHEConfig, ffdhConfig} {
 		cConn, sConn := pipe()
 
 		client := Client(cConn, conf)
