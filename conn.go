@@ -1094,13 +1094,6 @@ func (c *Conn) serverHandshake() error {
 			return err
 		}
 	}
-	if serverALPN != nil {
-		logf(logTypeHandshake, "[server] sending ALPN extension")
-		err = sh.extensions.Add(serverALPN)
-		if err != nil {
-			return err
-		}
-	}
 	logf(logTypeHandshake, "[server] Done creating ServerHello")
 
 	// Write ServerHello and update the crypto context
@@ -1128,8 +1121,15 @@ func (c *Conn) serverHandshake() error {
 	dumpCryptoContext("server", ctx)
 
 	// Send an EncryptedExtensions message (even if it's empty)
-	ee := &encryptedExtensionsBody{}
-	eem, err := hOut.WriteMessageBody(ee)
+	ee := encryptedExtensionsBody([]extension{})
+	if serverALPN != nil {
+		logf(logTypeHandshake, "[server] sending ALPN extension")
+		err = sh.extensions.Add(serverALPN)
+		if err != nil {
+			return err
+		}
+	}
+	eem, err := hOut.WriteMessageBody(&ee)
 	if err != nil {
 		return err
 	}
