@@ -71,6 +71,7 @@ func main() {
 	config := mint.Config{
 		SendSessionTickets: true,
 		ServerName:         serverName,
+		NextProtos:         []string{"http/1.1"},
 	}
 
 	if certChain != nil && priv != nil {
