@@ -606,12 +606,12 @@ func (alpn *alpnExtension) Unmarshal(data []byte) (int, error) {
 	alpn.protocols = []string{}
 	for read < listLen+2 {
 		itemLen := int(data[read])
-		if 2+listLen < read+itemLen {
-			return 0, fmt.Errorf("tls.alpn: Too short for list")
+		read += 1 + itemLen
+		if 2+listLen < read {
+			return 0, fmt.Errorf("tls.alpn: List element length exceeds list length")
 		}
 
-		alpn.protocols = append(alpn.protocols, string(data[read+1:read+1+itemLen]))
-		read += 1 + itemLen
+		alpn.protocols = append(alpn.protocols, string(data[read-itemLen:read]))
 	}
 
 	return read, nil
