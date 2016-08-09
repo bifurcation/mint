@@ -113,7 +113,7 @@ var (
 
 	// PSK test cases
 	pskClientHex = "000c000400010203000404050607"
-	pskServerHex = "00080001020304050607"
+	pskServerHex = "0002"
 	pskClientIn  = &preSharedKeyExtension{
 		roleIsServer: false,
 		identities: [][]byte{
@@ -122,10 +122,8 @@ var (
 		},
 	}
 	pskServerIn = &preSharedKeyExtension{
-		roleIsServer: true,
-		identities: [][]byte{
-			[]byte{0, 1, 2, 3, 4, 5, 6, 7},
-		},
+		roleIsServer:     true,
+		selectedIdentity: 2,
 	}
 
 	// EarlyData test cases
