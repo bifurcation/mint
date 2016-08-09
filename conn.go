@@ -840,11 +840,6 @@ func (c *Conn) serverHandshake() error {
 	gotPSK := ch.extensions.Find(clientPSK)
 	gotEarlyData := ch.extensions.Find(clientEarlyData)
 	gotALPN := ch.extensions.Find(clientALPN)
-	if !gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms {
-		logf(logTypeHandshake, "[server] Insufficient extensions")
-		return fmt.Errorf("tls.server: Missing extension in ClientHello (%v %v %v %v)",
-			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
-	}
 
 	// Find pre_shared_key extension and look it up
 	var serverPSK *preSharedKeyExtension
@@ -1068,6 +1063,13 @@ func (c *Conn) serverHandshake() error {
 		return err
 	}
 	logf(logTypeHandshake, "[server] Initialized context %v %v", sendKeyShare, sendPSK)
+
+	// If we're not using a PSK mode, then we need to have certain extensions
+	if !sendPSK && (!gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms) {
+		logf(logTypeHandshake, "[server] Insufficient extensions (%v %v %v %v)",
+			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
+		return fmt.Errorf("tls.server: Missing extension in ClientHello")
+	}
 
 	// Create the ServerHello
 	sh := &serverHelloBody{
