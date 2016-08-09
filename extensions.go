@@ -387,13 +387,14 @@ func (sa *signatureAlgorithmsExtension) Unmarshal(data []byte) (int, error) {
 //             psk_identity identities<2..2^16-1>;
 //
 //         case server:
-//             psk_identity identity;
+//             uint16 selected_identity;
 //     }
 // } PreSharedKeyExtension;
 
 type preSharedKeyExtension struct {
-	roleIsServer bool
-	identities   [][]byte
+	roleIsServer     bool
+	identities       [][]byte
+	selectedIdentity uint16
 }
 
 func (psk preSharedKeyExtension) Type() helloExtensionType {
@@ -401,59 +402,66 @@ func (psk preSharedKeyExtension) Type() helloExtensionType {
 }
 
 func (psk preSharedKeyExtension) Marshal() ([]byte, error) {
-	if psk.roleIsServer && len(psk.identities) > 1 {
-		return nil, fmt.Errorf("tls.presharedkey: Server can only send one identity")
+	if psk.roleIsServer && len(psk.identities) > 0 {
+		return nil, fmt.Errorf("tls.presharedkey: Server can only provide an index")
 	}
 
-	identities := []byte{}
-	for _, id := range psk.identities {
-		idLen := len(id)
-		header := []byte{byte(idLen >> 8), byte(idLen)}
-		identities = append(identities, header...)
-		identities = append(identities, id...)
-	}
-
-	if !psk.roleIsServer {
+	if psk.roleIsServer {
+		id := psk.selectedIdentity
+		return []byte{byte(id >> 8), byte(id)}, nil
+	} else {
+		identities := []byte{}
+		for _, id := range psk.identities {
+			idLen := len(id)
+			header := []byte{byte(idLen >> 8), byte(idLen)}
+			identities = append(identities, header...)
+			identities = append(identities, id...)
+		}
 		dataLen := len(identities)
 		header := []byte{byte(dataLen >> 8), byte(dataLen)}
 		identities = append(header, identities...)
+		return identities, nil
 	}
-
-	return identities, nil
 }
 
 func (psk *preSharedKeyExtension) Unmarshal(data []byte) (int, error) {
 	read := 0
-	totalLen := len(data)
-	if !psk.roleIsServer {
+	if psk.roleIsServer {
+		if len(data) != 2 {
+			return 0, fmt.Errorf("tls.presharedkey: Server PSK has incorrect length")
+		}
+
+		psk.selectedIdentity = (uint16(data[0]) << 8) + uint16(data[1])
+		read = 2
+	} else {
+		totalLen := len(data)
 		if len(data) < 2 {
 			return 0, fmt.Errorf("tls.presharedkey: Client PSK extension too short")
 		}
 		read = 2
 		totalLen = (int(data[0]) << 8) + int(data[1])
+
+		for read < 2+totalLen {
+			if len(data[read:]) < 2 {
+				return 0, fmt.Errorf("tls.presharedkey: PSK extension too short for identity header")
+			}
+
+			idLen := (int(data[read]) << 8) + int(data[read+1])
+			if len(data[read+2:]) < idLen {
+				return 0, fmt.Errorf("tls.presharedkey: PSK extension too short for identity")
+			}
+
+			id := make([]byte, idLen)
+			copy(id, data[read+2:read+2+idLen])
+			psk.identities = append(psk.identities, id)
+
+			read += 2 + idLen
+
+			if psk.roleIsServer {
+				break
+			}
+		}
 	}
-
-	for read < 2+totalLen {
-		if len(data[read:]) < 2 {
-			return 0, fmt.Errorf("tls.presharedkey: PSK extension too short for identity header")
-		}
-
-		idLen := (int(data[read]) << 8) + int(data[read+1])
-		if len(data[read+2:]) < idLen {
-			return 0, fmt.Errorf("tls.presharedkey: PSK extension too short for identity")
-		}
-
-		id := make([]byte, idLen)
-		copy(id, data[read+2:read+2+idLen])
-		psk.identities = append(psk.identities, id)
-
-		read += 2 + idLen
-
-		if psk.roleIsServer {
-			break
-		}
-	}
-
 	return read, nil
 }
 

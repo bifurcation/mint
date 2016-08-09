@@ -665,7 +665,7 @@ func (c *Conn) clientHandshake() error {
 	foundKeyShare := sh.extensions.Find(&serverKeyShare)
 
 	var pskSecret, pskContext, dhSecret []byte
-	if foundPSK && psk.HasIdentity(serverPSK.identities[0]) {
+	if foundPSK && (serverPSK.selectedIdentity < uint16(len(psk.identities))) {
 		pskSecret = c.config.ClientPSKs[c.config.ServerName].Key
 		pskContext = c.config.ClientPSKs[c.config.ServerName].Context
 		logf(logTypeHandshake, "[client] got PSK extension")
@@ -851,7 +851,7 @@ func (c *Conn) serverHandshake() error {
 			logf(logTypeHandshake, "[server] Client provided PSK identity %x", id)
 		}
 
-		for _, key := range c.config.ServerPSKs {
+		for i, key := range c.config.ServerPSKs {
 			logf(logTypeHandshake, "[server] Checking for %x", key.Identity)
 			if clientPSK.HasIdentity(key.Identity) {
 				logf(logTypeHandshake, "Matched %x", key.Identity)
@@ -861,8 +861,8 @@ func (c *Conn) serverHandshake() error {
 				copy(pskContext, key.Context)
 
 				serverPSK = &preSharedKeyExtension{
-					roleIsServer: true,
-					identities:   [][]byte{key.Identity},
+					roleIsServer:     true,
+					selectedIdentity: uint16(i),
 				}
 			}
 		}
