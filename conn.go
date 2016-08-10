@@ -208,6 +208,12 @@ var (
 	defaultTicketLen = 16
 )
 
+type ConnectionState struct {
+	HandshakeComplete bool                // TLS handshake is complete
+	CipherSuite       cipherSuite         // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
+	PeerCertificates  []*x509.Certificate // certificate chain presented by remote peer
+}
+
 // Conn implements the net.Conn interface, as with "crypto/tls"
 // * Read, Write, and Close are provided locally
 // * LocalAddr, RemoteAddr, and Set*Deadline are forwarded to the inner Conn
@@ -222,6 +228,8 @@ type Conn struct {
 	handshakeMutex    sync.Mutex
 	handshakeErr      error
 	handshakeComplete bool
+
+	certificateList []*x509.Certificate
 
 	readBuffer        []byte
 	in, out           *recordLayer
@@ -467,6 +475,14 @@ func (c *Conn) SetReadDeadline(t time.Time) error {
 // After a Write has timed out, the TLS state is corrupt and all future writes will return the same error.
 func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
+}
+
+func (c *Conn) ConnectionState() ConnectionState {
+	return ConnectionState{
+		HandshakeComplete: c.handshakeComplete,
+		CipherSuite:       c.context.suite,
+		PeerCertificates:  c.certificateList,
+	}
 }
 
 // Handshake causes a TLS handshake on the connection.  The `isClient` member
@@ -749,6 +765,7 @@ func (c *Conn) clientHandshake() error {
 		if cert == nil || certVerify == nil {
 			return fmt.Errorf("tls.client: No server auth data provided")
 		}
+		c.certificateList = cert.certificateList
 
 		transcriptForCertVerify := append([]*handshakeMessage{chm, shm}, transcript[:len(transcript)-1]...)
 		logf(logTypeHandshake, "[client] Transcript for certVerify")
