@@ -2,17 +2,11 @@ package main
 
 import (
 	"crypto"
-	//"crypto/rand"
-	//"crypto/rsa"
-	//"crypto/tls"
 	"crypto/x509"
-	//"crypto/x509/pkix"
 	"flag"
 	"io/ioutil"
 	"log"
-	//"math/big"
 	"net/http"
-	//"time"
 
 	"github.com/bifurcation/mint"
 	"github.com/cloudflare/cfssl/helpers"
@@ -101,29 +95,6 @@ func main() {
 	service := "0.0.0.0:" + port
 	listener, err := mint.Listen("tcp", service, &config)
 
-	// xxxxxxxxxx
-	/*
-		priv, _ = rsa.GenerateKey(rand.Reader, 2048)
-		template := &x509.Certificate{
-			SerialNumber: big.NewInt(42),
-			Subject:      pkix.Name{CommonName: "Happy Hacker Fake CA"},
-			NotBefore:    time.Now(),
-			NotAfter:     time.Now().Add(24 * 3600 * time.Second),
-		}
-		cert, _ := x509.CreateCertificate(rand.Reader, template, template, priv.Public(), priv)
-		log.Printf("Self-signed: %x", cert)
-		tlsConfig := tls.Config{
-			Certificates: []tls.Certificate{
-				tls.Certificate{
-					Certificate: [][]byte{cert},
-					PrivateKey:  priv,
-				},
-			},
-		}
-		listener, err := tls.Listen("tcp", service, &tlsConfig)
-	*/
-	// xxxxxxxxxx
-
 	if err != nil {
 		log.Printf("Error: %v", err)
 	}
@@ -144,6 +115,9 @@ func main() {
 			continue
 		}
 		log.Printf("Connection")
+
+		// XXX: You will need to hack your local copy of 'golang.org/x/net/http2'
+		// to make this public.  By default, it is not.
 		go srv2.HandleConn(srv, conn, handler)
 	}
 }
