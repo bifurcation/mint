@@ -10,6 +10,7 @@ import (
 
 	"github.com/bifurcation/mint"
 	"github.com/cloudflare/cfssl/helpers"
+	"golang.org/x/net/http2"
 )
 
 var (
@@ -18,7 +19,14 @@ var (
 	certFile     string
 	keyFile      string
 	responseFile string
+	h2           bool
 )
+
+type responder []byte
+
+func (rsp responder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Write(rsp)
+}
 
 func main() {
 	flag.StringVar(&port, "port", "4430", "port")
@@ -26,6 +34,7 @@ func main() {
 	flag.StringVar(&certFile, "cert", "", "certificate chain in PEM or DER")
 	flag.StringVar(&keyFile, "key", "", "private key in PEM format")
 	flag.StringVar(&responseFile, "response", "", "file to serve")
+	flag.BoolVar(&h2, "h2", false, "whether to use HTTP/2 (exclusively)")
 	flag.Parse()
 
 	var certChain []*x509.Certificate
@@ -67,11 +76,16 @@ func main() {
 	} else {
 		response = []byte("Welcome to the TLS 1.3 zone!")
 	}
+	handler := responder(response)
 
 	config := mint.Config{
 		SendSessionTickets: true,
 		ServerName:         serverName,
 		NextProtos:         []string{"http/1.1"},
+	}
+
+	if h2 {
+		config.NextProtos = []string{"h2"}
 	}
 
 	if certChain != nil && priv != nil {
@@ -86,16 +100,38 @@ func main() {
 	config.Init(false)
 
 	service := "0.0.0.0:" + port
-	listener, err := mint.Listen("tcp", service, &config)
+	srv := &http.Server{Handler: handler}
 
-	if err != nil {
-		log.Printf("Error: %v", err)
+	log.Printf("Listening on port %v", port)
+	// Need the inner loop here because the h1 server errors on a dropped connection
+	// Need the outer loop here because the h2 server is per-connection
+	for {
+		listener, err := mint.Listen("tcp", service, &config)
+		if err != nil {
+			log.Printf("Listen Error: %v", err)
+			continue
+		}
+
+		if !h2 {
+			err = srv.Serve(listener)
+			if err != nil {
+				log.Printf("Serve Error: %v", err)
+			}
+		} else {
+			srv2 := new(http2.Server)
+			opts := &http2.ServeConnOpts{
+				Handler:    handler,
+				BaseConfig: srv,
+			}
+
+			for {
+				conn, err := listener.Accept()
+				if err != nil {
+					log.Printf("Accept error: %v", err)
+					continue
+				}
+				go srv2.ServeConn(conn, opts)
+			}
+		}
 	}
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write(response)
-	})
-
-	s := &http.Server{}
-	s.Serve(listener)
 }

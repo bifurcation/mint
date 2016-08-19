@@ -888,8 +888,10 @@ func (c *Conn) serverHandshake() error {
 	// Find the ALPN extension and select a protocol
 	var serverALPN *alpnExtension
 	if gotALPN {
+		logf(logTypeHandshake, "[server] Got ALPN offer: %v", clientALPN.protocols)
 		for _, proto := range clientALPN.protocols {
 			if c.config.enabledProto[proto] {
+				logf(logTypeHandshake, "[server] Sending ALPN value %v", proto)
 				serverALPN = &alpnExtension{protocols: []string{proto}}
 				break
 			}
@@ -1140,14 +1142,15 @@ func (c *Conn) serverHandshake() error {
 	dumpCryptoContext("server", ctx)
 
 	// Send an EncryptedExtensions message (even if it's empty)
-	ee := encryptedExtensionsBody([]extension{})
+	eeList := extensionList{}
 	if serverALPN != nil {
 		logf(logTypeHandshake, "[server] sending ALPN extension")
-		err = sh.extensions.Add(serverALPN)
+		err = eeList.Add(serverALPN)
 		if err != nil {
 			return err
 		}
 	}
+	ee := encryptedExtensionsBody(eeList)
 	eem, err := hOut.WriteMessageBody(&ee)
 	if err != nil {
 		return err
