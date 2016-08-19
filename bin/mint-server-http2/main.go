@@ -78,7 +78,7 @@ func main() {
 	config := mint.Config{
 		SendSessionTickets: true,
 		ServerName:         serverName,
-		NextProtos:         []string{"http/1.1", "h2"},
+		NextProtos:         []string{"h2"},
 	}
 
 	if certChain != nil && priv != nil {
@@ -116,8 +116,9 @@ func main() {
 		}
 		log.Printf("Connection")
 
-		// XXX: You will need to hack your local copy of 'golang.org/x/net/http2'
-		// to make this public.  By default, it is not.
-		go srv2.HandleConn(srv, conn, handler)
+		go srv2.ServeConn(conn, &http2.ServeConnOpts{
+			Handler:    handler,
+			BaseConfig: srv,
+		})
 	}
 }
