@@ -1123,14 +1123,15 @@ func (c *Conn) serverHandshake() error {
 	dumpCryptoContext("server", ctx)
 
 	// Send an EncryptedExtensions message (even if it's empty)
-	ee := encryptedExtensionsBody([]extension{})
+	eeList := extensionList{}
 	if serverALPN != nil {
 		logf(logTypeHandshake, "[server] sending ALPN extension")
-		err = sh.extensions.Add(serverALPN)
+		err = eeList.Add(serverALPN)
 		if err != nil {
 			return err
 		}
 	}
+	ee := encryptedExtensionsBody(eeList)
 	eem, err := hOut.WriteMessageBody(&ee)
 	if err != nil {
 		return err
