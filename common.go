@@ -1,7 +1,7 @@
 package mint
 
 var (
-	draftVersionImplemented = 18
+	supportedVersion uint16 = 0x7f10 // draft-16
 
 	// Flags for some minor compat issues
 	allowEmptyEncryptedExtensions = false
@@ -11,8 +11,6 @@ var (
 
 // enum {...} ContentType;
 type recordType byte
-
-const tlsVersion13 uint16 = 0x0304
 
 const (
 	recordTypeAlert           recordType = 21
@@ -42,26 +40,11 @@ const (
 type cipherSuite uint16
 
 const (
-	// REQUIRED
-	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 cipherSuite = 0xC02B
-	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   cipherSuite = 0xC02F
-	// RECOMMENDED
-	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384       cipherSuite = 0xC02C
-	TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 cipherSuite = 0xCCA9
-	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384         cipherSuite = 0xC030
-	TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256   cipherSuite = 0xCCA8
-	// OTHER
-	TLS_PSK_WITH_AES_128_GCM_SHA256             cipherSuite = 0x00A8
-	TLS_PSK_WITH_AES_256_GCM_SHA384             cipherSuite = 0x00A9
-	TLS_PSK_WITH_CHACHA20_POLY1305_SHA256       cipherSuite = 0xCCAB
-	TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 cipherSuite = 0xCCAC
-	TLS_DHE_RSA_WITH_AES_128_GCM_SHA256         cipherSuite = 0x009E
-	TLS_DHE_RSA_WITH_AES_256_GCM_SHA384         cipherSuite = 0x009F
-	TLS_DHE_PSK_WITH_AES_128_GCM_SHA256         cipherSuite = 0x00AA
-	TLS_DHE_PSK_WITH_AES_256_GCM_SHA384         cipherSuite = 0x00AB
-	// FAKE
-	TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256 cipherSuite = 0xD001
-	TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384 cipherSuite = 0xD002
+	TLS_AES_128_GCM_SHA256       cipherSuite = 0x1301
+	TLS_AES_256_GCM_SHA384       cipherSuite = 0x1302
+	TLS_CHACHA20_POLY1305_SHA256 cipherSuite = 0x1303
+	TLS_AES_128_CCM_SHA256       cipherSuite = 0x1304
+	TLS_AES_256_CCM_8_SHA256     cipherSuite = 0x1305
 )
 
 // enum {...} HashAlgorithm

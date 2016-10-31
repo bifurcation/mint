@@ -151,11 +151,7 @@ var (
 	supportedVersionsIn = supportedVersionsExtension{
 		versions: []uint16{0x0300, 0x0304},
 	}
-	supportedVersionsHex = "000403000304"
-
-	// DraftVersion test cases
-	draftVersionIn  = draftVersionExtension{0x2030}
-	draftVersionHex = "2030"
+	supportedVersionsHex = "0403000304"
 )
 
 func TestExtensionMarshalUnmarshal(t *testing.T) {
@@ -636,33 +632,9 @@ func TestSupportedVersionsMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a SupportedVersions without a key share length")
 
 	// Test unmarshal failure on odd list length
-	supportedVersions[1]--
+	supportedVersions[0]--
 	sv = supportedVersionsExtension{}
 	read, err = sv.Unmarshal(supportedVersions)
 	assertError(t, err, "Unmarshaled a SupportedVersions with an odd-length list")
-	supportedVersions[1]++
-}
-
-func TestDraftVersionMarshalUnmarshal(t *testing.T) {
-	draftVersion, _ := hex.DecodeString(draftVersionHex)
-
-	// Test extension type
-	assertEquals(t, draftVersionExtension{}.Type(), extensionTypeDraftVersion)
-
-	// Test successful marshal
-	out, err := draftVersionIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid DraftVersion")
-	assertByteEquals(t, out, draftVersion)
-
-	// Test successful unmarshal
-	dv := draftVersionExtension{}
-	read, err := dv.Unmarshal(draftVersion)
-	assertNotError(t, err, "Failed to unmarshal valid DraftVersion")
-	assertDeepEquals(t, dv, draftVersionIn)
-	assertEquals(t, read, len(draftVersion))
-
-	// Test unmarshal failure on wrong data length
-	dv = draftVersionExtension{}
-	read, err = dv.Unmarshal(draftVersion[:1])
-	assertError(t, err, "Unmarshaled a DraftVersion with the wrong length")
+	supportedVersions[0]++
 }

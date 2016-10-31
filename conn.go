@@ -131,8 +131,14 @@ func (c *Config) Init(isClient bool) error {
 	c.enabledProto = map[string]bool{}
 	c.certsByName = map[string]*Certificate{}
 
+	for _, suite := range c.CipherSuites {
+		c.enabledSuite[suite] = true
+	}
 	for _, group := range c.Groups {
 		c.enabledGroup[group] = true
+	}
+	for _, proto := range c.NextProtos {
+		c.enabledProto[proto] = true
 	}
 	for _, cert := range c.Certificates {
 		if len(cert.Chain) == 0 {
@@ -141,23 +147,6 @@ func (c *Config) Init(isClient bool) error {
 		for _, name := range cert.Chain[0].DNSNames {
 			c.certsByName[name] = cert
 		}
-		for _, suite := range c.CipherSuites {
-			if cipherSuiteMap[suite].sig == signatureAlgorithmRSA {
-				if cert.Chain[0].PublicKeyAlgorithm == x509.RSA {
-					c.enabledSuite[suite] = true
-				}
-			} else if cipherSuiteMap[suite].sig == signatureAlgorithmECDSA {
-				if cert.Chain[0].PublicKeyAlgorithm == x509.ECDSA {
-					c.enabledSuite[suite] = true
-				}
-			} else {
-				// PSK modes work for every handshake signature type
-				c.enabledSuite[suite] = true
-			}
-		}
-	}
-	for _, proto := range c.NextProtos {
-		c.enabledProto[proto] = true
 	}
 	logf(logTypeCrypto, "Enabled suites [%v]", c.enabledSuite)
 
@@ -176,24 +165,15 @@ func (c Config) validForClient() bool {
 
 var (
 	defaultSupportedCipherSuites = []cipherSuite{
-		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-		TLS_PSK_WITH_AES_128_GCM_SHA256,
-		TLS_PSK_WITH_AES_256_GCM_SHA384,
-		TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
-		TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
-		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384,
-		TLS_DHE_PSK_WITH_AES_128_GCM_SHA256,
-		TLS_DHE_PSK_WITH_AES_256_GCM_SHA384,
+		TLS_AES_128_GCM_SHA256,
+		TLS_AES_256_GCM_SHA384,
 	}
 
 	defaultSupportedGroups = []namedGroup{
 		namedGroupP256,
 		namedGroupP384,
 		namedGroupFF2048,
+		namedGroupX25519,
 	}
 
 	defaultSignatureAlgorithms = []signatureAndHashAlgorithm{
@@ -540,11 +520,10 @@ func (c *Conn) clientHandshake() error {
 		ks.shares[i].keyExchange = pub
 		privateKeys[group] = priv
 	}
-	sv := supportedVersionsExtension{versions: []uint16{tlsVersion13}}
+	sv := supportedVersionsExtension{versions: []uint16{supportedVersion}}
 	sni := serverNameExtension(c.config.ServerName)
 	sg := supportedGroupsExtension{groups: c.config.Groups}
 	sa := signatureAlgorithmsExtension{algorithms: c.config.SignatureAlgorithms}
-	dv := draftVersionExtension{version: draftVersionImplemented}
 
 	var alpn *alpnExtension
 	if (c.config.NextProtos != nil) && (len(c.config.NextProtos) > 0) {
@@ -581,7 +560,7 @@ func (c *Conn) clientHandshake() error {
 	if err != nil {
 		return err
 	}
-	for _, ext := range []extensionBody{&sv, &sni, &ks, &sg, &sa, &dv} {
+	for _, ext := range []extensionBody{&sv, &sni, &ks, &sg, &sa} {
 		err := ch.extensions.Add(ext)
 		if err != nil {
 			return err
@@ -626,7 +605,7 @@ func (c *Conn) clientHandshake() error {
 
 		// Rekey output to early handshake keys (in case we decide to send EE later)
 		logf(logTypeHandshake, "[client] Rekey -> handshake...")
-		err = c.out.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
+		err = c.out.Rekey(ctx.params.cipher, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
 		if err != nil {
 			return err
 		}
@@ -646,7 +625,7 @@ func (c *Conn) clientHandshake() error {
 
 		// Rekey output to early data keys
 		logf(logTypeHandshake, "[client] Rekey -> application...")
-		err = c.out.Rekey(ctx.suite, ctx.earlyApplicationKeys.clientWriteKey, ctx.earlyApplicationKeys.clientWriteIV)
+		err = c.out.Rekey(ctx.params.cipher, ctx.earlyApplicationKeys.clientWriteKey, ctx.earlyApplicationKeys.clientWriteIV)
 		if err != nil {
 			return err
 		}
@@ -714,12 +693,12 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Rekey to handshake keys
-	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
+	err = c.in.Rekey(ctx.params.cipher, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
 	if err != nil {
 		logf(logTypeHandshake, "[client] Unable to rekey inbound")
 		return err
 	}
-	err = c.out.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
+	err = c.out.Rekey(ctx.params.cipher, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
 	if err != nil {
 		logf(logTypeHandshake, "[client] Unable to rekey outbound")
 		return err
@@ -761,8 +740,9 @@ func (c *Conn) clientHandshake() error {
 	}
 	logf(logTypeHandshake, "[client] Done reading server's first flight")
 
-	// Verify the server's certificate if required
-	if ctx.params.mode != handshakeModePSK && ctx.params.mode != handshakeModePSKAndDH {
+	// Verify the server's certificate if we're not using a PSK for authentication
+	// XXX: Would be nice to have a better / clearer / more semantic signal
+	if pskSecret == nil {
 		if cert == nil || certVerify == nil {
 			return fmt.Errorf("tls.client: No server auth data provided")
 		}
@@ -815,11 +795,11 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Rekey to application keys
-	err = c.in.Rekey(ctx.suite, ctx.trafficKeys.serverWriteKey, ctx.trafficKeys.serverWriteIV)
+	err = c.in.Rekey(ctx.params.cipher, ctx.trafficKeys.serverWriteKey, ctx.trafficKeys.serverWriteIV)
 	if err != nil {
 		return err
 	}
-	err = c.out.Rekey(ctx.suite, ctx.trafficKeys.clientWriteKey, ctx.trafficKeys.clientWriteIV)
+	err = c.out.Rekey(ctx.params.cipher, ctx.trafficKeys.clientWriteKey, ctx.trafficKeys.clientWriteIV)
 	if err != nil {
 		return err
 	}
@@ -869,7 +849,7 @@ func (c *Conn) serverHandshake() error {
 	}
 	clientSupports13 := false
 	for _, version := range supportedVersions.versions {
-		clientSupports13 = (version == tlsVersion13)
+		clientSupports13 = (version == supportedVersion)
 		if clientSupports13 {
 			break
 		}
@@ -968,7 +948,7 @@ func (c *Conn) serverHandshake() error {
 
 		// Rekey read channel to early handshake keys
 		logf(logTypeHandshake, "[server] Rekey -> handshake...")
-		err = c.in.Rekey(ctx.suite, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
+		err = c.in.Rekey(ctx.params.cipher, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
 		if err != nil {
 			return err
 		}
@@ -1013,7 +993,7 @@ func (c *Conn) serverHandshake() error {
 
 		// Rekey read channel to early traffic keys
 		logf(logTypeHandshake, "[server] Rekey -> application...")
-		err = c.in.Rekey(ctx.suite, ctx.earlyApplicationKeys.clientWriteKey, ctx.earlyApplicationKeys.clientWriteIV)
+		err = c.in.Rekey(ctx.params.cipher, ctx.earlyApplicationKeys.clientWriteKey, ctx.earlyApplicationKeys.clientWriteIV)
 		if err != nil {
 			return err
 		}
@@ -1050,23 +1030,7 @@ func (c *Conn) serverHandshake() error {
 	// Pick a ciphersuite
 	var chosenSuite cipherSuite
 	foundCipherSuite := false
-	sendKeyShare := false
-	sendPSK := false
 	for _, suite := range ch.cipherSuites {
-		mode := cipherSuiteMap[suite].mode
-		sendKeyShare = (mode == handshakeModeDH || mode == handshakeModePSKAndDH)
-		sendPSK = (mode == handshakeModePSK || mode == handshakeModePSKAndDH)
-
-		// Use a DH mode iff we have DH information
-		if (sendKeyShare && (serverKeyShare == nil)) && (!sendKeyShare && (serverKeyShare != nil)) {
-			continue
-		}
-
-		// Use a PSK mode iff we have a PSK
-		if (sendPSK && (serverPSK == nil)) || (!sendPSK && (serverPSK != nil)) {
-			continue
-		}
-
 		if c.config.enabledSuite[suite] {
 			chosenSuite = suite
 			foundCipherSuite = true
@@ -1102,10 +1066,10 @@ func (c *Conn) serverHandshake() error {
 	if err != nil {
 		return err
 	}
-	logf(logTypeHandshake, "[server] Initialized context %v %v", sendKeyShare, sendPSK)
+	logf(logTypeHandshake, "[server] Initialized context")
 
 	// If we're not using a PSK mode, then we need to have certain extensions
-	if !sendPSK && (!gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms) {
+	if (pskSecret == nil) && (!gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms) {
 		logf(logTypeHandshake, "[server] Insufficient extensions (%v %v %v %v)",
 			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
 		return fmt.Errorf("tls.server: Missing extension in ClientHello")
@@ -1119,22 +1083,25 @@ func (c *Conn) serverHandshake() error {
 	if err != nil {
 		return err
 	}
-	if sendKeyShare {
+	if dhSecret != nil {
 		logf(logTypeHandshake, "[server] sending key share extension")
 		err = sh.extensions.Add(serverKeyShare)
 		if err != nil {
 			return err
 		}
 	} else {
-		logf(logTypeHandshake, "[server] not key share extension; deleting DH secret")
+		logf(logTypeHandshake, "[server] not sending key share extension; deleting DH secret")
 		dhSecret = nil
 	}
-	if sendPSK {
+	if pskSecret != nil {
 		logf(logTypeHandshake, "[server] sending PSK extension")
 		err = sh.extensions.Add(serverPSK)
 		if err != nil {
 			return err
 		}
+	} else {
+		logf(logTypeHandshake, "[server] not sending PSK extension; deleting PSK secret")
+		pskSecret = nil
 	}
 	logf(logTypeHandshake, "[server] Done creating ServerHello")
 
@@ -1151,11 +1118,11 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Rekey to handshake keys
-	err = c.in.Rekey(ctx.suite, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
+	err = c.in.Rekey(ctx.params.cipher, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
 	if err != nil {
 		return err
 	}
-	err = c.out.Rekey(ctx.suite, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
+	err = c.out.Rekey(ctx.params.cipher, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
 	if err != nil {
 		return err
 	}
@@ -1179,7 +1146,7 @@ func (c *Conn) serverHandshake() error {
 	transcript := []*handshakeMessage{eem}
 
 	// Authenticate with a certificate if required
-	if !sendPSK {
+	if pskSecret == nil {
 		// Select a certificate
 		var privateKey crypto.Signer
 		var chain []*x509.Certificate
@@ -1255,11 +1222,11 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Rekey to application keys
-	err = c.in.Rekey(ctx.suite, ctx.trafficKeys.clientWriteKey, ctx.trafficKeys.clientWriteIV)
+	err = c.in.Rekey(ctx.params.cipher, ctx.trafficKeys.clientWriteKey, ctx.trafficKeys.clientWriteIV)
 	if err != nil {
 		return err
 	}
-	err = c.out.Rekey(ctx.suite, ctx.trafficKeys.serverWriteKey, ctx.trafficKeys.serverWriteIV)
+	err = c.out.Rekey(ctx.params.cipher, ctx.trafficKeys.serverWriteKey, ctx.trafficKeys.serverWriteIV)
 	if err != nil {
 		return err
 	}

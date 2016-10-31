@@ -639,24 +639,23 @@ func (sv supportedVersionsExtension) Type() helloExtensionType {
 func (sv supportedVersionsExtension) Marshal() ([]byte, error) {
 	listLen := 2 * len(sv.versions)
 
-	data := make([]byte, 2+listLen)
-	data[0] = byte(listLen >> 8)
-	data[1] = byte(listLen)
+	data := make([]byte, 1+listLen)
+	data[0] = byte(listLen)
 	for i, version := range sv.versions {
-		data[2*i+2] = byte(version >> 8)
-		data[2*i+3] = byte(version)
+		data[2*i+1] = byte(version >> 8)
+		data[2*i+2] = byte(version)
 	}
 
 	return data, nil
 }
 
 func (sv *supportedVersionsExtension) Unmarshal(data []byte) (int, error) {
-	if len(data) < 2 {
+	if len(data) < 1 {
 		return 0, fmt.Errorf("tls.supportedversions: Too short for length")
 	}
 
-	listLen := (int(data[0]) << 8) + int(data[1])
-	if len(data) < 2+listLen {
+	listLen := int(data[0])
+	if len(data) < 1+listLen {
 		return 0, fmt.Errorf("tls.supportedversions: Too short for list")
 	}
 	if listLen%2 == 1 {
@@ -665,30 +664,8 @@ func (sv *supportedVersionsExtension) Unmarshal(data []byte) (int, error) {
 
 	sv.versions = make([]uint16, listLen/2)
 	for i := range sv.versions {
-		sv.versions[i] = (uint16(data[2*i+2]) << 8) + uint16(data[2*i+3])
+		sv.versions[i] = (uint16(data[2*i+1]) << 8) + uint16(data[2*i+2])
 	}
 
-	return 2 + listLen, nil
-}
-
-// This is required for NSS
-type draftVersionExtension struct {
-	version int
-}
-
-func (dv draftVersionExtension) Type() helloExtensionType {
-	return extensionTypeDraftVersion
-}
-
-func (dv draftVersionExtension) Marshal() ([]byte, error) {
-	return []byte{byte(dv.version >> 8), byte(dv.version)}, nil
-}
-
-func (dv *draftVersionExtension) Unmarshal(data []byte) (int, error) {
-	if len(data) != 2 {
-		return 0, fmt.Errorf("tls.draftVersion: Wrong length")
-	}
-
-	dv.version = (int(data[0]) << 8) + int(data[1])
-	return 2, nil
+	return 1 + listLen, nil
 }

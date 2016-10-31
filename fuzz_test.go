@@ -25,7 +25,7 @@ var structs = []interface{}{
 	&signatureAlgorithmsExtension{},
 	&preSharedKeyExtension{roleIsServer: false},
 	&preSharedKeyExtension{roleIsServer: true},
-	&draftVersionExtension{},
+	&supportedVersionsExtension{},
 }
 
 var validHex = []string{
@@ -47,7 +47,7 @@ var validHex = []string{
 	signatureAlgorithmsHex,
 	pskClientHex,
 	pskServerHex,
-	draftVersionHex,
+	supportedVersionsHex,
 }
 
 func randomBytes(n int, rand *rand.Rand) []byte {

@@ -2,7 +2,6 @@ package mint
 
 import (
 	"bytes"
-	"crypto/aes"
 	"crypto/cipher"
 	"fmt"
 	"io"
@@ -48,33 +47,14 @@ func newRecordLayer(conn io.ReadWriter) *recordLayer {
 	return &r
 }
 
-func (r *recordLayer) Rekey(suite cipherSuite, key []byte, iv []byte) error {
-	switch suite {
-	case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-		TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
-		TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
-		TLS_PSK_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384,
-		TLS_DHE_PSK_WITH_AES_128_GCM_SHA256,
-		TLS_DHE_PSK_WITH_AES_256_GCM_SHA384:
-		params := cipherSuiteMap[suite]
-
-		if len(key) != params.keyLen || len(iv) != params.ivLen {
-			return fmt.Errorf("tls.rekey: Crypto parameters are the wrong size")
-		}
-
-		aes, _ := aes.NewCipher(key)
-		gcm, _ := cipher.NewGCMWithNonceSize(aes, len(iv))
-		r.cipher = gcm
-		r.ivLength = len(iv)
-	default:
-		return fmt.Errorf("tls.rekey: Unsupported ciphersuite: %x", suite)
+func (r *recordLayer) Rekey(cipher aeadFactory, key []byte, iv []byte) error {
+	var err error
+	r.cipher, err = cipher(key)
+	if err != nil {
+		return err
 	}
 
+	r.ivLength = len(iv)
 	r.seq = bytes.Repeat([]byte{0}, r.ivLength)
 	r.nonce = make([]byte, r.ivLength)
 	copy(r.nonce, iv)

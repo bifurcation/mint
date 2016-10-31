@@ -3,6 +3,8 @@ package mint
 import (
 	"bytes"
 	"crypto"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
@@ -35,12 +37,13 @@ const (
 	handshakeModeDH
 )
 
+type aeadFactory func(key []byte) (cipher.AEAD, error)
+
 type cipherSuiteParams struct {
-	sig    signatureAlgorithm // RSA, ECDSA, or both
-	mode   handshakeMode      // PSK, DH, or both
-	hash   crypto.Hash        // Hash function
-	keyLen int                // Key length in octets
-	ivLen  int                // IV length in octets
+	cipher aeadFactory // Cipher factory
+	hash   crypto.Hash // Hash function
+	keyLen int         // Key length in octets
+	ivLen  int         // IV length in octets
 }
 
 var (
@@ -51,84 +54,25 @@ var (
 		hashAlgorithmSHA512: crypto.SHA512,
 	}
 
+	newAESGCM = func(key []byte) (cipher.AEAD, error) {
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			return nil, err
+		}
+
+		// TLS always uses 12-byte nonces
+		return cipher.NewGCMWithNonceSize(block, 12)
+	}
+
 	cipherSuiteMap = map[cipherSuite]cipherSuiteParams{
-		// REQUIRED
-		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
-			sig:    signatureAlgorithmECDSA,
-			mode:   handshakeModeDH,
+		TLS_AES_128_GCM_SHA256: cipherSuiteParams{
+			cipher: newAESGCM,
 			hash:   crypto.SHA256,
 			keyLen: 16,
 			ivLen:  12,
 		},
-		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
-			sig:    signatureAlgorithmRSA,
-			mode:   handshakeModeDH,
-			hash:   crypto.SHA256,
-			keyLen: 16,
-			ivLen:  12,
-		},
-		// RECOMMENDED
-		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
-			sig:    signatureAlgorithmECDSA,
-			mode:   handshakeModeDH,
-			hash:   crypto.SHA384,
-			keyLen: 32,
-			ivLen:  12,
-		},
-		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
-			sig:    signatureAlgorithmRSA,
-			mode:   handshakeModeDH,
-			hash:   crypto.SHA384,
-			keyLen: 32,
-			ivLen:  12,
-		},
-		// OTHER
-		TLS_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
-			mode:   handshakeModePSK,
-			hash:   crypto.SHA256,
-			keyLen: 16,
-			ivLen:  12,
-		},
-		TLS_PSK_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
-			mode:   handshakeModePSK,
-			hash:   crypto.SHA384,
-			keyLen: 32,
-			ivLen:  12,
-		},
-		TLS_DHE_RSA_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
-			sig:    signatureAlgorithmRSA,
-			mode:   handshakeModeDH,
-			hash:   crypto.SHA256,
-			keyLen: 16,
-			ivLen:  12,
-		},
-		TLS_DHE_RSA_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
-			sig:    signatureAlgorithmRSA,
-			mode:   handshakeModeDH,
-			hash:   crypto.SHA384,
-			keyLen: 32,
-			ivLen:  12,
-		},
-		TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
-			mode:   handshakeModePSKAndDH,
-			hash:   crypto.SHA256,
-			keyLen: 16,
-			ivLen:  12,
-		},
-		TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
-			mode:   handshakeModePSKAndDH,
-			hash:   crypto.SHA384,
-			keyLen: 32,
-			ivLen:  12,
-		},
-		TLS_DHE_PSK_WITH_AES_128_GCM_SHA256: cipherSuiteParams{
-			mode:   handshakeModePSKAndDH,
-			hash:   crypto.SHA256,
-			keyLen: 16,
-			ivLen:  12,
-		},
-		TLS_DHE_PSK_WITH_AES_256_GCM_SHA384: cipherSuiteParams{
-			mode:   handshakeModePSKAndDH,
+		TLS_AES_256_GCM_SHA384: cipherSuiteParams{
+			cipher: newAESGCM,
 			hash:   crypto.SHA384,
 			keyLen: 32,
 			ivLen:  12,
@@ -747,12 +691,14 @@ func (ctx *cryptoContext) init(suite cipherSuite, pskSecret []byte) error {
 	ctx.params = params
 	ctx.zero = bytes.Repeat([]byte{0}, ctx.params.hash.Size())
 
-	// Import the PSK secret if required by the ciphersuite
+	// Import the PSK secret if provided or set to zero
+	// XXX: We can't detect the need for a PSK at this layer, since the
+	// ciphersuite no longer indicates the handshake mode.  So we need to be
+	// extra careful in conn.go that we check that there is a PSK when we need
+	// one.
 	if pskSecret != nil {
 		ctx.pskSecret = make([]byte, len(pskSecret))
 		copy(ctx.pskSecret, pskSecret)
-	} else if ctx.params.mode == handshakeModePSK || ctx.params.mode == handshakeModePSKAndDH {
-		return fmt.Errorf("tls.cryptoinit: PSK required by ciphersuite and not provided")
 	} else {
 		ctx.pskSecret = make([]byte, len(ctx.zero))
 		copy(ctx.pskSecret, ctx.zero)
@@ -849,12 +795,11 @@ func (ctx *cryptoContext) updateWithServerHello(shm *handshakeMessage, dhSecret 
 	ctx.h2 = ctx.handshakeHash.Sum(nil)
 	logf(logTypeCrypto, "handshake hash 2 [%d]: %x", len(ctx.h2), ctx.h2)
 
-	// Import the DH secret
+	// Import the DH secret or set it to zero
+	// XXX: Same comment here as with regard to the PSK secret
 	if dhSecret != nil {
 		ctx.dhSecret = make([]byte, len(dhSecret))
 		copy(ctx.dhSecret, dhSecret)
-	} else if ctx.params.mode == handshakeModeDH || ctx.params.mode == handshakeModePSKAndDH {
-		return fmt.Errorf("tls.cryptoinit: DH info required by ciphersuite and not provided")
 	} else {
 		ctx.dhSecret = make([]byte, len(ctx.zero))
 		copy(ctx.dhSecret, ctx.zero)

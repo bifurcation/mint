@@ -56,7 +56,7 @@ func (ch clientHelloBody) Marshal() ([]byte, error) {
 
 	// Write base fields that are non-zero
 	body[0] = 0x03
-	body[1] = 0x04
+	body[1] = 0x03
 	copy(body[2:34], ch.random[:])
 
 	if len(ch.cipherSuites) == 0 {
@@ -87,7 +87,7 @@ func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
 		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; too short")
 	}
 
-	if data[0] != 0x03 || data[1] != 0x04 {
+	if data[0] != 0x03 || data[1] != 0x03 {
 		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; unsupported version %02x%02x", data[0], data[1])
 	}
 
