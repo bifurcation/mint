@@ -16,6 +16,8 @@ import (
 	"math/big"
 	"time"
 
+	"golang.org/x/crypto/curve25519"
+
 	// Blank includes to ensure hash support
 	_ "crypto/sha1"
 	_ "crypto/sha256"
@@ -167,6 +169,8 @@ func curveFromNamedGroup(group namedGroup) (crv elliptic.Curve) {
 func keyExchangeSizeFromNamedGroup(group namedGroup) (size int) {
 	size = 0
 	switch group {
+	case namedGroupX25519:
+		size = 32
 	case namedGroupP256:
 		size = 65
 	case namedGroupP384:
@@ -247,6 +251,18 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 
 		return
 
+	case namedGroupX25519:
+		var private, public [32]byte
+		_, err = prng.Read(private[:])
+		if err != nil {
+			return
+		}
+
+		curve25519.ScalarBaseMult(&public, &private)
+		priv = private[:]
+		pub = public[:]
+		return
+
 	default:
 		return nil, nil, fmt.Errorf("tls.newkeyshare: Unsupported group %v", group)
 	}
@@ -286,6 +302,18 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 		copy(ret[numBytes-len(ZBytes):], ZBytes)
 
 		return ret, nil
+
+	case namedGroupX25519:
+		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
+			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
+		}
+
+		var private, public, ret [32]byte
+		copy(private[:], priv)
+		copy(public[:], pub)
+		curve25519.ScalarMult(&ret, &private, &public)
+
+		return ret[:], nil
 
 	default:
 		return nil, fmt.Errorf("tls.keyagreement: Unsupported group %v", group)

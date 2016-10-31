@@ -16,10 +16,10 @@ import (
 )
 
 var (
-	ecGroups = []namedGroup{namedGroupP256, namedGroupP384, namedGroupP521}
-	ffGroups = []namedGroup{namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
-		namedGroupFF6144, namedGroupFF8192}
-	dhGroups = append(ecGroups, ffGroups...)
+	ecGroups    = []namedGroup{namedGroupP256, namedGroupP384, namedGroupP521}
+	nonECGroups = []namedGroup{namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
+		namedGroupFF6144, namedGroupFF8192, namedGroupX25519}
+	dhGroups = append(ecGroups, nonECGroups...)
 
 	shortKeyPubHex = "04e9f6076620ddf6a24e4398162057eccd3077892f046b412" +
 		"0ffcb9fa31cdfd385c8727b222f9a6091e442e48f32ba145" +
@@ -44,8 +44,10 @@ func TestNewKeyShare(t *testing.T) {
 	// Test success cases
 	for _, group := range ecGroups {
 		// priv is opaque, so there's nothing we can do to test besides use
-		pub, _, err := newKeyShare(group)
+		pub, priv, err := newKeyShare(group)
 		assertNotError(t, err, "Failed to generate new key pair")
+		assertNotNil(t, priv, "Private key is nil")
+		assertEquals(t, len(pub), keyExchangeSizeFromNamedGroup(group))
 
 		crv := curveFromNamedGroup(group)
 		x, y := elliptic.Unmarshal(crv, pub)
@@ -53,23 +55,32 @@ func TestNewKeyShare(t *testing.T) {
 		assert(t, crv.Params().IsOnCurve(x, y), "Public key not on curve")
 	}
 
-	for _, group := range ffGroups {
-		_, _, err := newKeyShare(group)
+	for _, group := range nonECGroups {
+		priv, pub, err := newKeyShare(group)
 		assertNotError(t, err, "Failed to generate new key pair")
+		assertNotNil(t, priv, "Private key is nil")
+		assertEquals(t, len(pub), keyExchangeSizeFromNamedGroup(group))
 	}
 
 	// Test failure case for an elliptic curve key generation failure
 	originalPRNG := prng
 	prng = bytes.NewReader(nil)
 	_, _, err := newKeyShare(namedGroupP256)
-	assertError(t, err, "Generated a key with no entropy")
+	assertError(t, err, "Generated an EC key with no entropy")
 	prng = originalPRNG
 
 	// Test failure case for an finite field key generation failure
 	originalPRNG = prng
 	prng = bytes.NewReader(nil)
 	_, _, err = newKeyShare(namedGroupFF2048)
-	assertError(t, err, "Generated a key with no entropy")
+	assertError(t, err, "Generated a FF key with no entropy")
+	prng = originalPRNG
+
+	// Test failure case for an X25519 key generation failure
+	originalPRNG = prng
+	prng = bytes.NewReader(nil)
+	_, _, err = newKeyShare(namedGroupX25519)
+	assertError(t, err, "Generated an X25519 key with no entropy")
 	prng = originalPRNG
 
 	// Test failure case for an unknown group
@@ -105,6 +116,14 @@ func TestKeyAgreement(t *testing.T) {
 
 	// Test failure case for a too-short public key
 	_, err = keyAgreement(namedGroupP256, shortKeyPub[:5], shortKeyPriv)
+	assertError(t, err, "Performed key agreement with a truncated public key")
+
+	// Test failure for a too-short ffdh public key
+	_, err = keyAgreement(namedGroupFF2048, shortKeyPub[:5], shortKeyPriv)
+	assertError(t, err, "Performed key agreement with a truncated public key")
+
+	// Test failure for a too-short X25519 public key
+	_, err = keyAgreement(namedGroupX25519, shortKeyPub[:5], shortKeyPriv)
 	assertError(t, err, "Performed key agreement with a truncated public key")
 
 	// Test failure case for an unknown group
