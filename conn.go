@@ -654,6 +654,11 @@ func (c *Conn) clientHandshake() error {
 	}
 	logf(logTypeHandshake, "[client] Received ServerHello")
 
+	// Check that the version sent by the server is the one we support
+	if sh.version != supportedVersion {
+		return fmt.Errorf("tls.client: Server sent unsupported version %x", sh.version)
+	}
+
 	// Do PSK or key agreement depending on the ciphersuite
 	serverPSK := preSharedKeyExtension{roleIsServer: true}
 	foundPSK := sh.extensions.Find(&serverPSK)
@@ -847,16 +852,16 @@ func (c *Conn) serverHandshake() error {
 		logf(logTypeHandshake, "[server] Client did not send supported_versions")
 		return fmt.Errorf("tls.server: Client did not send supported_versions")
 	}
-	clientSupports13 := false
+	clientSupportsSameVersion := false
 	for _, version := range supportedVersions.versions {
-		clientSupports13 = (version == supportedVersion)
-		if clientSupports13 {
+		clientSupportsSameVersion = (version == supportedVersion)
+		if clientSupportsSameVersion {
 			break
 		}
 	}
-	if !clientSupports13 {
-		logf(logTypeHandshake, "[server] Client does not support TLS 1.3")
-		return fmt.Errorf("tls.server: Client does not support TLS 1.3")
+	if !clientSupportsSameVersion {
+		logf(logTypeHandshake, "[server] Client does not support the same version")
+		return fmt.Errorf("tls.server: Client does not support the same version")
 	}
 
 	// Find pre_shared_key extension and look it up
@@ -1077,6 +1082,7 @@ func (c *Conn) serverHandshake() error {
 
 	// Create the ServerHello
 	sh := &serverHelloBody{
+		version:     supportedVersion,
 		cipherSuite: chosenSuite,
 	}
 	_, err = prng.Read(sh.random[:])

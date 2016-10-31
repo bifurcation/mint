@@ -138,7 +138,7 @@ func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
 //     };
 // } ServerHello;
 type serverHelloBody struct {
-	// Omitted: server_version
+	version     uint16
 	random      [32]byte
 	cipherSuite cipherSuite
 	extensions  extensionList
@@ -151,8 +151,8 @@ func (sh serverHelloBody) Type() handshakeType {
 func (sh serverHelloBody) Marshal() ([]byte, error) {
 	body := make([]byte, fixedServerHelloBodyLen)
 
-	body[0] = 0x03
-	body[1] = 0x04
+	body[0] = byte(sh.version >> 8)
+	body[1] = byte(sh.version)
 
 	copy(body[2:34], sh.random[:])
 
@@ -175,9 +175,7 @@ func (sh *serverHelloBody) Unmarshal(data []byte) (int, error) {
 		return 0, fmt.Errorf("tls.serverhello: Malformed ServerHello; too short")
 	}
 
-	if data[0] != 0x03 || data[1] != 0x04 {
-		return 0, fmt.Errorf("tls.serverhello: Malformed ServerHello; unsupported version %02x%02x", data[0], data[1])
-	}
+	sh.version = (uint16(data[0]) << 8) + uint16(data[1])
 
 	copy(sh.random[:], data[2:34])
 	sh.cipherSuite = (cipherSuite(data[34]) << 8) + cipherSuite(data[35])
