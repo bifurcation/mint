@@ -540,6 +540,7 @@ func (c *Conn) clientHandshake() error {
 		ks.shares[i].keyExchange = pub
 		privateKeys[group] = priv
 	}
+	sv := supportedVersionsExtension{versions: []uint16{tlsVersion13}}
 	sni := serverNameExtension(c.config.ServerName)
 	sg := supportedGroupsExtension{groups: c.config.Groups}
 	sa := signatureAlgorithmsExtension{algorithms: c.config.SignatureAlgorithms}
@@ -580,7 +581,7 @@ func (c *Conn) clientHandshake() error {
 	if err != nil {
 		return err
 	}
-	for _, ext := range []extensionBody{&sni, &ks, &sg, &sa, &dv} {
+	for _, ext := range []extensionBody{&sv, &sni, &ks, &sg, &sa, &dv} {
 		err := ch.extensions.Add(ext)
 		if err != nil {
 			return err
@@ -842,6 +843,7 @@ func (c *Conn) serverHandshake() error {
 	}
 	logf(logTypeHandshake, "[server] Read ClientHello")
 
+	supportedVersions := new(supportedVersionsExtension)
 	serverName := new(serverNameExtension)
 	supportedGroups := new(supportedGroupsExtension)
 	signatureAlgorithms := new(signatureAlgorithmsExtension)
@@ -850,6 +852,7 @@ func (c *Conn) serverHandshake() error {
 	clientEarlyData := &earlyDataExtension{roleIsServer: false}
 	clientALPN := new(alpnExtension)
 
+	gotSupportedVersions := ch.extensions.Find(supportedVersions)
 	gotServerName := ch.extensions.Find(serverName)
 	gotSupportedGroups := ch.extensions.Find(supportedGroups)
 	gotSignatureAlgorithms := ch.extensions.Find(signatureAlgorithms)
@@ -857,6 +860,24 @@ func (c *Conn) serverHandshake() error {
 	gotPSK := ch.extensions.Find(clientPSK)
 	gotEarlyData := ch.extensions.Find(clientEarlyData)
 	gotALPN := ch.extensions.Find(clientALPN)
+
+	// If the client didn't send supportedVersions or doesn't support 1.3,
+	// then we're done here.
+	if !gotSupportedVersions {
+		logf(logTypeHandshake, "[server] Client did not send supported_versions")
+		return fmt.Errorf("tls.server: Client did not send supported_versions")
+	}
+	clientSupports13 := false
+	for _, version := range supportedVersions.versions {
+		clientSupports13 = (version == tlsVersion13)
+		if clientSupports13 {
+			break
+		}
+	}
+	if !clientSupports13 {
+		logf(logTypeHandshake, "[server] Client does not support TLS 1.3")
+		return fmt.Errorf("tls.server: Client does not support TLS 1.3")
+	}
 
 	// Find pre_shared_key extension and look it up
 	var serverPSK *preSharedKeyExtension

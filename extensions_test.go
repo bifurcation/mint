@@ -147,6 +147,12 @@ var (
 		protocols: []string{"http/1.1", "h2"},
 	}
 
+	// SupportedVersions test cases
+	supportedVersionsIn = supportedVersionsExtension{
+		versions: []uint16{0x0300, 0x0304},
+	}
+	supportedVersionsHex = "000403000304"
+
 	// DraftVersion test cases
 	draftVersionIn  = draftVersionExtension{0x2030}
 	draftVersionHex = "2030"
@@ -599,6 +605,42 @@ func TestALPNMarshalUnmarshal(t *testing.T) {
 	alpn = &alpnExtension{}
 	read, err = alpn.Unmarshal(alpnTooShort)
 	assertError(t, err, "Unmarshaled a ALPN extension with a too-long interior length")
+}
+
+func TestSupportedVersionsMarshalUnmarshal(t *testing.T) {
+	supportedVersions, _ := hex.DecodeString(supportedVersionsHex)
+
+	// Test extension type
+	assertEquals(t, supportedVersionsExtension{}.Type(), extensionTypeSupportedVersions)
+
+	// Test successful marshal
+	out, err := supportedVersionsIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid SupportedVersions")
+	assertByteEquals(t, out, supportedVersions)
+
+	// Test successful unmarshal
+	sv := supportedVersionsExtension{}
+	read, err := sv.Unmarshal(supportedVersions)
+	assertNotError(t, err, "Failed to unmarshal valid SupportedVersions")
+	assertDeepEquals(t, sv, supportedVersionsIn)
+	assertEquals(t, read, len(supportedVersions))
+
+	// Test unmarshal failure on truncated length
+	sv = supportedVersionsExtension{}
+	read, err = sv.Unmarshal(supportedVersions[:1])
+	assertError(t, err, "Unmarshaled a SupportedVersions without a length")
+
+	// Test unmarshal failure on truncated list
+	sv = supportedVersionsExtension{}
+	read, err = sv.Unmarshal(supportedVersions[:3])
+	assertError(t, err, "Unmarshaled a SupportedVersions without a key share length")
+
+	// Test unmarshal failure on odd list length
+	supportedVersions[1]--
+	sv = supportedVersionsExtension{}
+	read, err = sv.Unmarshal(supportedVersions)
+	assertError(t, err, "Unmarshaled a SupportedVersions with an odd-length list")
+	supportedVersions[1]++
 }
 
 func TestDraftVersionMarshalUnmarshal(t *testing.T) {

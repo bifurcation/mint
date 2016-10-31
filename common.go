@@ -1,16 +1,18 @@
 package mint
 
 var (
-	draftVersionImplemented = 13
+	draftVersionImplemented = 18
 
 	// Flags for some minor compat issues
 	allowEmptyEncryptedExtensions = false
-	allowWrongVersionNumber       = false
+	allowWrongVersionNumber       = true
 	allowPKCS1                    = true
 )
 
 // enum {...} ContentType;
 type recordType byte
+
+const tlsVersion13 uint16 = 0x0304
 
 const (
 	recordTypeAlert           recordType = 21
@@ -107,6 +109,7 @@ const (
 	extensionTypeKeyShare            helloExtensionType = 40
 	extensionTypePreSharedKey        helloExtensionType = 41
 	extensionTypeEarlyData           helloExtensionType = 42
+	extensionTypeSupportedVersions   helloExtensionType = 43
 	extensionTypeDraftVersion        helloExtensionType = 0xff02 // Required for NSS
 )
 
