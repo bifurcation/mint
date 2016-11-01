@@ -8,6 +8,11 @@ import (
 )
 
 var (
+	supportedVersionHex = hex.EncodeToString([]byte{
+		byte(supportedVersion >> 8),
+		byte(supportedVersion),
+	})
+
 	// ClientHello test cases
 	// NB: Borrowing some values from extensions_test.go
 	helloRandom = [32]byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -20,24 +25,26 @@ var (
 		cipherSuites: chCipherSuites,
 		extensions:   extListValidIn,
 	}
-	chValidHex = "0304" + hex.EncodeToString(helloRandom[:]) + "00" +
+	chValidHex = "0303" + hex.EncodeToString(helloRandom[:]) + "00" +
 		"0006000100020003" + "0100" + extListValidHex
-	chOverflowHex = "0304" + hex.EncodeToString(helloRandom[:]) + "00" +
+	chOverflowHex = "0303" + hex.EncodeToString(helloRandom[:]) + "00" +
 		"0006000100020003" + "0100" + extListOverflowOuterHex
 
 	// ServerHello test cases
 	shValidIn = serverHelloBody{
+		version:     supportedVersion,
 		random:      helloRandom,
 		cipherSuite: cipherSuite(0x0001),
 		extensions:  extListValidIn,
 	}
 	shEmptyIn = serverHelloBody{
+		version:     supportedVersion,
 		random:      helloRandom,
 		cipherSuite: cipherSuite(0x0001),
 	}
-	shValidHex    = "0304" + hex.EncodeToString(helloRandom[:]) + "0001" + extListValidHex
-	shEmptyHex    = "0304" + hex.EncodeToString(helloRandom[:]) + "0001"
-	shOverflowHex = "0304" + hex.EncodeToString(helloRandom[:]) + "0001" + extListOverflowOuterHex
+	shValidHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListValidHex
+	shEmptyHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001"
+	shOverflowHex = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListOverflowOuterHex
 
 	// Finished test cases
 	finValidIn = finishedBody{
@@ -133,7 +140,7 @@ var (
 	}
 	certVerifyValidHex             = "0403000400000000"
 	certVerifyResumptionContextHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-	certVerifyCipherSuite          = TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+	certVerifyCipherSuite          = TLS_AES_128_GCM_SHA256
 
 	// NewSessionTicket test cases
 	ticketValidHex = "0001020304050607000600ff00021122000404050607"
@@ -293,12 +300,6 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 	// Test unmarshal failure on too-short ServerHello
 	_, err = sh.Unmarshal(shValid[:fixedServerHelloBodyLen-1])
 	assertError(t, err, "Unmarshaled a too-short ServerHello")
-
-	// Test unmarshal failure on wrong version
-	shValid[1]--
-	_, err = sh.Unmarshal(shValid)
-	assertError(t, err, "Unmarshaled a ServerHello with the wrong version")
-	shValid[1]++
 
 	// Test unmarshal failure on extension list unmarshal failure
 	_, err = sh.Unmarshal(shOverflow)

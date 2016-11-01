@@ -139,14 +139,14 @@ var (
 
 	pskConfig = &Config{
 		ServerName:   serverName,
-		CipherSuites: []cipherSuite{TLS_PSK_WITH_AES_128_GCM_SHA256},
+		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		ClientPSKs:   clientPSKs,
 		ServerPSKs:   serverPSKs,
 	}
 
 	pskECDHEConfig = &Config{
 		ServerName:   serverName,
-		CipherSuites: []cipherSuite{TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256},
+		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
 		ClientPSKs:   clientPSKs,
 		ServerPSKs:   serverPSKs,
@@ -154,10 +154,11 @@ var (
 
 	pskDHEConfig = &Config{
 		ServerName:   serverName,
-		CipherSuites: []cipherSuite{TLS_DHE_PSK_WITH_AES_128_GCM_SHA256},
+		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
 		ClientPSKs:   clientPSKs,
 		ServerPSKs:   serverPSKs,
+		Groups:       []namedGroup{namedGroupFF2048},
 	}
 
 	resumptionConfig = &Config{
@@ -169,21 +170,24 @@ var (
 	ffdhConfig = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
-		CipherSuites: []cipherSuite{TLS_DHE_RSA_WITH_AES_128_GCM_SHA256},
+		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Groups:       []namedGroup{namedGroupFF2048},
 	}
 
 	x25519Config = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
-		CipherSuites: []cipherSuite{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Groups:       []namedGroup{namedGroupX25519},
 	}
 )
 
 func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 	assertEquals(t, c.suite, s.suite)
-	assertEquals(t, c.params, s.params)
+	// XXX: Figure out a way to compare ciphers?
+	assertEquals(t, c.params.hash, s.params.hash)
+	assertEquals(t, c.params.keyLen, s.params.keyLen)
+	assertEquals(t, c.params.ivLen, s.params.ivLen)
 	assertByteEquals(t, c.zero, s.zero)
 
 	assertByteEquals(t, c.h1, s.h1)
@@ -296,7 +300,6 @@ func TestResumption(t *testing.T) {
 	<-done
 
 	assertContextEquals(t, client2.context, server2.context)
-	assertEquals(t, client2.context.params.mode, handshakeModePSK)
 
 	// TODO re-enable assertByteEquals(t, client2.context.SS, client1.context.resumptionSecret)
 }
@@ -307,7 +310,7 @@ func Test0xRTT(t *testing.T) {
 
 	client := Client(cConn, conf)
 	client.earlyData = []byte("hello 0xRTT world!")
-	client.earlyCipherSuite = TLS_PSK_WITH_AES_128_GCM_SHA256
+	client.earlyCipherSuite = TLS_AES_128_GCM_SHA256
 
 	server := Server(sConn, conf)
 

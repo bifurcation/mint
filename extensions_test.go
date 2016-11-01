@@ -127,12 +127,12 @@ var (
 	}
 
 	// EarlyData test cases
-	edClientHex = "000400010203C02B00120029000e000c0004000102030004040506070404050607"
+	edClientHex = "000400010203130100120029000e000c0004000102030004040506070404050607"
 	edServerHex = ""
 	edClientIn  = &earlyDataExtension{
 		roleIsServer:    false,
 		configurationID: []byte{0, 1, 2, 3},
-		cipherSuite:     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		cipherSuite:     TLS_AES_128_GCM_SHA256,
 		extensions:      extensionList{},
 		context:         []byte{4, 5, 6, 7},
 	}

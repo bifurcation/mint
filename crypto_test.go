@@ -296,13 +296,12 @@ func random(n int) []byte {
 var (
 	clientHelloContextIn = &clientHelloBody{
 		cipherSuites: []cipherSuite{
-			TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			TLS_AES_128_GCM_SHA256,
 		},
 	}
 
 	serverHelloContextIn = &serverHelloBody{
-		cipherSuite: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		cipherSuite: TLS_AES_128_GCM_SHA256,
 	}
 
 	certificateContextIn = &certificateBody{
@@ -386,7 +385,7 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test successful init with nil PSK secret when required
 	ctx = cryptoContext{}
-	err = ctx.init(TLS_PSK_WITH_AES_128_GCM_SHA256, nil)
+	err = ctx.init(TLS_AES_128_GCM_SHA256, nil)
 	assertError(t, err, "Init'ed context with nil PSK when one was required")
 
 	// Test successful init with nil PSK secret when not required
@@ -397,7 +396,7 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test init failure on usupported ciphersuite
 	ctx = cryptoContext{}
-	err = ctx.init(TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, nil)
+	err = ctx.init(TLS_CHACHA20_POLY1305_SHA256, nil)
 	assertError(t, err, "Init'ed context with an unsupported ciphersuite")
 
 	// Test successful updateWithClientHello
@@ -447,7 +446,7 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test successful updateWithServerHello with nil dhSecret when not required
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_PSK_WITH_AES_128_GCM_SHA256, pskSecretIn)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, pskSecretIn)
 	_ = ctx.updateWithClientHello(chm, nil)
 	err = ctx.updateWithServerHello(shm, nil)
 	assertNotError(t, err, "Failed to update context")
@@ -455,7 +454,7 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test successful updateWithServerFirstFlight
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_PSK_WITH_AES_128_GCM_SHA256, pskSecretIn)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, pskSecretIn)
 	_ = ctx.updateWithClientHello(chm, nil)
 	_ = ctx.updateWithServerHello(shm, nil)
 	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
@@ -471,7 +470,7 @@ func TestCryptoContext(t *testing.T) {
 	// Test successful updateWithClientSecondFlight
 	// TODO: Use a more realistic second flight
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_PSK_WITH_AES_128_GCM_SHA256, pskSecretIn)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, pskSecretIn)
 	_ = ctx.updateWithClientHello(chm, nil)
 	_ = ctx.updateWithServerHello(shm, dhSecretIn)
 	_ = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
@@ -499,7 +498,7 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test that the order of operations is enforced
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_PSK_WITH_AES_128_GCM_SHA256, pskSecretIn)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, pskSecretIn)
 
 	ctx.state = ctxStateServerHello
 	err = ctx.updateWithClientHello(chm, nil)
