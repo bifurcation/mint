@@ -19,7 +19,6 @@ type Certificate struct {
 type PreSharedKey struct {
 	Identity []byte
 	Key      []byte
-	Context  []byte
 }
 
 // Config is the struct used to pass configuration settings to a TLS client or
@@ -271,8 +270,7 @@ func (c *Conn) extendBuffer(n int) error {
 					logf(logTypeHandshake, "Storing new session ticket with identity [%v]", tkt.ticket)
 					psk := PreSharedKey{
 						Identity: tkt.ticket,
-						Key:      c.context.resumptionPSK,
-						Context:  c.context.resumptionContext,
+						Key:      c.context.resumptionSecret,
 					}
 					c.config.ClientPSKs[c.config.ServerName] = psk
 
@@ -598,34 +596,12 @@ func (c *Conn) clientHandshake() error {
 		logf(logTypeHandshake, "[client] Processing early data...")
 		// We will only get here if we sent exactly one PSK, and this is it
 		pskSecret := c.config.ClientPSKs[c.config.ServerName].Key
-		pskContext := c.config.ClientPSKs[c.config.ServerName].Context
 		ctx := cryptoContext{}
-		ctx.init(c.earlyCipherSuite, pskSecret)
-		ctx.updateWithClientHello(chm, pskContext)
+		ctx.init(c.earlyCipherSuite, chm, pskSecret, false)
 
-		// Rekey output to early handshake keys (in case we decide to send EE later)
+		// Rekey output to early data keys (in case we decide to send EE later)
 		logf(logTypeHandshake, "[client] Rekey -> handshake...")
-		err = c.out.Rekey(ctx.params.cipher, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
-		if err != nil {
-			return err
-		}
-
-		// No further handshake messages, go ahead and compute everything
-		err = ctx.updateWithEarlyHandshake([]*handshakeMessage{})
-		if err != nil {
-			return err
-		}
-
-		// Send early finished message
-		logf(logTypeHandshake, "[client] Sending Finished...")
-		_, err = hOut.WriteMessageBody(ctx.earlyFinished)
-		if err != nil {
-			return err
-		}
-
-		// Rekey output to early data keys
-		logf(logTypeHandshake, "[client] Rekey -> application...")
-		err = c.out.Rekey(ctx.params.cipher, ctx.earlyApplicationKeys.clientWriteKey, ctx.earlyApplicationKeys.clientWriteIV)
+		err = c.out.Rekey(ctx.params.cipher, ctx.clientEarlyTrafficKeys.key, ctx.clientEarlyTrafficKeys.iv)
 		if err != nil {
 			return err
 		}
@@ -665,10 +641,9 @@ func (c *Conn) clientHandshake() error {
 	serverKeyShare := keyShareExtension{roleIsServer: true}
 	foundKeyShare := sh.extensions.Find(&serverKeyShare)
 
-	var pskSecret, pskContext, dhSecret []byte
+	var pskSecret, dhSecret []byte
 	if foundPSK && (serverPSK.selectedIdentity < uint16(len(psk.identities))) {
 		pskSecret = c.config.ClientPSKs[c.config.ServerName].Key
-		pskContext = c.config.ClientPSKs[c.config.ServerName].Context
 		logf(logTypeHandshake, "[client] got PSK extension")
 	}
 	if foundKeyShare {
@@ -684,11 +659,7 @@ func (c *Conn) clientHandshake() error {
 
 	// Init crypto context
 	ctx := cryptoContext{}
-	err = ctx.init(sh.cipherSuite, pskSecret)
-	if err != nil {
-		return err
-	}
-	err = ctx.updateWithClientHello(chm, pskContext)
+	err = ctx.init(sh.cipherSuite, chm, pskSecret, false)
 	if err != nil {
 		return err
 	}
@@ -698,12 +669,12 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Rekey to handshake keys
-	err = c.in.Rekey(ctx.params.cipher, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
+	err = c.in.Rekey(ctx.params.cipher, ctx.serverHandshakeKeys.key, ctx.serverHandshakeKeys.iv)
 	if err != nil {
 		logf(logTypeHandshake, "[client] Unable to rekey inbound")
 		return err
 	}
-	err = c.out.Rekey(ctx.params.cipher, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
+	err = c.out.Rekey(ctx.params.cipher, ctx.clientHandshakeKeys.key, ctx.clientHandshakeKeys.iv)
 	if err != nil {
 		logf(logTypeHandshake, "[client] Unable to rekey outbound")
 		return err
@@ -800,11 +771,11 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Rekey to application keys
-	err = c.in.Rekey(ctx.params.cipher, ctx.trafficKeys.serverWriteKey, ctx.trafficKeys.serverWriteIV)
+	err = c.in.Rekey(ctx.params.cipher, ctx.serverTrafficKeys.key, ctx.serverTrafficKeys.iv)
 	if err != nil {
 		return err
 	}
-	err = c.out.Rekey(ctx.params.cipher, ctx.trafficKeys.clientWriteKey, ctx.trafficKeys.clientWriteIV)
+	err = c.out.Rekey(ctx.params.cipher, ctx.clientTrafficKeys.key, ctx.clientTrafficKeys.iv)
 	if err != nil {
 		return err
 	}
@@ -867,7 +838,6 @@ func (c *Conn) serverHandshake() error {
 	// Find pre_shared_key extension and look it up
 	var serverPSK *preSharedKeyExtension
 	var pskSecret []byte
-	var pskContext []byte
 	if gotPSK {
 		logf(logTypeHandshake, "[server] Got PSK extension; processing")
 		for _, id := range clientPSK.identities {
@@ -880,8 +850,6 @@ func (c *Conn) serverHandshake() error {
 				logf(logTypeHandshake, "Matched %x", key.Identity)
 				pskSecret = make([]byte, len(key.Key))
 				copy(pskSecret, key.Key)
-				pskContext = make([]byte, len(key.Context))
-				copy(pskContext, key.Context)
 
 				serverPSK = &preSharedKeyExtension{
 					roleIsServer:     true,
@@ -948,57 +916,11 @@ func (c *Conn) serverHandshake() error {
 		// early data vs. the main record flow.  Probably not ideal.
 		logf(logTypeHandshake, "[server] Computing early secrets...")
 		ctx := cryptoContext{}
-		ctx.init(clientEarlyData.cipherSuite, pskSecret)
-		ctx.updateWithClientHello(chm, pskContext)
-
-		// Rekey read channel to early handshake keys
-		logf(logTypeHandshake, "[server] Rekey -> handshake...")
-		err = c.in.Rekey(ctx.params.cipher, ctx.earlyHandshakeKeys.clientWriteKey, ctx.earlyHandshakeKeys.clientWriteIV)
-		if err != nil {
-			return err
-		}
-
-		// Read to Finished
-		transcript := []*handshakeMessage{}
-		var finishedMessage *handshakeMessage
-		for {
-			hm, err := hIn.ReadMessage()
-			if err != nil {
-				logf(logTypeHandshake, "Error reading message: %v", err)
-				return err
-			}
-			logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
-
-			if hm.msgType == handshakeTypeFinished {
-				finishedMessage = hm
-				break
-			} else {
-				// XXX: Other early handshake messages are ignored, but still included in the transcript
-				transcript = append(transcript, hm)
-			}
-		}
-
-		// Update crypto context with remainder of handshake and verify the Finished
-		err = ctx.updateWithEarlyHandshake(transcript)
-		if err != nil {
-			return err
-		}
-
-		// Read Finished message and verify
-		logf(logTypeHandshake, "[server] Reading finished...")
-		earlyFin := new(finishedBody)
-		earlyFin.verifyDataLen = ctx.earlyFinished.verifyDataLen
-		_, err = earlyFin.Unmarshal(finishedMessage.body)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(earlyFin.verifyData, ctx.earlyFinished.verifyData) {
-			return fmt.Errorf("tls.client: Client's early Finished failed to verify")
-		}
+		ctx.init(clientEarlyData.cipherSuite, chm, pskSecret, false)
 
 		// Rekey read channel to early traffic keys
-		logf(logTypeHandshake, "[server] Rekey -> application...")
-		err = c.in.Rekey(ctx.params.cipher, ctx.earlyApplicationKeys.clientWriteKey, ctx.earlyApplicationKeys.clientWriteIV)
+		logf(logTypeHandshake, "[server] Rekey -> handshake...")
+		err = c.in.Rekey(ctx.params.cipher, ctx.clientEarlyTrafficKeys.key, ctx.clientEarlyTrafficKeys.iv)
 		if err != nil {
 			return err
 		}
@@ -1063,11 +985,7 @@ func (c *Conn) serverHandshake() error {
 
 	// Init context and decide whether to send KeyShare/PreSharedKey
 	ctx := cryptoContext{}
-	err = ctx.init(chosenSuite, pskSecret)
-	if err != nil {
-		return err
-	}
-	err = ctx.updateWithClientHello(chm, pskContext)
+	err = ctx.init(chosenSuite, chm, pskSecret, false)
 	if err != nil {
 		return err
 	}
@@ -1124,11 +1042,11 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Rekey to handshake keys
-	err = c.in.Rekey(ctx.params.cipher, ctx.handshakeKeys.clientWriteKey, ctx.handshakeKeys.clientWriteIV)
+	err = c.in.Rekey(ctx.params.cipher, ctx.clientHandshakeKeys.key, ctx.clientHandshakeKeys.iv)
 	if err != nil {
 		return err
 	}
-	err = c.out.Rekey(ctx.params.cipher, ctx.handshakeKeys.serverWriteKey, ctx.handshakeKeys.serverWriteIV)
+	err = c.out.Rekey(ctx.params.cipher, ctx.serverHandshakeKeys.key, ctx.serverHandshakeKeys.iv)
 	if err != nil {
 		return err
 	}
@@ -1228,11 +1146,11 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Rekey to application keys
-	err = c.in.Rekey(ctx.params.cipher, ctx.trafficKeys.clientWriteKey, ctx.trafficKeys.clientWriteIV)
+	err = c.in.Rekey(ctx.params.cipher, ctx.clientTrafficKeys.key, ctx.clientTrafficKeys.iv)
 	if err != nil {
 		return err
 	}
-	err = c.out.Rekey(ctx.params.cipher, ctx.trafficKeys.serverWriteKey, ctx.trafficKeys.serverWriteIV)
+	err = c.out.Rekey(ctx.params.cipher, ctx.serverTrafficKeys.key, ctx.serverTrafficKeys.iv)
 	if err != nil {
 		return err
 	}
@@ -1247,8 +1165,7 @@ func (c *Conn) serverHandshake() error {
 	if c.config.SendSessionTickets {
 		newPSK := PreSharedKey{
 			Identity: tkt.ticket,
-			Key:      ctx.resumptionPSK,
-			Context:  ctx.resumptionContext,
+			Key:      ctx.resumptionSecret,
 		}
 		c.config.ServerPSKs = append(c.config.ServerPSKs, newPSK)
 

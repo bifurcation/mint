@@ -319,10 +319,7 @@ var (
 )
 
 func keySetEmpty(k keySet) bool {
-	return len(k.clientWriteKey) == 0 &&
-		len(k.serverWriteKey) == 0 &&
-		len(k.clientWriteIV) == 0 &&
-		len(k.serverWriteIV) == 0
+	return len(k.key) == 0 && len(k.iv) == 0
 }
 
 func TestCryptoContext(t *testing.T) {
@@ -373,162 +370,121 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test successful init
 	ctx := cryptoContext{}
-	err = ctx.init(serverHelloContextIn.cipherSuite, pskSecretIn)
+	err = ctx.init(serverHelloContextIn.cipherSuite, chm, pskSecretIn, false)
 	assertNotError(t, err, "Failed to init context")
 	assertEquals(t, ctx.suite, serverHelloContextIn.cipherSuite)
 	assertNotNil(t, ctx.params, "Params not populated")
 	assertNotNil(t, ctx.zero, "Zero not populated")
 	assertByteEquals(t, ctx.pskSecret, pskSecretIn)
 	assertNotNil(t, ctx.earlySecret, "Early secret not populated")
+	assertNotNil(t, ctx.binderKey, "Binder key not populated")
+	assertNotNil(t, ctx.handshakeHash, "Failed to init handshake hash")
+	assertNotNil(t, ctx.earlyTrafficSecret, "Failed to set early traffic secret")
+	assertNotNil(t, ctx.earlyExporterSecret, "Failed to set early exporter secret")
+	assertNotNil(t, ctx.clientEarlyTrafficKeys, "Failed to set early traffic keys")
 
-	return
-
-	// Test successful init with nil PSK secret when required
+	// Test successful init with nil PSK secret
 	ctx = cryptoContext{}
-	err = ctx.init(TLS_AES_128_GCM_SHA256, nil)
-	assertError(t, err, "Init'ed context with nil PSK when one was required")
-
-	// Test successful init with nil PSK secret when not required
-	ctx = cryptoContext{}
-	err = ctx.init(serverHelloContextIn.cipherSuite, nil)
-	assertNotError(t, err, "Failed to init context")
+	err = ctx.init(TLS_AES_128_GCM_SHA256, chm, nil, false)
+	assertNotError(t, err, "Failed to init context with nil PSK secret")
 	assertByteEquals(t, ctx.pskSecret, ctx.zero)
 
 	// Test init failure on usupported ciphersuite
 	ctx = cryptoContext{}
-	err = ctx.init(TLS_CHACHA20_POLY1305_SHA256, nil)
+	err = ctx.init(TLS_CHACHA20_POLY1305_SHA256, chm, nil, false)
 	assertError(t, err, "Init'ed context with an unsupported ciphersuite")
-
-	// Test successful updateWithClientHello
-	// TODO: Test with non-nil resumptionContext
-	ctx = cryptoContext{}
-	_ = ctx.init(serverHelloContextIn.cipherSuite, pskSecretIn)
-	err = ctx.updateWithClientHello(chm, nil)
-	assertNotError(t, err, "Failed to update context")
-	assertNotNil(t, ctx.handshakeHash, "Failed to init handshake hash")
-	assertNotNil(t, ctx.earlyHandshakeHash, "Failed to init early handshake hash")
-	assertNotNil(t, ctx.resumptionHash, "Failed to set resumption hash")
-	assertNotNil(t, ctx.earlyTrafficSecret, "Failed to set early traffic secret")
-	assertNotNil(t, ctx.earlyHandshakeKeys, "Failed to set early handshake keys")
-	assertNotNil(t, ctx.earlyApplicationKeys, "Failed to set early traffic keys")
-	assertNotNil(t, ctx.earlyFinishedKey, "Failed to set early finished key")
-
-	// Test successful updateWithEarlyHandshake
-	// TODO: More realistic messages
-	ctx = cryptoContext{}
-	_ = ctx.init(serverHelloContextIn.cipherSuite, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
-	err = ctx.updateWithEarlyHandshake([]*handshakeMessage{cm})
-	assertNotError(t, err, "Failed to update context")
-	assertNotNil(t, ctx.hE, "Failed to set early finished hash")
-	assertNotNil(t, ctx.earlyFinishedData, "Failed to set early finished data")
-	assertNotNil(t, ctx.earlyFinished, "Failed to set early finished message")
 
 	// Test successful updateWithServerHello
 	ctx = cryptoContext{}
-	_ = ctx.init(serverHelloContextIn.cipherSuite, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
+	_ = ctx.init(serverHelloContextIn.cipherSuite, chm, pskSecretIn, false)
 	err = ctx.updateWithServerHello(shm, dhSecretIn)
 	assertNotError(t, err, "Failed to update context")
 	assertNotNil(t, ctx.h2, "Failed to set handshake hash (2)")
 	assertByteEquals(t, ctx.dhSecret, dhSecretIn)
 	assertNotNil(t, ctx.handshakeSecret, "Failed to set handshake secret")
-	assertNotNil(t, ctx.handshakeTrafficSecret, "Failed to set handshake traffic secret")
-	assertNotNil(t, ctx.handshakeKeys, "Failed to set handshake keys")
+	assertNotNil(t, ctx.clientHandshakeTrafficSecret, "Failed to set client handshake traffic secret")
+	assertNotNil(t, ctx.serverHandshakeTrafficSecret, "Failed to set server handshake traffic secret")
+	assertNotNil(t, ctx.clientHandshakeKeys, "Failed to set client handshake keys")
+	assertNotNil(t, ctx.serverHandshakeKeys, "Failed to set server handshake keys")
 	assertNotNil(t, ctx.masterSecret, "Failed to set master secret")
+	assertNotNil(t, ctx.clientFinishedKey, "Failed to set client finished key")
+	assertNotNil(t, ctx.serverFinishedKey, "Failed to set server finished key")
 
-	// Test successful updateWithServerHello with nil dhSecret when required
+	// Test successful updateWithServerHello with nil dhSecret
 	ctx = cryptoContext{}
-	_ = ctx.init(serverHelloContextIn.cipherSuite, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
 	err = ctx.updateWithServerHello(shm, nil)
-	assertError(t, err, "Allowed update with no dhSecret when one was required")
-
-	// Test successful updateWithServerHello with nil dhSecret when not required
-	ctx = cryptoContext{}
-	_ = ctx.init(TLS_AES_128_GCM_SHA256, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
-	err = ctx.updateWithServerHello(shm, nil)
-	assertNotError(t, err, "Failed to update context")
+	assertNotError(t, err, "Failed to update context with nil DH secret")
 	assertByteEquals(t, ctx.dhSecret, ctx.zero)
 
 	// Test successful updateWithServerFirstFlight
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_AES_128_GCM_SHA256, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
 	_ = ctx.updateWithServerHello(shm, nil)
 	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
 	assertNotError(t, err, "Failed to update context")
 	assertNotNil(t, ctx.h3, "Failed to set handshake hash (3)")
 	assertNotNil(t, ctx.h4, "Failed to set handshake hash (4)")
-	assertNotNil(t, ctx.serverFinishedKey, "Failed to set server finished key")
 	assertNotNil(t, ctx.serverFinishedData, "Failed to set server finished data")
 	assertNotNil(t, ctx.serverFinished, "Failed to set server finished message")
-	assertNotNil(t, ctx.trafficSecret, "Failed to set traffic secret")
-	assertNotNil(t, ctx.trafficKeys, "Failed to set traffic keys")
+	assertNotNil(t, ctx.clientTrafficSecret, "Failed to set client traffic secret")
+	assertNotNil(t, ctx.serverTrafficSecret, "Failed to set server traffic secret")
+	assertNotNil(t, ctx.clientTrafficKeys, "Failed to set client traffic keys")
+	assertNotNil(t, ctx.serverTrafficKeys, "Failed to set server traffic keys")
+	assertNotNil(t, ctx.exporterSecret, "Failed to set exporter secret")
 
 	// Test successful updateWithClientSecondFlight
 	// TODO: Use a more realistic second flight
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_AES_128_GCM_SHA256, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
 	_ = ctx.updateWithServerHello(shm, dhSecretIn)
 	_ = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
 	err = ctx.updateWithClientSecondFlight([]*handshakeMessage{cm})
 	assertNotError(t, err, "Failed to update context")
 	assertNotNil(t, ctx.h5, "Failed to set handshake hash (5)")
 	assertNotNil(t, ctx.h6, "Failed to set handshake hash (6)")
-	assertNotNil(t, ctx.clientFinishedKey, "Failed to set client finished key")
 	assertNotNil(t, ctx.clientFinishedData, "Failed to set client finished data")
 	assertNotNil(t, ctx.clientFinished, "Failed to set client finished message")
-	assertNotNil(t, ctx.exporterSecret, "Failed to set exporter secret")
 	assertNotNil(t, ctx.resumptionSecret, "Failed to set resumption secret")
-	assertNotNil(t, ctx.resumptionPSK, "Failed to set resumption PSK")
-	assertNotNil(t, ctx.resumptionContext, "Failed to set resumption context")
 
 	// Test key update
-	oldKeys := ctx.trafficKeys
+	oldClientKeys := ctx.clientTrafficKeys
+	oldServerKeys := ctx.serverTrafficKeys
 	err = ctx.updateKeys()
-	newKeys := ctx.trafficKeys
+	newClientKeys := ctx.clientTrafficKeys
+	newServerKeys := ctx.serverTrafficKeys
 	assertNotError(t, err, "UpdateKeys failed")
-	assert(t, !bytes.Equal(oldKeys.clientWriteKey, newKeys.clientWriteKey), "Client write key didn't change")
-	assert(t, !bytes.Equal(oldKeys.serverWriteKey, newKeys.serverWriteKey), "Server write key didn't change")
-	assert(t, !bytes.Equal(oldKeys.clientWriteIV, newKeys.clientWriteIV), "Client write IV didn't change")
-	assert(t, !bytes.Equal(oldKeys.serverWriteIV, newKeys.serverWriteIV), "Server write IV didn't change")
+	assert(t, !bytes.Equal(oldClientKeys.key, newClientKeys.key), "Client write key didn't change")
+	assert(t, !bytes.Equal(oldServerKeys.key, newServerKeys.key), "Server write key didn't change")
+	assert(t, !bytes.Equal(oldClientKeys.iv, newClientKeys.iv), "Client write IV didn't change")
+	assert(t, !bytes.Equal(oldServerKeys.iv, newServerKeys.iv), "Server write IV didn't change")
 
 	// Test that the order of operations is enforced
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_AES_128_GCM_SHA256, pskSecretIn)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
 
-	ctx.state = ctxStateServerHello
-	err = ctx.updateWithClientHello(chm, nil)
-	assertError(t, err, "Allowed updateWithClientHello in wrong state")
-	ctx.state = ctxStateNew
-	err = ctx.updateWithClientHello(chm, nil)
-	assertNotError(t, err, "Rejected updateWithClientHello in proper state")
-
-	ctx.state = ctxStateNew
+	ctx.state = ctxStateUnknown
 	err = ctx.updateWithServerHello(shm, dhSecretIn)
 	assertError(t, err, "Allowed updateWithServerHello in wrong state")
 	ctx.state = ctxStateClientHello
 	err = ctx.updateWithServerHello(shm, dhSecretIn)
 	assertNotError(t, err, "Rejected updateWithServerHello in proper state")
 
-	ctx.state = ctxStateNew
+	ctx.state = ctxStateUnknown
 	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
 	assertError(t, err, "Allowed updateWithServerFirstFlight in wrong state")
 	ctx.state = ctxStateServerHello
 	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
 	assertNotError(t, err, "Rejected updateWithServerFirstFlight in proper state")
 
-	ctx.state = ctxStateNew
+	ctx.state = ctxStateUnknown
 	err = ctx.updateWithClientSecondFlight([]*handshakeMessage{cm})
 	assertError(t, err, "Allowed updateWithServerFirstFlight in wrong state")
 	ctx.state = ctxStateServerFirstFlight
 	err = ctx.updateWithClientSecondFlight([]*handshakeMessage{cm})
 	assertNotError(t, err, "Rejected updateWithServerFirstFlight in proper state")
 
-	ctx.state = ctxStateNew
+	ctx.state = ctxStateUnknown
 	err = ctx.updateKeys()
 	assertError(t, err, "Allowed UpdateKeys in wrong state")
 

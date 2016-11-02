@@ -191,7 +191,6 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 	assertByteEquals(t, c.zero, s.zero)
 
 	assertByteEquals(t, c.h1, s.h1)
-	assertByteEquals(t, c.hE, s.hE)
 	assertByteEquals(t, c.h2, s.h2)
 	assertByteEquals(t, c.h3, s.h3)
 	assertByteEquals(t, c.h4, s.h4)
@@ -199,17 +198,19 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 	assertByteEquals(t, c.h6, s.h6)
 
 	assertByteEquals(t, c.pskSecret, s.pskSecret)
-	assertByteEquals(t, c.dhSecret, s.dhSecret)
-	assertByteEquals(t, c.resumptionHash, s.resumptionHash)
 
 	assertByteEquals(t, c.earlySecret, s.earlySecret)
+	assertByteEquals(t, c.binderKey, s.binderKey)
 	assertByteEquals(t, c.earlyTrafficSecret, s.earlyTrafficSecret)
-	assertDeepEquals(t, c.earlyHandshakeKeys, s.earlyHandshakeKeys)
-	assertDeepEquals(t, c.earlyApplicationKeys, s.earlyApplicationKeys)
+	assertByteEquals(t, c.earlyExporterSecret, s.earlyExporterSecret)
+	assertDeepEquals(t, c.clientEarlyTrafficKeys, s.clientEarlyTrafficKeys)
 
+	assertByteEquals(t, c.dhSecret, s.dhSecret)
 	assertByteEquals(t, c.handshakeSecret, s.handshakeSecret)
-	assertByteEquals(t, c.handshakeTrafficSecret, s.handshakeTrafficSecret)
-	assertDeepEquals(t, c.handshakeKeys, s.handshakeKeys)
+	assertByteEquals(t, c.clientHandshakeTrafficSecret, s.clientHandshakeTrafficSecret)
+	assertByteEquals(t, c.serverHandshakeTrafficSecret, s.serverHandshakeTrafficSecret)
+	assertDeepEquals(t, c.clientHandshakeKeys, s.clientHandshakeKeys)
+	assertDeepEquals(t, c.serverHandshakeKeys, s.serverHandshakeKeys)
 
 	assertByteEquals(t, c.serverFinishedKey, s.serverFinishedKey)
 	assertByteEquals(t, c.serverFinishedData, s.serverFinishedData)
@@ -218,12 +219,12 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 	assertByteEquals(t, c.clientFinishedData, s.clientFinishedData)
 
 	assertByteEquals(t, c.masterSecret, s.masterSecret)
-	assertByteEquals(t, c.trafficSecret, s.trafficSecret)
-	assertDeepEquals(t, c.trafficKeys, s.trafficKeys)
+	assertByteEquals(t, c.clientTrafficSecret, s.clientTrafficSecret)
+	assertByteEquals(t, c.serverTrafficSecret, s.serverTrafficSecret)
+	assertDeepEquals(t, c.clientTrafficKeys, s.clientTrafficKeys)
+	assertDeepEquals(t, c.serverTrafficKeys, s.serverTrafficKeys)
 	assertByteEquals(t, c.exporterSecret, s.exporterSecret)
 	assertByteEquals(t, c.resumptionSecret, s.resumptionSecret)
-	assertByteEquals(t, c.resumptionPSK, s.resumptionPSK)
-	assertByteEquals(t, c.resumptionContext, s.resumptionContext)
 }
 
 func TestBasicFlows(t *testing.T) {

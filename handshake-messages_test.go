@@ -138,9 +138,8 @@ var (
 		},
 		signature: []byte{0, 0, 0, 0},
 	}
-	certVerifyValidHex             = "0403000400000000"
-	certVerifyResumptionContextHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-	certVerifyCipherSuite          = TLS_AES_128_GCM_SHA256
+	certVerifyValidHex    = "0403000400000000"
+	certVerifyCipherSuite = TLS_AES_128_GCM_SHA256
 
 	// NewSessionTicket test cases
 	ticketValidHex = "0001020304050607000600ff00021122000404050607"
@@ -452,7 +451,6 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
-	certVerifyResumptionContext, _ := hex.DecodeString(certVerifyResumptionContextHex)
 
 	chMessage, _ := handshakeMessageFromBody(&chValidIn)
 	shMessage, _ := handshakeMessageFromBody(&shValidIn)
@@ -462,8 +460,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "failed to generate RSA private key")
 
 	ctx := cryptoContext{}
-	ctx.init(certVerifyCipherSuite, nil)
-	ctx.updateWithClientHello(chMessage, certVerifyResumptionContext)
+	ctx.init(certVerifyCipherSuite, chMessage, nil, false)
 
 	// Test correctness of handshake type
 	assertEquals(t, (certificateVerifyBody{}).Type(), handshakeTypeCertificateVerify)

@@ -448,7 +448,6 @@ func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*ha
 		return err
 	}
 
-	hashedData = append(hashedData, ctx.resumptionHash...)
 	cv.alg.signature, cv.signature, err = sign(hash, privateKey, hashedData, contextCertificateVerify)
 	return err
 }
@@ -459,7 +458,6 @@ func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript [
 		return err
 	}
 
-	hashedData = append(hashedData, ctx.resumptionHash...)
 	logf(logTypeHandshake, "Algorithm being used: signature=[%d] hash=[%d]", cv.alg.signature, cv.alg.hash)
 	logf(logTypeHandshake, "Digest to be verified: [%d] %x", len(hashedData), hashedData)
 	return verify(cv.alg, publicKey, hashedData, contextCertificateVerify, cv.signature)
