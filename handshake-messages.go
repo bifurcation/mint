@@ -9,15 +9,13 @@ import (
 const (
 	fixedClientHelloBodyLen      = 39
 	fixedServerHelloBodyLen      = 36
-	fixedNewSessionTicketBodyLen = 12
+	fixedNewSessionTicketBodyLen = 10
 	maxCipherSuites              = 1 << 15
 	extensionHeaderLen           = 4
 	maxExtensionDataLen          = (1 << 16) - 1
 	maxExtensionsLen             = (1 << 16) - 1
 	maxCertRequestContextLen     = 255
 	maxTicketLen                 = (1 << 16) - 1
-	maxTicketExtensionLen        = (1 << 16) - 1
-	maxTicketExtensionsLen       = (1 << 16) - 1
 )
 
 type handshakeMessageBody interface {
@@ -373,8 +371,6 @@ func (c *certificateBody) Unmarshal(data []byte) (int, error) {
 	return start, nil
 }
 
-// CertificateVerify
-//
 // enum {... (255)} HashAlgorithm
 // enum {... (255)} SignatureAlgorithm
 //
@@ -481,29 +477,17 @@ func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript [
 	return verify(cv.alg, publicKey, hashedData, contextCertificateVerify, cv.signature)
 }
 
-// enum { (65535) } TicketExtensionType;
-//
-// struct {
-//     TicketExtensionType extension_type;
-//     opaque extension_data<1..2^16-1>;
-// } TicketExtension;
-//
 // struct {
 //     uint32 ticket_lifetime;
-//     uint32 flags;
 //     uint32 ticket_age_add;
-//     TicketExtension extensions<2..2^16-2>;
-//     opaque ticket<0..2^16-1>;
+//     opaque ticket<1..2^16-1>;
+//     Extension extensions<0..2^16-2>;
 // } NewSessionTicket;
-type ticketExtension struct {
-	extensionType uint16
-	extensionData []byte
-}
 type newSessionTicketBody struct {
-	lifetime   uint32
-	flags      uint32
-	extensions []ticketExtension
-	ticket     []byte
+	ticketLifetime uint32
+	ticketAgeAdd   uint32
+	ticket         []byte
+	extensions     extensionList
 }
 
 func newSessionTicket(ticketLen int) (*newSessionTicketBody, error) {
@@ -511,13 +495,6 @@ func newSessionTicket(ticketLen int) (*newSessionTicketBody, error) {
 		ticket: make([]byte, ticketLen),
 	}
 	_, err := prng.Read(tkt.ticket)
-
-	// XXX: The spec appears to require a dummy extension
-	tkt.extensions = []ticketExtension{ticketExtension{
-		extensionType: 0,
-		extensionData: []byte{0},
-	}}
-
 	return tkt, err
 }
 
@@ -526,39 +503,29 @@ func (tkt newSessionTicketBody) Type() handshakeType {
 }
 
 func (tkt newSessionTicketBody) Marshal() ([]byte, error) {
-	ticketLen := len(tkt.ticket)
-	if ticketLen > maxTicketLen {
-		return nil, fmt.Errorf("tls.ticket: Ticket too long to marshal")
+	if len(tkt.ticket) > maxTicketLen {
+		return nil, fmt.Errorf("tls.ticket: Session ticket too long")
 	}
-	ticket := append([]byte{byte(ticketLen >> 8), byte(ticketLen)}, tkt.ticket...)
 
-	extensions := []byte{}
-	for _, ext := range tkt.extensions {
-		extLen := len(ext.extensionData)
-		if extLen > maxTicketExtensionLen {
-			return nil, fmt.Errorf("tls.ticket: Extension too long to marshal")
-		}
-		extHeader := []byte{
-			byte(ext.extensionType >> 8), byte(ext.extensionType),
-			byte(extLen >> 8), byte(extLen),
-		}
-		extensions = append(extensions, extHeader...)
-		extensions = append(extensions, ext.extensionData...)
+	extData, err := tkt.extensions.Marshal()
+	if err != nil {
+		return nil, err
 	}
-	if len(extensions) > maxTicketExtensionsLen {
-		return nil, fmt.Errorf("tls.ticket: Extensions too long to marshal")
-	}
-	extLen := len(extensions)
-	extensions = append([]byte{byte(extLen >> 8), byte(extLen)}, extensions...)
 
 	data := []byte{
-		byte(tkt.lifetime >> 24), byte(tkt.lifetime >> 16),
-		byte(tkt.lifetime >> 8), byte(tkt.lifetime >> 0),
-		byte(tkt.flags >> 24), byte(tkt.flags >> 16),
-		byte(tkt.flags >> 8), byte(tkt.flags >> 0),
+		byte(tkt.ticketLifetime >> 24),
+		byte(tkt.ticketLifetime >> 16),
+		byte(tkt.ticketLifetime >> 8),
+		byte(tkt.ticketLifetime),
+		byte(tkt.ticketAgeAdd >> 24),
+		byte(tkt.ticketAgeAdd >> 16),
+		byte(tkt.ticketAgeAdd >> 8),
+		byte(tkt.ticketAgeAdd),
+		byte(len(tkt.ticket) >> 8),
+		byte(len(tkt.ticket)),
 	}
-	data = append(data, extensions...)
-	data = append(data, ticket...)
+	data = append(data, tkt.ticket...)
+	data = append(data, extData...)
 	return data, nil
 }
 
@@ -568,45 +535,22 @@ func (tkt *newSessionTicketBody) Unmarshal(data []byte) (int, error) {
 		return 0, fmt.Errorf("tls.ticket: Ticket too short to unmarshal")
 	}
 
-	tkt.lifetime = (uint32(data[0]) << 24) + (uint32(data[1]) << 16) +
+	tkt.ticketLifetime = (uint32(data[0]) << 24) + (uint32(data[1]) << 16) +
 		(uint32(data[2]) << 8) + (uint32(data[3]))
-	tkt.flags = (uint32(data[4]) << 24) + (uint32(data[5]) << 16) +
+	tkt.ticketAgeAdd = (uint32(data[4]) << 24) + (uint32(data[5]) << 16) +
 		(uint32(data[6]) << 8) + (uint32(data[7]))
-	extensionsLen := (int(data[8]) << 8) + int(data[9])
 
-	base := 10
-	read := base
-	if base+extensionsLen+2 > dataLen {
-		return 0, fmt.Errorf("tls.ticket: Extensions too long to unmarshal")
-	}
-	tkt.extensions = []ticketExtension{}
-	for read-base < extensionsLen-4 {
-		extType := (uint16(data[read]) << 8) + uint16(data[read+1])
-		extLen := (int(data[read+2]) << 8) + int(data[read+3])
-		read += 4
-
-		if read+extLen > dataLen {
-			return 0, fmt.Errorf("tls.ticket: Extension too long to unmarshal")
-		}
-		tkt.extensions = append(tkt.extensions, ticketExtension{
-			extensionType: extType,
-			extensionData: data[read : read+extLen],
-		})
-		read += extLen
-	}
-	if read != base+extensionsLen {
-		return 0, fmt.Errorf("tls.ticket: Extensions length mismatch")
-	}
-	if read+2 > dataLen {
-		return 0, fmt.Errorf("tls.ticket: Ticket data too short to read ticket length %d %d")
-	}
-
-	ticketLen := (int(data[read]) << 8) + int(data[read+1])
-	if read+2+ticketLen > dataLen {
-		return 0, fmt.Errorf("tls.ticket: Ticket data too short to read ticket")
+	ticketLen := (int(data[8]) << 8) + int(data[9])
+	if len(data[10:]) < ticketLen {
+		return 0, fmt.Errorf("tls.ticket: Ticket message too short for stated ticket length")
 	}
 	tkt.ticket = make([]byte, ticketLen)
-	copy(tkt.ticket, data[read+2:])
+	copy(tkt.ticket, data[10:10+ticketLen])
 
-	return read + 2 + ticketLen, nil
+	extLen, err := tkt.extensions.Unmarshal(data[10+ticketLen:])
+	if err != nil {
+		return 0, err
+	}
+
+	return 10 + ticketLen + extLen, nil
 }

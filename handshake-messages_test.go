@@ -136,21 +136,24 @@ var (
 	certVerifyCipherSuite = TLS_AES_128_GCM_SHA256
 
 	// NewSessionTicket test cases
-	ticketValidHex = "0001020304050607000600ff00021122000404050607"
+	ticketValidHex = "00010203" + "04050607" + "000408090a0b" + "0006eeff00021122"
 	ticketValidIn  = newSessionTicketBody{
-		lifetime: 0x00010203,
-		flags:    0x04050607,
-		extensions: []ticketExtension{
-			ticketExtension{
-				extensionType: 0x00ff,
+		ticketLifetime: 0x00010203,
+		ticketAgeAdd:   0x04050607,
+		ticket:         []byte{0x08, 0x09, 0x0a, 0x0b},
+		extensions: []extension{
+			extension{
+				extensionType: 0xeeff,
 				extensionData: []byte{0x11, 0x22},
 			},
 		},
-		ticket: []byte{4, 5, 6, 7},
 	}
 	ticketTooBigIn = newSessionTicketBody{
-		lifetime: 0x00010203,
-		ticket:   make([]byte, maxTicketLen+1),
+		ticketLifetime: 0x00010203,
+		ticket:         make([]byte, maxTicketLen+1),
+	}
+	ticketExtensionsTooBigIn = newSessionTicketBody{
+		extensions: extListSingleTooLongIn,
 	}
 )
 
@@ -522,9 +525,9 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 
 	// Test creation of a new random ticket
 	tkt, err := newSessionTicket(16)
-	tkt.lifetime = uint32(3)
+	tkt.ticketLifetime = uint32(3)
 	assertNotError(t, err, "Failed to create session ticket")
-	assertEquals(t, tkt.lifetime, uint32(3))
+	assertEquals(t, tkt.ticketLifetime, uint32(3))
 	assertEquals(t, len(tkt.ticket), 16)
 
 	// Test successful marshal
@@ -532,9 +535,13 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Failed to marshal a valid NewSessionTicket")
 	assertByteEquals(t, out, ticketValid)
 
-	// Test marshal failure on incorrect data length
+	// Test marshal failure on a ticket that's too large
 	out, err = ticketTooBigIn.Marshal()
-	assertError(t, err, "Marshaled a Finished with the wrong data length")
+	assertError(t, err, "Marshaled a NewSessionTicket with an invalid data length")
+
+	// Test marshal failure on extensions too large
+	out, err = ticketExtensionsTooBigIn.Marshal()
+	assertError(t, err, "Marshaled a NewSessionTicket with extensions that are too big")
 
 	// Test successful unmarshal
 	read, err := tkt.Unmarshal(ticketValid)
@@ -546,6 +553,9 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 	_, err = tkt.Unmarshal(ticketValid[:4])
 	assertError(t, err, "Unmarshaled a NewSessionTicket with an incomplete header")
 
-	_, err = tkt.Unmarshal(ticketValid[:9])
+	_, err = tkt.Unmarshal(ticketValid[:13])
 	assertError(t, err, "Unmarshaled a NewSessionTicket with an incomplete ticket")
+
+	_, err = tkt.Unmarshal(ticketValid[:20])
+	assertError(t, err, "Unmarshaled a NewSessionTicket with incomplete extensions")
 }

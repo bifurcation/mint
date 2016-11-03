@@ -1169,7 +1169,7 @@ func (c *Conn) serverHandshake() error {
 	if err != nil {
 		return err
 	}
-	tkt.lifetime = c.config.TicketLifetime
+	tkt.ticketLifetime = c.config.TicketLifetime
 
 	if c.config.SendSessionTickets {
 		newPSK := PreSharedKey{
