@@ -45,7 +45,7 @@ var (
 
 	xvEhead = struct {
 		V []byte `tls:"head=1"`
-	}{V: xv200.V}
+	}{V: bytes.Repeat([]byte{0xA0}, 0x100)}
 
 	xvEmax = struct {
 		V []byte `tls:"head=1,max=31"`

@@ -7,7 +7,7 @@ import (
 	"runtime"
 )
 
-func Unmarshal(data []byte, v interface{}) error {
+func Unmarshal(data []byte, v interface{}) (int, error) {
 	// Check for well-formedness.
 	// Avoids filling out half a data structure
 	// before discovering a JSON syntax error.
@@ -28,7 +28,7 @@ type decodeState struct {
 	bytes.Buffer
 }
 
-func (d *decodeState) unmarshal(v interface{}) (err error) {
+func (d *decodeState) unmarshal(v interface{}) (read int, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -43,18 +43,18 @@ func (d *decodeState) unmarshal(v interface{}) (err error) {
 
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
-		return fmt.Errorf("Invalid unmarshal target (non-pointer or nil)")
+		return 0, fmt.Errorf("Invalid unmarshal target (non-pointer or nil)")
 	}
 
-	d.value(rv)
-	return nil
+	read = d.value(rv)
+	return read, nil
 }
 
-func (e *decodeState) value(v reflect.Value) {
-	valueDecoder(v)(e, v, decOpts{})
+func (e *decodeState) value(v reflect.Value) int {
+	return valueDecoder(v)(e, v, decOpts{})
 }
 
-type decoderFunc func(e *decodeState, v reflect.Value, opts decOpts)
+type decoderFunc func(e *decodeState, v reflect.Value, opts decOpts) int
 
 func valueDecoder(v reflect.Value) decoderFunc {
 	return typeDecoder(v.Type().Elem())
@@ -84,7 +84,7 @@ func newTypeDecoder(t reflect.Type) decoderFunc {
 
 ///// Specific decoders below
 
-func uintDecoder(d *decodeState, v reflect.Value, opts decOpts) {
+func uintDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
 	var uintLen int
 	switch v.Elem().Kind() {
 	case reflect.Uint8:
@@ -112,6 +112,7 @@ func uintDecoder(d *decodeState, v reflect.Value, opts decOpts) {
 	}
 
 	v.Elem().SetUint(val)
+	return uintLen
 }
 
 //////////
@@ -120,11 +121,13 @@ type arrayDecoder struct {
 	elemDec decoderFunc
 }
 
-func (ad *arrayDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) {
+func (ad *arrayDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) int {
 	n := v.Elem().Type().Len()
+	read := 0
 	for i := 0; i < n; i += 1 {
-		ad.elemDec(d, v.Elem().Index(i).Addr(), opts)
+		read += ad.elemDec(d, v.Elem().Index(i).Addr(), opts)
 	}
+	return read
 }
 
 func newArrayDecoder(t reflect.Type) decoderFunc {
@@ -139,15 +142,18 @@ type sliceDecoder struct {
 	elementDec  decoderFunc
 }
 
-func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) {
+func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) int {
 	if opts.head == 0 {
 		panic(fmt.Errorf("Cannot decode a slice without a header length"))
 	}
 
 	lengthBytes := make([]byte, opts.head)
-	_, err := d.Read(lengthBytes)
+	n, err := d.Read(lengthBytes)
 	if err != nil {
 		panic(err)
+	}
+	if uint(n) != opts.head {
+		panic(fmt.Errorf("Not enough data to read header"))
 	}
 
 	length := uint(0)
@@ -163,7 +169,7 @@ func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) {
 	}
 
 	data := make([]byte, length)
-	n, err := d.Read(data)
+	n, err = d.Read(data)
 	if err != nil {
 		panic(err)
 	}
@@ -174,9 +180,10 @@ func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) {
 	elemBuf := &decodeState{}
 	elemBuf.Write(data)
 	elems := []reflect.Value{}
+	read := int(opts.head)
 	for elemBuf.Len() > 0 {
 		elem := reflect.New(sd.elementType)
-		sd.elementDec(elemBuf, elem, opts)
+		read += sd.elementDec(elemBuf, elem, opts)
 		elems = append(elems, elem)
 	}
 
@@ -184,6 +191,7 @@ func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) {
 	for i := 0; i < len(elems); i += 1 {
 		v.Elem().Index(i).Set(elems[i].Elem())
 	}
+	return read
 }
 
 func newSliceDecoder(t reflect.Type) decoderFunc {
@@ -201,10 +209,12 @@ type structDecoder struct {
 	fieldDecs []decoderFunc
 }
 
-func (sd *structDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) {
+func (sd *structDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) int {
+	read := 0
 	for i := range sd.fieldDecs {
-		sd.fieldDecs[i](d, v.Elem().Field(i).Addr(), sd.fieldOpts[i])
+		read += sd.fieldDecs[i](d, v.Elem().Field(i).Addr(), sd.fieldOpts[i])
 	}
+	return read
 }
 
 func newStructDecoder(t reflect.Type) decoderFunc {

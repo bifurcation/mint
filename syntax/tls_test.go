@@ -100,8 +100,8 @@ func TestTLSUnmarshal(t *testing.T) {
 
 	// ClientHello marshal
 	var ch ClientHello
-	err := Unmarshal(chValid, &ch)
-	if err != nil {
+	read, err := Unmarshal(chValid, &ch)
+	if err != nil || read != len(chValid) {
 		t.Fatalf("Failed to unmarshal a valid ClientHello [%v]", err)
 	}
 	if !reflect.DeepEqual(ch, chValidIn) {
@@ -118,8 +118,8 @@ func TestTLSUnmarshal(t *testing.T) {
 
 	// ServerHello marshal
 	var sh ServerHello
-	err = Unmarshal(shValid, &sh)
-	if err != nil {
+	read, err = Unmarshal(shValid, &sh)
+	if err != nil || read != len(shValid) {
 		t.Fatalf("Failed to unmarshal a valid ServerHello [%v]", err)
 	}
 	if !reflect.DeepEqual(sh, shValidIn) {

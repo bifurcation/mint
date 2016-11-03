@@ -132,7 +132,7 @@ func (se *sliceEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
 	if opts.max > 0 && n > opts.max {
 		panic(fmt.Errorf("Encoded length more than max [%d > %d]", n, opts.max))
 	}
-	if uint64(n) > uint64(1)<<(8*opts.head) {
+	if n>>(8*opts.head) > 0 {
 		panic(fmt.Errorf("Encoded length too long for header length [%d, %d]", n, opts.head))
 	}
 	if n < opts.min {
