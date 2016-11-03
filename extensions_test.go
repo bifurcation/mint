@@ -283,28 +283,27 @@ func TestServerNameMarshalUnmarshal(t *testing.T) {
 
 	// Test successful unmarshal
 	var sni serverNameExtension
-	read, err := sni.Unmarshal(serverName)
+	_, err = sni.Unmarshal(serverName)
 	assertNotError(t, err, "Failed to unmarshal valid ServerName")
 	assertDeepEquals(t, sni, serverNameIn)
-	assertEquals(t, read, len(serverName))
 
 	// Test unmarshal failure on truncated header
-	read, err = sni.Unmarshal(serverName[:4])
+	_, err = sni.Unmarshal(serverName[:4])
 	assertError(t, err, "Unmarshaled a ServerName without a header")
 
 	// Test unmarshal failure on truncated name
-	read, err = sni.Unmarshal(serverName[:7])
+	_, err = sni.Unmarshal(serverName[:7])
 	assertError(t, err, "Unmarshaled a ServerName without a full name")
 
 	// Test unmarshal failure on length mismatch
 	serverName[4]++
-	read, err = sni.Unmarshal(serverName)
+	_, err = sni.Unmarshal(serverName)
 	assertError(t, err, "Unmarshaled a ServerName with inconsistent lengths")
 	serverName[4]--
 
 	// Test unmarshal failure on odd list length
 	serverName[2]++
-	read, err = sni.Unmarshal(serverName)
+	_, err = sni.Unmarshal(serverName)
 	assertError(t, err, "Unmarshaled a ServerName that was not a host_name")
 	serverName[2]--
 }

@@ -3,6 +3,8 @@ package mint
 import (
 	"bytes"
 	"fmt"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 type extensionBody interface {
@@ -149,48 +151,48 @@ const (
 // | listLen | NameType | nameLen | name |
 type serverNameExtension string
 
+type serverNameInner struct {
+	NameType uint8
+	HostName []byte `tls:"head=2,min=1"`
+}
+
+type serverNameListInner struct {
+	ServerNameList []serverNameInner `tls:"head=2,min=1"`
+}
+
 func (sni serverNameExtension) Type() helloExtensionType {
 	return extensionTypeServerName
 }
 
 func (sni serverNameExtension) Marshal() ([]byte, error) {
-	nameLen := len(sni)
-	listLen := 3 + nameLen
-	data := make([]byte, 2+1+2+nameLen)
+	list := serverNameListInner{
+		ServerNameList: []serverNameInner{{
+			NameType: 0x00, // host_name
+			HostName: []byte(sni),
+		}},
+	}
 
-	data[0] = byte(listLen >> 8)
-	data[1] = byte(listLen)
-	data[2] = 0x00 // host_name
-	data[3] = byte(nameLen >> 8)
-	data[4] = byte(nameLen)
-	copy(data[5:], []byte(sni))
-
-	return data, nil
+	return syntax.Marshal(list)
 }
 
 func (sni *serverNameExtension) Unmarshal(data []byte) (int, error) {
-	if len(data) < fixedServerNameLen {
-		return 0, fmt.Errorf("tls.servername: Too short for header")
+	// XXX: Should ultimately remove int return value
+	var list serverNameListInner
+	err := syntax.Unmarshal(data, &list)
+	if err != nil {
+		return 0, err
 	}
 
-	listLen := (int(data[0]) << 8) + int(data[1])
-	nameLen := (int(data[3]) << 8) + int(data[4])
-	nameType := data[2]
-
-	if listLen != nameLen+3 {
-		return 0, fmt.Errorf("tls.servername: Length mismatch")
+	if len(list.ServerNameList) == 0 {
+		return 0, fmt.Errorf("tls.servername: No name provided")
 	}
 
-	if nameType != 0x00 {
-		return 0, fmt.Errorf("tls.servername: Unsupported name type")
+	if nameType := list.ServerNameList[0].NameType; nameType != 0x00 {
+		return 0, fmt.Errorf("tls.servername: Unsupported name type [%x]", nameType)
 	}
 
-	if len(data) < fixedServerNameLen+nameLen {
-		return 0, fmt.Errorf("tls.servername: Too short for name")
-	}
-
-	*sni = serverNameExtension(data[5 : 5+nameLen])
-	return 5 + nameLen, nil
+	*sni = serverNameExtension(list.ServerNameList[0].HostName)
+	return 0, nil
 }
 
 // struct {
