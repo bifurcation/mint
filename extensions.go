@@ -74,11 +74,6 @@ func (el extensionList) Find(dst extensionBody) bool {
 	return false
 }
 
-const (
-	fixedKeyShareLen   = 4
-	fixedServerNameLen = 5
-)
-
 // struct {
 //     NameType name_type;
 //     select (name_type) {
@@ -273,10 +268,10 @@ func (ks *keyShareExtension) Unmarshal(data []byte) (int, error) {
 }
 
 // struct {
-//     NamedGroup named_group_list<1..2^16-1>;
+//     NamedGroup named_group_list<2..2^16-1>;
 // } NamedGroupList;
 type supportedGroupsExtension struct {
-	groups []namedGroup
+	Groups []namedGroup `tls:"head=2,min=2"`
 }
 
 func (sg supportedGroupsExtension) Type() helloExtensionType {
@@ -284,37 +279,11 @@ func (sg supportedGroupsExtension) Type() helloExtensionType {
 }
 
 func (sg supportedGroupsExtension) Marshal() ([]byte, error) {
-	listLen := 2 * len(sg.groups)
-
-	data := make([]byte, 2+listLen)
-	data[0] = byte(listLen >> 8)
-	data[1] = byte(listLen)
-	for i, group := range sg.groups {
-		data[2*i+2] = byte(group >> 8)
-		data[2*i+3] = byte(group)
-	}
-
-	return data, nil
+	return syntax.Marshal(sg)
 }
 
 func (sg *supportedGroupsExtension) Unmarshal(data []byte) (int, error) {
-	if len(data) < 2 {
-		return 0, fmt.Errorf("tls.supportedgroups: Too short for length")
-	}
-
-	listLen := (int(data[0]) << 8) + int(data[1])
-	if len(data) < 2+listLen {
-		return 0, fmt.Errorf("tls.supportedgroups: Too short for list")
-	}
-	if listLen%2 == 1 {
-		return 0, fmt.Errorf("tls.supportedgroups: Odd list length")
-	}
-	sg.groups = make([]namedGroup, listLen/2)
-	for i := range sg.groups {
-		sg.groups[i] = (namedGroup(data[2*i+2]) << 8) + namedGroup(data[2*i+3])
-	}
-
-	return 2 + listLen, nil
+	return syntax.Unmarshal(data, sg)
 }
 
 // SignatureAndHashAlgorithm

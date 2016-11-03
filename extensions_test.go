@@ -92,7 +92,7 @@ var (
 
 	// SupportedGroups test cases
 	supportedGroupsIn = supportedGroupsExtension{
-		groups: []namedGroup{namedGroupP256, namedGroupP384},
+		Groups: []namedGroup{namedGroupP256, namedGroupP384},
 	}
 	supportedGroupsHex = "000400170018"
 

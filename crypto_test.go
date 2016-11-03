@@ -329,7 +329,7 @@ func TestCryptoContext(t *testing.T) {
 	rand.Reader.Read(serverHelloContextIn.random[:])
 
 	clientHelloContextIn.extensions.Add(&supportedGroupsExtension{
-		groups: []namedGroup{namedGroupP256, namedGroupP521},
+		Groups: []namedGroup{namedGroupP256, namedGroupP521},
 	})
 	clientHelloContextIn.extensions.Add(&signatureAlgorithmsExtension{
 		algorithms: []signatureAndHashAlgorithm{

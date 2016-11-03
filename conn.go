@@ -525,7 +525,7 @@ func (c *Conn) clientHandshake() error {
 	}
 	sv := supportedVersionsExtension{versions: []uint16{supportedVersion}}
 	sni := serverNameExtension(c.config.ServerName)
-	sg := supportedGroupsExtension{groups: c.config.Groups}
+	sg := supportedGroupsExtension{Groups: c.config.Groups}
 	sa := signatureAlgorithmsExtension{algorithms: c.config.SignatureAlgorithms}
 
 	var alpn *alpnExtension
