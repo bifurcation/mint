@@ -338,17 +338,17 @@ func TestCryptoContext(t *testing.T) {
 		},
 	})
 	clientHelloContextIn.extensions.Add(&keyShareExtension{
-		roleIsServer: false,
-		shares: []keyShare{
-			keyShare{group: namedGroupP256, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP256))},
-			keyShare{group: namedGroupP521, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
+		handshakeType: handshakeTypeClientHello,
+		shares: []keyShareEntry{
+			keyShareEntry{Group: namedGroupP256, KeyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP256))},
+			keyShareEntry{Group: namedGroupP521, KeyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
 		},
 	})
 
 	serverHelloContextIn.extensions.Add(&keyShareExtension{
-		roleIsServer: true,
-		shares: []keyShare{
-			keyShare{group: namedGroupP521, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
+		handshakeType: handshakeTypeServerHello,
+		shares: []keyShareEntry{
+			keyShareEntry{Group: namedGroupP521, KeyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
 		},
 	})
 

@@ -10,16 +10,16 @@ import (
 var (
 	// Extension test cases
 	extValidIn = extension{
-		extensionType: helloExtensionType(0x000a),
-		extensionData: []byte{0xf0, 0xf1, 0xf2, 0xf3, 0xf4},
+		ExtensionType: helloExtensionType(0x000a),
+		ExtensionData: []byte{0xf0, 0xf1, 0xf2, 0xf3, 0xf4},
 	}
 	extEmptyIn = extension{
-		extensionType: helloExtensionType(0x000a),
-		extensionData: []byte{},
+		ExtensionType: helloExtensionType(0x000a),
+		ExtensionData: []byte{},
 	}
 	extTooLongIn = extension{
-		extensionType: helloExtensionType(0x000a),
-		extensionData: bytes.Repeat([]byte{0}, maxExtensionDataLen+1),
+		ExtensionType: helloExtensionType(0x000a),
+		ExtensionData: bytes.Repeat([]byte{0}, maxExtensionDataLen+1),
 	}
 	extValidHex    = "000a0005f0f1f2f3f4"
 	extEmptyHex    = "000a0000"
@@ -28,8 +28,8 @@ var (
 
 	// Extension list test cases
 	extHalfLengthPlus = extension{
-		extensionType: helloExtensionType(0x000a),
-		extensionData: bytes.Repeat([]byte{0}, (maxExtensionDataLen/2)+1),
+		ExtensionType: helloExtensionType(0x000a),
+		ExtensionData: bytes.Repeat([]byte{0}, (maxExtensionDataLen/2)+1),
 	}
 	extListValidIn          = extensionList{extValidIn, extEmptyIn}
 	extListSingleTooLongIn  = extensionList{extTooLongIn, extEmptyIn}
@@ -46,42 +46,47 @@ var (
 	p256             = bytes.Repeat([]byte{0}, len256)
 	p521             = bytes.Repeat([]byte{0}, len521)
 	keyShareClientIn = &keyShareExtension{
-		roleIsServer: false,
-		shares: []keyShare{
-			keyShare{group: namedGroupP256, keyExchange: p256},
-			keyShare{group: namedGroupP521, keyExchange: p521},
+		handshakeType: handshakeTypeClientHello,
+		shares: []keyShareEntry{
+			keyShareEntry{Group: namedGroupP256, KeyExchange: p256},
+			keyShareEntry{Group: namedGroupP521, KeyExchange: p521},
 		},
 	}
+	keyShareHelloRetryIn = &keyShareExtension{
+		handshakeType: handshakeTypeHelloRetryRequest,
+		selectedGroup: namedGroupP256,
+	}
 	keyShareServerIn = &keyShareExtension{
-		roleIsServer: true,
-		shares: []keyShare{
-			keyShare{group: namedGroupP256, keyExchange: p256},
+		handshakeType: handshakeTypeServerHello,
+		shares: []keyShareEntry{
+			keyShareEntry{Group: namedGroupP256, KeyExchange: p256},
 		},
 	}
 	keyShareInvalidIn = &keyShareExtension{
-		roleIsServer: true,
-		shares: []keyShare{
-			keyShare{group: namedGroupP256, keyExchange: []byte{0}},
+		handshakeType: handshakeTypeServerHello,
+		shares: []keyShareEntry{
+			keyShareEntry{Group: namedGroupP256, KeyExchange: []byte{0}},
 		},
 	}
 	keyShareClientHex = "00ce" + "00170041" + hex.EncodeToString(p256) +
 		"00190085" + hex.EncodeToString(p521)
-	keyShareServerHex  = "00170041" + hex.EncodeToString(p256)
-	keyShareInvalidHex = "0017000100"
+	keyShareHelloRetryHex = "0017"
+	keyShareServerHex     = "00170041" + hex.EncodeToString(p256)
+	keyShareInvalidHex    = "0017000100"
 
 	// Add/Find test cases
 	keyShareServerRaw, _  = hex.DecodeString(keyShareServerHex)
 	keyShareInvalidRaw, _ = hex.DecodeString(keyShareInvalidHex)
 	extListKeyShareIn     = extensionList{
 		extension{
-			extensionType: extensionTypeKeyShare,
-			extensionData: keyShareServerRaw,
+			ExtensionType: extensionTypeKeyShare,
+			ExtensionData: keyShareServerRaw,
 		},
 	}
 	extListInvalidIn = extensionList{
 		extension{
-			extensionType: extensionTypeKeyShare,
-			extensionData: keyShareInvalidRaw,
+			ExtensionType: extensionTypeKeyShare,
+			ExtensionData: keyShareInvalidRaw,
 		},
 	}
 
@@ -174,15 +179,15 @@ func TestExtensionMarshalUnmarshal(t *testing.T) {
 	extLen, err := ext.Unmarshal(extValid)
 	assertNotError(t, err, "Failed to unmarshal valid extension")
 	assertEquals(t, extLen, len(extValid))
-	assertEquals(t, ext.extensionType, extValidIn.extensionType)
-	assertByteEquals(t, ext.extensionData, extValidIn.extensionData)
+	assertEquals(t, ext.ExtensionType, extValidIn.ExtensionType)
+	assertByteEquals(t, ext.ExtensionData, extValidIn.ExtensionData)
 
 	// Test successful unmarshal of the empty extension
 	extLen, err = ext.Unmarshal(extEmpty)
 	assertNotError(t, err, "Failed to unmarshal valid extension")
 	assertEquals(t, extLen, len(extEmpty))
-	assertEquals(t, ext.extensionType, extValidIn.extensionType)
-	assertEquals(t, len(ext.extensionData), 0)
+	assertEquals(t, ext.ExtensionType, extValidIn.ExtensionType)
+	assertEquals(t, len(ext.ExtensionData), 0)
 
 	// Test unmarshal failure on no header
 	extLen, err = ext.Unmarshal(extNoHeader)
@@ -256,7 +261,7 @@ func TestExtensionAdd(t *testing.T) {
 
 func TestExtensionFind(t *testing.T) {
 	// Test successful find
-	ks := keyShareExtension{roleIsServer: true}
+	ks := keyShareExtension{handshakeType: handshakeTypeServerHello}
 	found := extListKeyShareIn.Find(&ks)
 	assert(t, found, "Failed to find a valid extension")
 
@@ -310,6 +315,7 @@ func TestServerNameMarshalUnmarshal(t *testing.T) {
 
 func TestKeyShareMarshalUnmarshal(t *testing.T) {
 	keyShareClient, _ := hex.DecodeString(keyShareClientHex)
+	keyShareHelloRetry, _ := hex.DecodeString(keyShareHelloRetryHex)
 	keyShareServer, _ := hex.DecodeString(keyShareServerHex)
 	keyShareInvalid, _ := hex.DecodeString(keyShareInvalidHex)
 
@@ -321,52 +327,69 @@ func TestKeyShareMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Failed to marshal valid KeyShare (client)")
 	assertByteEquals(t, out, keyShareClient)
 
+	// Test successful marshal (hello retry)
+	out, err = keyShareHelloRetryIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid KeyShare (hello retry)")
+	assertByteEquals(t, out, keyShareHelloRetry)
+
 	// Test successful marshal (server side)
 	out, err = keyShareServerIn.Marshal()
 	assertNotError(t, err, "Failed to marshal valid KeyShare (server)")
 	assertByteEquals(t, out, keyShareServer)
 
+	// Test marshal failure on HRR trying to send shares
+	keyShareClientIn.handshakeType = handshakeTypeHelloRetryRequest
+	out, err = keyShareClientIn.Marshal()
+	assertError(t, err, "Marshaled key shares for hello retry request")
+	keyShareClientIn.handshakeType = handshakeTypeClientHello
+
 	// Test marshal failure on server trying to send multiple
-	keyShareClientIn.roleIsServer = !keyShareClientIn.roleIsServer
+	keyShareClientIn.handshakeType = handshakeTypeServerHello
 	out, err = keyShareClientIn.Marshal()
 	assertError(t, err, "Marshaled multiple key shares for server")
-	keyShareClientIn.roleIsServer = !keyShareClientIn.roleIsServer
+	keyShareClientIn.handshakeType = handshakeTypeClientHello
 
-	// Test marshal failure on an incorrect key share size
+	// Test marshal failure on an incorrect key share size (server)
 	out, err = keyShareInvalidIn.Marshal()
-	assertError(t, err, "Marshaled a key share with a wrong-size key")
+	assertError(t, err, "Marshaled a server key share with a wrong-size key")
+
+	// Test marshal failure on an incorrect key share size (client)
+	keyShareInvalidIn.handshakeType = handshakeTypeClientHello
+	out, err = keyShareInvalidIn.Marshal()
+	assertError(t, err, "Marshaled key shares for hello retry request")
+	keyShareInvalidIn.handshakeType = handshakeTypeServerHello
 
 	// Test successful unmarshal (client side)
-	ks := keyShareExtension{roleIsServer: false}
+	ks := keyShareExtension{handshakeType: handshakeTypeClientHello}
 	read, err := ks.Unmarshal(keyShareClient)
 	assertNotError(t, err, "Failed to unmarshal valid KeyShare (client)")
 	assertDeepEquals(t, &ks, keyShareClientIn)
 	assertEquals(t, read, len(keyShareClient))
 
 	// Test successful unmarshal (server side)
-	ks = keyShareExtension{roleIsServer: true}
+	ks = keyShareExtension{handshakeType: handshakeTypeServerHello}
 	read, err = ks.Unmarshal(keyShareServer)
 	assertNotError(t, err, "Failed to unmarshal valid KeyShare (server)")
 	assertDeepEquals(t, &ks, keyShareServerIn)
 	assertEquals(t, read, len(keyShareServer))
 
 	// Test unmarshal failure on truncated length (client)
-	ks = keyShareExtension{roleIsServer: false}
+	ks = keyShareExtension{handshakeType: handshakeTypeClientHello}
 	read, err = ks.Unmarshal(keyShareClient[:1])
 	assertError(t, err, "Unmarshaled a KeyShare without a length")
 
 	// Test unmarshal failure on truncated keyShare length
-	ks = keyShareExtension{roleIsServer: false}
+	ks = keyShareExtension{handshakeType: handshakeTypeClientHello}
 	read, err = ks.Unmarshal(keyShareClient[:5])
 	assertError(t, err, "Unmarshaled a KeyShare without a key share length")
 
 	// Test unmarshal failure on truncated keyShare value
-	ks = keyShareExtension{roleIsServer: false}
+	ks = keyShareExtension{handshakeType: handshakeTypeClientHello}
 	read, err = ks.Unmarshal(keyShareClient[:7])
 	assertError(t, err, "Unmarshaled a KeyShare without a truncated key share value")
 
 	// Test unmarshal failure on an incorrect key share size
-	ks = keyShareExtension{roleIsServer: true}
+	ks = keyShareExtension{handshakeType: handshakeTypeServerHello}
 	read, err = ks.Unmarshal(keyShareInvalid)
 	assertError(t, err, "Unmarshaled a key share with a wrong-size key")
 }

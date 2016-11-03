@@ -510,8 +510,8 @@ func (c *Conn) clientHandshake() error {
 	logf(logTypeHandshake, "Constructing ClientHello")
 	privateKeys := map[namedGroup][]byte{}
 	ks := keyShareExtension{
-		roleIsServer: false,
-		shares:       make([]keyShare, len(c.config.Groups)),
+		handshakeType: handshakeTypeClientHello,
+		shares:        make([]keyShareEntry, len(c.config.Groups)),
 	}
 	for i, group := range c.config.Groups {
 		pub, priv, err := newKeyShare(group)
@@ -519,8 +519,8 @@ func (c *Conn) clientHandshake() error {
 			return err
 		}
 
-		ks.shares[i].group = group
-		ks.shares[i].keyExchange = pub
+		ks.shares[i].Group = group
+		ks.shares[i].KeyExchange = pub
 		privateKeys[group] = priv
 	}
 	sv := supportedVersionsExtension{versions: []uint16{supportedVersion}}
@@ -643,7 +643,7 @@ func (c *Conn) clientHandshake() error {
 	// Do PSK or key agreement depending on the ciphersuite
 	serverPSK := preSharedKeyExtension{roleIsServer: true}
 	foundPSK := sh.extensions.Find(&serverPSK)
-	serverKeyShare := keyShareExtension{roleIsServer: true}
+	serverKeyShare := keyShareExtension{handshakeType: handshakeTypeServerHello}
 	foundKeyShare := sh.extensions.Find(&serverKeyShare)
 
 	var pskSecret, dhSecret []byte
@@ -653,12 +653,12 @@ func (c *Conn) clientHandshake() error {
 	}
 	if foundKeyShare {
 		sks := serverKeyShare.shares[0]
-		priv, ok := privateKeys[sks.group]
+		priv, ok := privateKeys[sks.Group]
 		if !ok {
 			return fmt.Errorf("Server key share for unknown group")
 		}
 
-		dhSecret, _ = keyAgreement(sks.group, sks.keyExchange, priv)
+		dhSecret, _ = keyAgreement(sks.Group, sks.KeyExchange, priv)
 		logf(logTypeHandshake, "[client] got key share extension")
 	}
 
@@ -808,7 +808,7 @@ func (c *Conn) serverHandshake() error {
 	serverName := new(serverNameExtension)
 	supportedGroups := new(supportedGroupsExtension)
 	signatureAlgorithms := new(signatureAlgorithmsExtension)
-	clientKeyShares := &keyShareExtension{roleIsServer: false}
+	clientKeyShares := &keyShareExtension{handshakeType: handshakeTypeClientHello}
 	clientPSK := &preSharedKeyExtension{roleIsServer: false}
 	clientEarlyData := &earlyDataExtension{roleIsServer: false}
 	clientALPN := new(alpnExtension)
@@ -884,16 +884,16 @@ func (c *Conn) serverHandshake() error {
 	if gotKeyShares {
 		logf(logTypeHandshake, "[server] Got KeyShare extension; processing")
 		for _, share := range clientKeyShares.shares {
-			if c.config.enabledGroup[share.group] {
-				pub, priv, err := newKeyShare(share.group)
+			if c.config.enabledGroup[share.Group] {
+				pub, priv, err := newKeyShare(share.Group)
 				if err != nil {
 					return err
 				}
 
-				dhSecret, err = keyAgreement(share.group, share.keyExchange, priv)
+				dhSecret, err = keyAgreement(share.Group, share.KeyExchange, priv)
 				serverKeyShare = &keyShareExtension{
-					roleIsServer: true,
-					shares:       []keyShare{keyShare{group: share.group, keyExchange: pub}},
+					handshakeType: handshakeTypeServerHello,
+					shares:        []keyShareEntry{keyShareEntry{Group: share.Group, KeyExchange: pub}},
 				}
 				if err != nil {
 					return err

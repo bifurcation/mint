@@ -143,8 +143,8 @@ var (
 		ticket:         []byte{0x08, 0x09, 0x0a, 0x0b},
 		extensions: []extension{
 			extension{
-				extensionType: 0xeeff,
-				extensionData: []byte{0x11, 0x22},
+				ExtensionType: 0xeeff,
+				ExtensionData: []byte{0x11, 0x22},
 			},
 		},
 	}
