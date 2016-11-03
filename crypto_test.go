@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	_ "crypto/sha256"
-	"crypto/x509"
 	"encoding/asn1"
 	"encoding/hex"
 	"math/big"
@@ -306,7 +305,10 @@ var (
 
 	certificateContextIn = &certificateBody{
 		certificateRequestContext: []byte{},
-		certificateList:           []*x509.Certificate{cert1, cert2},
+		certificateList: []certificateEntry{
+			{certData: cert1},
+			{certData: cert2},
+		},
 	}
 
 	certificateVerifyContextIn = &certificateVerifyBody{
@@ -364,7 +366,7 @@ func TestCryptoContext(t *testing.T) {
 	assertNotError(t, err, "Failed to generate key pair")
 	cert, err := newSelfSigned("example.com", alg, priv)
 	assertNotError(t, err, "Failed to sign certificate")
-	certificateContextIn.certificateList[0] = cert
+	certificateContextIn.certificateList[0].certData = cert
 
 	// BEGIN TESTS
 

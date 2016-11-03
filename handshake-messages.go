@@ -269,12 +269,22 @@ func (ee *encryptedExtensionsBody) Unmarshal(data []byte) (int, error) {
 // opaque ASN1Cert<1..2^24-1>;
 //
 // struct {
-//     opaque certificate_request_context<0..255>;
-//     ASN1Cert certificate_list<0..2^24-1>;
+//     ASN1Cert cert_data;
+//     Extension extensions<0..2^16-1>
+// } CertificateEntry;
+//
+// struct {
+//     opaque certificate_request_context<0..2^8-1>;
+//     CertificateEntry certificate_list<0..2^24-1>;
 // } Certificate;
+type certificateEntry struct {
+	certData   *x509.Certificate
+	extensions extensionList
+}
+
 type certificateBody struct {
 	certificateRequestContext []byte
-	certificateList           []*x509.Certificate
+	certificateList           []certificateEntry
 }
 
 func (c certificateBody) Type() handshakeType {
@@ -286,31 +296,30 @@ func (c certificateBody) Marshal() ([]byte, error) {
 		return nil, fmt.Errorf("tls.certificate: Request context too long")
 	}
 
-	contextLen := len(c.certificateRequestContext)
-	certsLen := 0
-	for _, cert := range c.certificateList {
-		if cert == nil || len(cert.Raw) == 0 {
+	certsData := []byte{}
+	for _, entry := range c.certificateList {
+		if entry.certData == nil || len(entry.certData.Raw) == 0 {
 			return nil, fmt.Errorf("tls:certificate: Unmarshaled certificate")
 		}
-		certsLen += 3 + len(cert.Raw)
-	}
 
-	data := make([]byte, 1+contextLen+3+certsLen)
-	data[0] = byte(contextLen)
-	copy(data[1:1+contextLen], c.certificateRequestContext)
-	start := 1 + contextLen
-	data[start] = byte(certsLen >> 16)
-	data[start+1] = byte(certsLen >> 8)
-	data[start+2] = byte(certsLen)
-	start += 3
-	for _, cert := range c.certificateList {
-		certLen := len(cert.Raw)
-		data[start] = byte(certLen >> 16)
-		data[start+1] = byte(certLen >> 8)
-		data[start+2] = byte(certLen)
-		copy(data[start+3:], cert.Raw)
-		start += 3 + len(cert.Raw)
+		extData, err := entry.extensions.Marshal()
+		if err != nil {
+			return nil, err
+		}
+
+		certLen := len(entry.certData.Raw)
+		entryData := []byte{byte(certLen >> 16), byte(certLen >> 8), byte(certLen)}
+		entryData = append(entryData, entry.certData.Raw...)
+		entryData = append(entryData, extData...)
+		certsData = append(certsData, entryData...)
 	}
+	certsDataLen := len(certsData)
+	certsDataLenBytes := []byte{byte(certsDataLen >> 16), byte(certsDataLen >> 8), byte(certsDataLen)}
+
+	data := []byte{byte(len(c.certificateRequestContext))}
+	data = append(data, c.certificateRequestContext...)
+	data = append(data, certsDataLenBytes...)
+	data = append(data, certsData...)
 	return data, nil
 }
 
@@ -333,7 +342,7 @@ func (c *certificateBody) Unmarshal(data []byte) (int, error) {
 
 	start := 1 + contextLen + 3
 	end := 1 + contextLen + 3 + certsLen
-	c.certificateList = []*x509.Certificate{}
+	c.certificateList = []certificateEntry{}
 	for start < end {
 		if len(data[start:]) < 3 {
 			return 0, fmt.Errorf("tls:certificate: Message too short for certificate length")
@@ -349,8 +358,17 @@ func (c *certificateBody) Unmarshal(data []byte) (int, error) {
 			return 0, fmt.Errorf("tls:certificate: Certificate failed to parse: %v", err)
 		}
 
-		c.certificateList = append(c.certificateList, cert)
-		start += 3 + certLen
+		var ext extensionList
+		read, err := ext.Unmarshal(data[start+3+certLen:])
+		if err != nil {
+			return 0, err
+		}
+
+		c.certificateList = append(c.certificateList, certificateEntry{
+			certData:   cert,
+			extensions: ext,
+		})
+		start += 3 + certLen + read
 	}
 	return start, nil
 }

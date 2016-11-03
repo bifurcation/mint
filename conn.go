@@ -51,7 +51,7 @@ type Config struct {
 
 	// Client fields
 	ServerName      string
-	AuthCertificate func(chain []*x509.Certificate) error // TODO(#20) -> Both
+	AuthCertificate func(chain []certificateEntry) error // TODO(#20) -> Both
 	ClientPSKs      map[string]PreSharedKey
 
 	// Server fields
@@ -208,7 +208,7 @@ type Conn struct {
 	handshakeErr      error
 	handshakeComplete bool
 
-	certificateList []*x509.Certificate
+	certificateList []certificateEntry
 
 	readBuffer        []byte
 	in, out           *recordLayer
@@ -456,10 +456,15 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *Conn) ConnectionState() ConnectionState {
+	certList := make([]*x509.Certificate, len(c.certificateList))
+	for i, entry := range c.certificateList {
+		certList[i] = entry.certData
+	}
+
 	return ConnectionState{
 		HandshakeComplete: c.handshakeComplete,
 		CipherSuite:       c.context.suite,
-		PeerCertificates:  c.certificateList,
+		PeerCertificates:  certList,
 	}
 }
 
@@ -731,7 +736,7 @@ func (c *Conn) clientHandshake() error {
 		}
 		logf(logTypeHandshake, "===")
 
-		serverPublicKey := cert.certificateList[0].PublicKey
+		serverPublicKey := cert.certificateList[0].certData.PublicKey
 		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify, ctx); err != nil {
 			return err
 		}
@@ -825,6 +830,7 @@ func (c *Conn) serverHandshake() error {
 	}
 	clientSupportsSameVersion := false
 	for _, version := range supportedVersions.versions {
+		logf(logTypeHandshake, "[server] version offered by client [%04x] <> [%04x]", version, supportedVersion)
 		clientSupportsSameVersion = (version == supportedVersion)
 		if clientSupportsSameVersion {
 			break
@@ -1096,7 +1102,10 @@ func (c *Conn) serverHandshake() error {
 		// Create and send Certificate, CertificateVerify
 		// TODO Certificate selection based on ClientHello
 		certificate := &certificateBody{
-			certificateList: chain,
+			certificateList: make([]certificateEntry, len(chain)),
+		}
+		for i, cert := range chain {
+			certificate.certificateList[i] = certificateEntry{certData: cert}
 		}
 		certm, err := hOut.WriteMessageBody(certificate)
 		if err != nil {

@@ -96,38 +96,32 @@ var (
 	cert1, _      = x509.ParseCertificate(cert1Bytes)
 	cert2, _      = x509.ParseCertificate(cert2Bytes)
 
-	certValidIn  = certificateBody{certificateRequestContext: []byte{0, 0, 0, 0}}
-	certValidHex = "04000000000002d7000169308201653082010ba003020102" +
-		"020500a0a0a0a0300a06082a8648ce3d0403023017311530" +
-		"130603550403130c6578616d706c65312e636f6d3022180f" +
-		"30303031303130313030303030305a180f30303031303130" +
-		"313030303030305a3017311530130603550403130c657861" +
-		"6d706c65312e636f6d3059301306072a8648ce3d02010608" +
-		"2a8648ce3d030107034200044460e6de2a170e0c7c8d1306" +
-		"c82386db31980bd76647bde9b96055d075fc64ea7d8d3864" +
-		"afcf0ff16da73c68df6880a597303243410016ef2e36f596" +
-		"2584d187a340303e300e0603551d0f0101ff0404030203a8" +
-		"30130603551d25040c300a06082b06010505070301301706" +
-		"03551d110410300e820c6578616d706c65312e636f6d300a" +
-		"06082a8648ce3d0403020348003045022005937d0bf7a7cb" +
-		"4589715bb83dddd2505335829e6305b75cfeae6f2dcc2230" +
-		"b6022100f6f0e75436cd59b94ceedffb18bcf5bb2f161260" +
-		"a282f7b63d1376e5805c51b6000168308201643082010ba0" +
-		"03020102020500a0a0a0a0300a06082a8648ce3d04030430" +
-		"17311530130603550403130c6578616d706c65322e636f6d" +
-		"3022180f30303031303130313030303030305a180f303030" +
-		"31303130313030303030305a301731153013060355040313" +
-		"0c6578616d706c65322e636f6d3059301306072a8648ce3d" +
-		"020106082a8648ce3d030107034200044460e6de2a170e0c" +
-		"7c8d1306c82386db31980bd76647bde9b96055d075fc64ea" +
-		"7d8d3864afcf0ff16da73c68df6880a597303243410016ef" +
-		"2e36f5962584d187a340303e300e0603551d0f0101ff0404" +
-		"030203a830130603551d25040c300a06082b060105050703" +
-		"0130170603551d110410300e820c6578616d706c65322e63" +
-		"6f6d300a06082a8648ce3d04030403470030440220718254" +
-		"f2b3c1cc0fa4c53bf43182f8acbc1904e45ee1a3abdc8bc5" +
-		"0a155712b4022010664cc29b80fae9150027726da5b144df" +
-		"764a76007eee2a52b6ae0c995395fb"
+	certValidIn = certificateBody{
+		certificateRequestContext: []byte{0, 0, 0, 0},
+		certificateList: []certificateEntry{
+			certificateEntry{
+				certData:   cert1,
+				extensions: extListValidIn,
+			},
+			certificateEntry{
+				certData:   cert2,
+				extensions: extListValidIn,
+			},
+		},
+	}
+	certOverflowIn = certificateBody{
+		certificateRequestContext: []byte{0, 0, 0, 0},
+		certificateList: []certificateEntry{
+			certificateEntry{
+				certData:   cert1,
+				extensions: extListSingleTooLongIn,
+			},
+		},
+	}
+	certValidHex = "0400000000" +
+		"0002f5" +
+		"000169" + cert1Hex + extListValidHex +
+		"000168" + cert2Hex + extListValidHex
 	certTooShortHex = "000000023081"
 
 	// CertificateVerify test cases
@@ -389,7 +383,6 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	// Create a couple of certificates and manually encode
 	certValid, _ := hex.DecodeString(certValidHex)
 	certTooShort, _ := hex.DecodeString(certTooShortHex)
-	certValidIn.certificateList = []*x509.Certificate{cert1, cert2}
 
 	// Test correctness of handshake type
 	assertEquals(t, (certificateBody{}).Type(), handshakeTypeCertificate)
@@ -412,6 +405,10 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	out, err = certValidIn.Marshal()
 	assertError(t, err, "Marshaled a Certificate with an empty cert")
 	cert1.Raw = originalRaw
+
+	// Test marshal failure on extension list marshal failure
+	out, err = certOverflowIn.Marshal()
+	assertError(t, err, "Marshaled a Certificate with an too-long extension list")
 
 	// Test successful unmarshal
 	cert := certificateBody{}

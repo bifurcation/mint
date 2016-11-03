@@ -1,7 +1,7 @@
 package mint
 
 var (
-	supportedVersion uint16 = 0x7f10 // draft-16
+	supportedVersion uint16 = 0x7f12 // draft-18
 
 	// Flags for some minor compat issues
 	allowEmptyEncryptedExtensions = false
