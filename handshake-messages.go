@@ -1,9 +1,12 @@
 package mint
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/x509"
 	"fmt"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 const (
@@ -371,27 +374,13 @@ func (c *certificateBody) Unmarshal(data []byte) (int, error) {
 	return start, nil
 }
 
-// enum {... (255)} HashAlgorithm
-// enum {... (255)} SignatureAlgorithm
-//
 // struct {
-//     HashAlgorithm hash;
-//     SignatureAlgorithm signature;
-// } SignatureAndHashAlgorithm;
-//
-// struct {
-//    SignatureAndHashAlgorithm algorithm;
-//    opaque signature<0..2^16-1>;
-// } DigitallySigned;
-//
-// struct {
-//      digitally-signed struct {
-//         opaque hashed_data[hash_length];
-//      };
+//     SignatureScheme algorithm;
+//     opaque signature<0..2^16-1>;
 // } CertificateVerify;
 type certificateVerifyBody struct {
-	alg       signatureAndHashAlgorithm
-	signature []byte
+	Algorithm signatureScheme
+	Signature []byte `tls:"head=2"`
 }
 
 func (cv certificateVerifyBody) Type() handshakeType {
@@ -399,44 +388,15 @@ func (cv certificateVerifyBody) Type() handshakeType {
 }
 
 func (cv certificateVerifyBody) Marshal() ([]byte, error) {
-	sigLen := len(cv.signature)
-	data := make([]byte, 2+2+sigLen)
-
-	data[0] = byte(cv.alg.hash)
-	data[1] = byte(cv.alg.signature)
-	data[2] = byte(sigLen >> 8)
-	data[3] = byte(sigLen)
-	copy(data[4:], cv.signature)
-
-	return data, nil
+	return syntax.Marshal(cv)
 }
 
 func (cv *certificateVerifyBody) Unmarshal(data []byte) (int, error) {
-	if len(data) < 4 {
-		return 0, fmt.Errorf("tls:certificateverify: Message too short for header")
-	}
-
-	sigLen := (int(data[2]) << 8) + int(data[3])
-	if len(data) < 4+sigLen {
-		return 0, fmt.Errorf("tls:certificateverify: Message too short for signature")
-	}
-
-	cv.alg.hash = hashAlgorithm(data[0])
-	cv.alg.signature = signatureAlgorithm(data[1])
-	cv.signature = make([]byte, sigLen)
-	copy(cv.signature, data[4:])
-
-	return 4 + sigLen, nil
+	return syntax.Unmarshal(data, cv)
 }
 
-func (cv *certificateVerifyBody) computeContext(ctx cryptoContext, transcript []*handshakeMessage) (sigHash crypto.Hash, hashed []byte, err error) {
-	// Look up the
-	sigHash, ok := hashMap[cv.alg.hash]
-	if !ok {
-		err = fmt.Errorf("tls.certverify: Unsupported hash algorithm")
-		return
-	}
-
+func (cv *certificateVerifyBody) computeContext(ctx cryptoContext, transcript []*handshakeMessage) (hashed []byte, err error) {
+	h := ctx.params.hash.New()
 	handshakeContext := []byte{}
 	for _, msg := range transcript {
 		if msg == nil {
@@ -446,35 +406,45 @@ func (cv *certificateVerifyBody) computeContext(ctx cryptoContext, transcript []
 		data := msg.Marshal()
 		logf(logTypeHandshake, "Added Message to Handshake Context to be verified: [%d] %x", len(data), data)
 		handshakeContext = append(handshakeContext, data...)
+		h.Write(data)
 	}
 
-	h := ctx.params.hash.New()
-	h.Write(handshakeContext)
 	hashed = h.Sum(nil)
 	logf(logTypeHandshake, "Handshake Context to be verified: [%d] %x", len(handshakeContext), handshakeContext)
 	logf(logTypeHandshake, "Handshake Hash to be verified: [%d] %x", len(hashed), hashed)
 	return
 }
 
+func (cv *certificateVerifyBody) encodeSignatureInput(data []byte) []byte {
+	const context = "TLS 1.3, server CertificateVerify"
+	sigInput := bytes.Repeat([]byte{0x20}, 64)
+	sigInput = append(sigInput, []byte(context)...)
+	sigInput = append(sigInput, []byte{0}...)
+	sigInput = append(sigInput, data...)
+	return sigInput
+}
+
 func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*handshakeMessage, ctx cryptoContext) error {
-	hash, hashedData, err := cv.computeContext(ctx, transcript)
+	hashedWithContext, err := cv.computeContext(ctx, transcript)
 	if err != nil {
 		return err
 	}
 
-	cv.alg.signature, cv.signature, err = sign(hash, privateKey, hashedData, contextCertificateVerify)
+	sigInput := cv.encodeSignatureInput(hashedWithContext)
+	cv.Signature, err = sign(cv.Algorithm, privateKey, sigInput)
+	logf(logTypeHandshake, "Signed: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return err
 }
 
 func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*handshakeMessage, ctx cryptoContext) error {
-	_, hashedData, err := cv.computeContext(ctx, transcript)
+	hashedWithContext, err := cv.computeContext(ctx, transcript)
 	if err != nil {
 		return err
 	}
 
-	logf(logTypeHandshake, "Algorithm being used: signature=[%d] hash=[%d]", cv.alg.signature, cv.alg.hash)
-	logf(logTypeHandshake, "Digest to be verified: [%d] %x", len(hashedData), hashedData)
-	return verify(cv.alg, publicKey, hashedData, contextCertificateVerify, cv.signature)
+	sigInput := cv.encodeSignatureInput(hashedWithContext)
+	logf(logTypeHandshake, "About to verify: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
+	return verify(cv.Algorithm, publicKey, sigInput, cv.Signature)
 }
 
 // struct {

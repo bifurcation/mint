@@ -47,38 +47,27 @@ const (
 	TLS_AES_256_CCM_8_SHA256     cipherSuite = 0x1305
 )
 
-// enum {...} HashAlgorithm
-type hashAlgorithm uint8
+// enum {...} SignatureScheme
+type signatureScheme uint16
 
 const (
-	// Omitted: *_RESERVED
-	hashAlgorithmSHA1   hashAlgorithm = 2
-	hashAlgorithmSHA256 hashAlgorithm = 4
-	hashAlgorithmSHA384 hashAlgorithm = 5
-	hashAlgorithmSHA512 hashAlgorithm = 6
+	// RSASSA-PKCS1-v1_5 algorithms
+	signatureSchemeRSA_PKCS1_SHA1   signatureScheme = 0x0201
+	signatureSchemeRSA_PKCS1_SHA256 signatureScheme = 0x0401
+	signatureSchemeRSA_PKCS1_SHA384 signatureScheme = 0x0501
+	signatureSchemeRSA_PKCS1_SHA512 signatureScheme = 0x0601
+	// ECDSA algorithms
+	signatureSchemeECDSA_P256_SHA256 signatureScheme = 0x0403
+	signatureSchemeECDSA_P384_SHA384 signatureScheme = 0x0503
+	signatureSchemeECDSA_P521_SHA512 signatureScheme = 0x0603
+	// RSASSA-PSS algorithms
+	signatureSchemeRSA_PSS_SHA256 signatureScheme = 0x0804
+	signatureSchemeRSA_PSS_SHA384 signatureScheme = 0x0805
+	signatureSchemeRSA_PSS_SHA512 signatureScheme = 0x0806
+	// EdDSA algorithms
+	signatureSchemeEd25519 signatureScheme = 0x0807
+	signatureSchemeEd448   signatureScheme = 0x0808
 )
-
-// enum {...} SignatureAlgorithm
-type signatureAlgorithm uint8
-
-const (
-	// Omitted: *_RESERVED
-	signatureAlgorithmRSA    signatureAlgorithm = 1
-	signatureAlgorithmDSA    signatureAlgorithm = 2
-	signatureAlgorithmECDSA  signatureAlgorithm = 3
-	signatureAlgorithmRSAPSS signatureAlgorithm = 4
-	signatureAlgorithmEdDSA  signatureAlgorithm = 5
-)
-
-// struct {
-//     HashAlgorithm hash;
-//     SignatureAlgorithm signature;
-// } SignatureAndHashAlgorithm;
-//
-type signatureAndHashAlgorithm struct {
-	hash      hashAlgorithm
-	signature signatureAlgorithm
-}
 
 // enum {...} ExtensionType
 type helloExtensionType uint16

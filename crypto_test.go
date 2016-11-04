@@ -10,6 +10,7 @@ import (
 	_ "crypto/sha256"
 	"encoding/asn1"
 	"encoding/hex"
+	"io"
 	"math/big"
 	"testing"
 )
@@ -38,6 +39,16 @@ var (
 	hkdfEncodedLabelHex      = "002a" + "0d" + hex.EncodeToString([]byte("TLS 1.3, "+hkdfLabel)) + "20" + hkdfHashHex
 	hkdfExpandLabelOutputHex = "474de877d26b9e14ba50d91657bdf8bdb0fb7152f0ef8d908bb68eb697bb64c6bf2f2d81fa987e86bc32"
 )
+
+type mockSigner struct{}
+
+func (m mockSigner) Public() crypto.PublicKey {
+	return m
+}
+
+func (m mockSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error) {
+	return nil, nil
+}
 
 func TestNewKeyShare(t *testing.T) {
 	// Test success cases
@@ -132,40 +143,58 @@ func TestKeyAgreement(t *testing.T) {
 
 func TestNewSigningKey(t *testing.T) {
 	// Test RSA success
-	privRSA, err := newSigningKey(signatureAlgorithmRSA)
+	privRSA, err := newSigningKey(signatureSchemeRSA_PKCS1_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
 	_, ok := privRSA.(*rsa.PrivateKey)
 	assert(t, ok, "New RSA key was not actually an RSA key")
 
-	// Test ECDSA success
-	privECDSA, err := newSigningKey(signatureAlgorithmECDSA)
+	// Test ECDSA success (P-256)
+	privECDSA, err := newSigningKey(signatureSchemeECDSA_P256_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
-	assert(t, ok, "New RSA key was not actually an RSA key")
+	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
+	pub := privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
+	assertEquals(t, namedGroupP256, namedGroupFromECDSAKey(pub))
+
+	// Test ECDSA success (P-384)
+	privECDSA, err = newSigningKey(signatureSchemeECDSA_P384_SHA384)
+	assertNotError(t, err, "failed to generate RSA private key")
+	_, ok = privECDSA.(*ecdsa.PrivateKey)
+	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
+	pub = privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
+	assertEquals(t, namedGroupP384, namedGroupFromECDSAKey(pub))
+
+	// Test ECDSA success (P-521)
+	privECDSA, err = newSigningKey(signatureSchemeECDSA_P521_SHA512)
+	assertNotError(t, err, "failed to generate RSA private key")
+	_, ok = privECDSA.(*ecdsa.PrivateKey)
+	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
+	pub = privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
+	assertEquals(t, namedGroupP521, namedGroupFromECDSAKey(pub))
 
 	// Test unsupported algorithm
-	_, err = newSigningKey(signatureAlgorithmEdDSA)
+	_, err = newSigningKey(signatureSchemeEd25519)
 	assertError(t, err, "Created a private key for an unsupported algorithm")
 }
 
 func TestSelfSigned(t *testing.T) {
-	priv, err := newSigningKey(signatureAlgorithmECDSA)
+	priv, err := newSigningKey(signatureSchemeECDSA_P256_SHA256)
 	assertNotError(t, err, "Failed to create private key")
 
 	// Test success
-	alg := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmECDSA}
+	alg := signatureSchemeECDSA_P256_SHA256
 	cert, err := newSelfSigned("example.com", alg, priv)
 	assertNotError(t, err, "Failed to sign certificate")
 	assert(t, len(cert.Raw) > 0, "Certificate had empty raw value")
-	assertEquals(t, cert.SignatureAlgorithm, x509AlgMap[alg.signature][alg.hash])
+	assertEquals(t, cert.SignatureAlgorithm, x509AlgMap[alg])
 
 	// Test failure on unknown signature algorithm
-	alg = signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSAPSS}
+	alg = signatureSchemeRSA_PSS_SHA256
 	_, err = newSelfSigned("example.com", alg, priv)
 	assertError(t, err, "Signed with an unsupported algorithm")
 
 	// Test failure on certificate signing failure (due to algorithm mismatch)
-	alg = signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}
+	alg = signatureSchemeRSA_PKCS1_SHA256
 	_, err = newSelfSigned("example.com", alg, priv)
 	assertError(t, err, "Signed with a mismatched algorithm")
 }
@@ -175,81 +204,118 @@ func TestSignVerify(t *testing.T) {
 		10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
 		20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
 		30, 31}
-	context := "TLS 1.3, test"
 
-	privRSA, err := newSigningKey(signatureAlgorithmRSA)
+	privRSA, err := newSigningKey(signatureSchemeRSA_PSS_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
-	privECDSA, err := newSigningKey(signatureAlgorithmECDSA)
-	assertNotError(t, err, "failed to generate RSA private key")
+	privECDSA, err := newSigningKey(signatureSchemeECDSA_P256_SHA256)
+	assertNotError(t, err, "failed to generate ECDSA private key")
 
-	// Test successful signing
-	sigAlgRSA, sigRSA, err := sign(crypto.SHA256, privRSA, data, context)
-	assertNotError(t, err, "Failed to generate RSA signature")
-	assertEquals(t, sigAlgRSA, signatureAlgorithmRSA)
-
+	// Test successful signing with PKCS#1 when it is allowed
 	originalAllowPKCS1 := allowPKCS1
-	allowPKCS1 = false
-	sigAlgRSAPSS, sigRSAPSS, err := sign(crypto.SHA256, privRSA, data, context)
-	assertNotError(t, err, "Failed to generate RSA-PSS signature")
-	assertEquals(t, sigAlgRSAPSS, signatureAlgorithmRSAPSS)
+	allowPKCS1 = true
+	sigRSA, err := sign(signatureSchemeRSA_PKCS1_SHA256, privRSA, data)
+	assertNotError(t, err, "Failed to generate RSA signature")
 	allowPKCS1 = originalAllowPKCS1
 
-	sigAlgECDSA, sigECDSA, err := sign(crypto.SHA256, privECDSA, data, context)
-	assertNotError(t, err, "Failed to generate ECDSA signature")
-	assertEquals(t, sigAlgECDSA, signatureAlgorithmECDSA)
-
-	// Test successful verification
-	algRSA := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}
-	err = verify(algRSA, privRSA.Public(), data, context, sigRSA)
-	assertNotError(t, err, "Failed to verify a valid RSA-PSS signature")
-
+	// Test successful signing with PKCS#1 when it is not allowed
+	// (i.e., when it gets morphed into PSS)
 	originalAllowPKCS1 = allowPKCS1
 	allowPKCS1 = false
-	algRSAPSS := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSAPSS}
-	err = verify(algRSAPSS, privRSA.Public(), data, context, sigRSAPSS)
+	sigRSAPSS, err := sign(signatureSchemeRSA_PKCS1_SHA256, privRSA, data)
+	assertNotError(t, err, "Failed to generate RSA-PSS signature")
+	allowPKCS1 = originalAllowPKCS1
+
+	// Test successful signing with PSS
+	originalAllowPKCS1 = allowPKCS1
+	allowPKCS1 = false
+	sigRSAPSS, err = sign(signatureSchemeRSA_PSS_SHA256, privRSA, data)
+	assertNotError(t, err, "Failed to generate RSA-PSS signature")
+	allowPKCS1 = originalAllowPKCS1
+
+	// Test successful signing with ECDSA
+	sigECDSA, err := sign(signatureSchemeECDSA_P256_SHA256, privECDSA, data)
+	assertNotError(t, err, "Failed to generate ECDSA signature")
+
+	// Test signature failure on use of SHA-1
+	_, err = sign(signatureSchemeRSA_PKCS1_SHA1, privRSA, data)
+	assertError(t, err, "Allowed a SHA-1 signature")
+
+	// Test signature failure on use of an non-RSA key with an RSA alg
+	_, err = sign(signatureSchemeRSA_PKCS1_SHA1, privECDSA, data)
+	assertError(t, err, "Allowed an RSA signature with a non-RSA key")
+
+	// Test signature failure on use of an non-ECDSA key with an ECDSA alg
+	_, err = sign(signatureSchemeECDSA_P256_SHA256, privRSA, data)
+	assertError(t, err, "Allowed a ECDSA signature with a non-ECDSA key")
+
+	// Test signature failure on use of an ECDSA key from the wrong curve
+	_, err = sign(signatureSchemeECDSA_P384_SHA384, privRSA, data)
+	assertError(t, err, "Allowed a ECDSA signature with key from the wrong curve")
+
+	// Test signature failure on use of an unsupported key type
+	_, err = sign(signatureSchemeECDSA_P384_SHA384, mockSigner{}, data)
+	assertError(t, err, "Allowed a ECDSA signature with key from the wrong curve")
+
+	// Test successful verification with PKCS#1 when it is allowed
+	originalAllowPKCS1 = allowPKCS1
+	allowPKCS1 = true
+	err = verify(signatureSchemeRSA_PKCS1_SHA256, privRSA.Public(), data, sigRSA)
+	assertNotError(t, err, "Failed to verify a valid RSA-PKCS1 signature")
+	allowPKCS1 = originalAllowPKCS1
+
+	// Test successful verification with PKCS#1 transformed into PSS
+	originalAllowPKCS1 = allowPKCS1
+	allowPKCS1 = false
+	err = verify(signatureSchemeRSA_PKCS1_SHA256, privRSA.Public(), data, sigRSAPSS)
 	assertNotError(t, err, "Failed to verify a valid RSA-PSS signature")
 	allowPKCS1 = originalAllowPKCS1
 
-	algECDSA := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmECDSA}
-	err = verify(algECDSA, privECDSA.Public(), data, context, sigECDSA)
+	// Test successful verification with PSS
+	err = verify(signatureSchemeRSA_PSS_SHA256, privRSA.Public(), data, sigRSAPSS)
 	assertNotError(t, err, "Failed to verify a valid ECDSA signature")
 
-	// Test RSA verify failure on bad algorithm
-	originalAllowPKCS1 = allowPKCS1
-	allowPKCS1 = false
-	err = verify(algRSA, privRSA.Public(), data, context, sigRSA)
-	assertError(t, err, "Verified RSA with something other than PSS")
-	allowPKCS1 = originalAllowPKCS1
+	// Test successful verification with ECDSA
+	err = verify(signatureSchemeECDSA_P256_SHA256, privECDSA.Public(), data, sigECDSA)
+	assertNotError(t, err, "Failed to verify a valid ECDSA signature")
 
-	err = verify(algECDSA, privRSA.Public(), data, context, sigRSA)
-	assertError(t, err, "Verified RSA with a non-RSA algorithm")
+	// Test that SHA-1 is forbidden
+	err = verify(signatureSchemeRSA_PKCS1_SHA1, privECDSA.Public(), data, sigECDSA)
+	assertError(t, err, "Allowed verification of a SHA-1 signature")
 
-	// Test ECDSA verify failure on bad algorithm
-	err = verify(algRSAPSS, privECDSA.Public(), data, context, sigECDSA)
+	// Test RSA verify failure on unsupported algorithm
+	err = verify(signatureSchemeECDSA_P256_SHA256, privRSA.Public(), data, sigRSA)
+	assertError(t, err, "Verified ECDSA with an RSA key")
+
+	// Test ECDSA verify failure on unsupported algorithm
+	err = verify(signatureSchemeRSA_PSS_SHA256, privECDSA.Public(), data, sigECDSA)
+	assertError(t, err, "Verified ECDSA with a bad algorithm")
+
+	// Test ECDSA verify failure on unsupported curve
+	err = verify(signatureSchemeECDSA_P384_SHA384, privECDSA.Public(), data, sigECDSA)
 	assertError(t, err, "Verified ECDSA with a bad algorithm")
 
 	// Test ECDSA verify failure on ASN.1 unmarshal failure
-	err = verify(algECDSA, privECDSA.Public(), data, context, sigECDSA[:8])
+	err = verify(signatureSchemeECDSA_P256_SHA256, privECDSA.Public(), data, sigECDSA[:8])
 	assertError(t, err, "Verified ECDSA with a bad ASN.1")
 
 	// Test ECDSA verify failure on trailing data
-	err = verify(algECDSA, privECDSA.Public(), data, context, append(sigECDSA, data...))
+	err = verify(signatureSchemeECDSA_P256_SHA256, privECDSA.Public(), data, append(sigECDSA, data...))
 	assertError(t, err, "Verified ECDSA with a trailing ASN.1")
 
 	// Test ECDSA verify failure on zero / negative values
 	zeroSigIn := ecdsaSignature{big.NewInt(0), big.NewInt(0)}
 	zeroSig, err := asn1.Marshal(zeroSigIn)
-	err = verify(algECDSA, privECDSA.Public(), data, context, zeroSig)
+	err = verify(signatureSchemeECDSA_P256_SHA256, privECDSA.Public(), data, zeroSig)
 	assertError(t, err, "Verified ECDSA with zero signature")
 
 	// Test ECDSA verify failure on signature validation failure
 	sigECDSA[7] ^= 0xFF
-	err = verify(algECDSA, privECDSA.Public(), data, context, sigECDSA)
+	err = verify(signatureSchemeECDSA_P256_SHA256, privECDSA.Public(), data, sigECDSA)
 	assertError(t, err, "Verified ECDSA with corrupted signature")
 	sigECDSA[7] ^= 0xFF
 
 	// Test verify failure on unknown public key type
-	err = verify(algECDSA, struct{}{}, data, context, sigECDSA)
+	err = verify(signatureSchemeECDSA_P256_SHA256, struct{}{}, data, sigECDSA)
 	assertError(t, err, "Verified with invalid public key type")
 }
 
@@ -312,8 +378,8 @@ var (
 	}
 
 	certificateVerifyContextIn = &certificateVerifyBody{
-		alg:       signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmRSA},
-		signature: random(64),
+		Algorithm: signatureSchemeRSA_PSS_SHA256,
+		Signature: random(64),
 	}
 
 	dhSecretIn  = random(32)
@@ -332,9 +398,9 @@ func TestCryptoContext(t *testing.T) {
 		Groups: []namedGroup{namedGroupP256, namedGroupP521},
 	})
 	clientHelloContextIn.extensions.Add(&signatureAlgorithmsExtension{
-		algorithms: []signatureAndHashAlgorithm{
-			signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmRSA},
-			signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmECDSA},
+		Algorithms: []signatureScheme{
+			signatureSchemeRSA_PSS_SHA256,
+			signatureSchemeECDSA_P256_SHA256,
 		},
 	})
 	clientHelloContextIn.extensions.Add(&keyShareExtension{
@@ -361,8 +427,8 @@ func TestCryptoContext(t *testing.T) {
 	cvm, err := handshakeMessageFromBody(certificateVerifyContextIn)
 	assertNotError(t, err, "Error in prep [3]")
 
-	alg := signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmECDSA}
-	priv, err := newSigningKey(signatureAlgorithmECDSA)
+	alg := signatureSchemeECDSA_P256_SHA256
+	priv, err := newSigningKey(signatureSchemeECDSA_P256_SHA256)
 	assertNotError(t, err, "Failed to generate key pair")
 	cert, err := newSelfSigned("example.com", alg, priv)
 	assertNotError(t, err, "Failed to sign certificate")

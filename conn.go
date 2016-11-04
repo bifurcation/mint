@@ -62,16 +62,17 @@ type Config struct {
 	TicketLen          int
 
 	// Shared fields
-	CipherSuites        []cipherSuite
-	Groups              []namedGroup
-	SignatureAlgorithms []signatureAndHashAlgorithm
-	NextProtos          []string
+	CipherSuites     []cipherSuite
+	Groups           []namedGroup
+	SignatureSchemes []signatureScheme
+	NextProtos       []string
 
 	// Hidden fields (used for caching in convenient form)
-	enabledSuite map[cipherSuite]bool
-	enabledGroup map[namedGroup]bool
-	enabledProto map[string]bool
-	certsByName  map[string]*Certificate
+	enabledSuite  map[cipherSuite]bool
+	enabledGroup  map[namedGroup]bool
+	enabledProto  map[string]bool
+	enabledScheme map[signatureScheme]bool
+	certsByName   map[string]*Certificate
 
 	// The same config object can be shared among different connections, so it
 	// needs its own mutex
@@ -89,8 +90,8 @@ func (c *Config) Init(isClient bool) error {
 	if len(c.Groups) == 0 {
 		c.Groups = defaultSupportedGroups
 	}
-	if len(c.SignatureAlgorithms) == 0 {
-		c.SignatureAlgorithms = defaultSignatureAlgorithms
+	if len(c.SignatureSchemes) == 0 {
+		c.SignatureSchemes = defaultSignatureSchemes
 	}
 	if c.TicketLen == 0 {
 		c.TicketLen = defaultTicketLen
@@ -101,17 +102,12 @@ func (c *Config) Init(isClient bool) error {
 
 	// If there is no certificate, generate one
 	if !isClient && len(c.Certificates) == 0 {
-		priv, err := newSigningKey(signatureAlgorithmRSA)
+		priv, err := newSigningKey(signatureSchemeRSA_PSS_SHA256)
 		if err != nil {
 			return err
 		}
 
-		cert, err := newSelfSigned(c.ServerName,
-			signatureAndHashAlgorithm{
-				hashAlgorithmSHA256,
-				signatureAlgorithmRSA,
-			},
-			priv)
+		cert, err := newSelfSigned(c.ServerName, signatureSchemeRSA_PKCS1_SHA256, priv)
 		if err != nil {
 			return err
 		}
@@ -128,6 +124,7 @@ func (c *Config) Init(isClient bool) error {
 	c.enabledSuite = map[cipherSuite]bool{}
 	c.enabledGroup = map[namedGroup]bool{}
 	c.enabledProto = map[string]bool{}
+	c.enabledScheme = map[signatureScheme]bool{}
 	c.certsByName = map[string]*Certificate{}
 
 	for _, suite := range c.CipherSuites {
@@ -138,6 +135,9 @@ func (c *Config) Init(isClient bool) error {
 	}
 	for _, proto := range c.NextProtos {
 		c.enabledProto[proto] = true
+	}
+	for _, scheme := range c.SignatureSchemes {
+		c.enabledScheme[scheme] = true
 	}
 	for _, cert := range c.Certificates {
 		if len(cert.Chain) == 0 {
@@ -175,13 +175,13 @@ var (
 		namedGroupX25519,
 	}
 
-	defaultSignatureAlgorithms = []signatureAndHashAlgorithm{
-		signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
-		signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmECDSA},
-		signatureAndHashAlgorithm{hashAlgorithmSHA384, signatureAlgorithmRSA},
-		signatureAndHashAlgorithm{hashAlgorithmSHA384, signatureAlgorithmECDSA},
-		signatureAndHashAlgorithm{hashAlgorithmSHA512, signatureAlgorithmRSA},
-		signatureAndHashAlgorithm{hashAlgorithmSHA512, signatureAlgorithmECDSA},
+	defaultSignatureSchemes = []signatureScheme{
+		signatureSchemeRSA_PSS_SHA256,
+		signatureSchemeRSA_PSS_SHA384,
+		signatureSchemeRSA_PSS_SHA512,
+		signatureSchemeECDSA_P256_SHA256,
+		signatureSchemeECDSA_P384_SHA384,
+		signatureSchemeECDSA_P521_SHA512,
 	}
 
 	defaultTicketLen = 16
@@ -526,7 +526,7 @@ func (c *Conn) clientHandshake() error {
 	sv := supportedVersionsExtension{versions: []uint16{supportedVersion}}
 	sni := serverNameExtension(c.config.ServerName)
 	sg := supportedGroupsExtension{Groups: c.config.Groups}
-	sa := signatureAlgorithmsExtension{algorithms: c.config.SignatureAlgorithms}
+	sa := signatureAlgorithmsExtension{Algorithms: c.config.SignatureSchemes}
 
 	var alpn *alpnExtension
 	if (c.config.NextProtos != nil) && (len(c.config.NextProtos) > 0) {
@@ -1080,14 +1080,40 @@ func (c *Conn) serverHandshake() error {
 		// Select a certificate
 		var privateKey crypto.Signer
 		var chain []*x509.Certificate
+		foundCert := false
 		for _, cert := range c.config.Certificates {
 			for _, name := range cert.Chain[0].DNSNames {
 				if name == string(*serverName) {
+					foundCert = true
 					chain = cert.Chain
 					privateKey = cert.PrivateKey
 				}
 			}
 		}
+		if !foundCert {
+			return fmt.Errorf("No certificate available for the requested name [%s]", *serverName)
+		}
+
+		// Select a signature scheme from among those offered by the client
+		var sigAlg signatureScheme
+		foundSigAlg := false
+		for _, alg := range signatureAlgorithms.Algorithms {
+
+			valid := schemeValidForKey(alg, privateKey)
+			enabled := c.config.enabledScheme[alg]
+
+			if !valid || !enabled {
+				continue
+			}
+
+			sigAlg = alg
+			foundSigAlg = true
+			break
+		}
+		if !foundSigAlg {
+			return fmt.Errorf("No signature schemes available for this client and certificate")
+		}
+		logf(logTypeHandshake, "Computing CertificateVerify with scheme %04x", sigAlg)
 
 		// If there's no name match, use the first in the list or fail
 		if chain == nil {
@@ -1112,9 +1138,8 @@ func (c *Conn) serverHandshake() error {
 			return err
 		}
 
-		certificateVerify := &certificateVerifyBody{
-			alg: signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA},
-		}
+		certificateVerify := &certificateVerifyBody{Algorithm: sigAlg}
+		logf(logTypeHandshake, "%04x %v", sigAlg, ctx.params.hash)
 		err = certificateVerify.Sign(privateKey, []*handshakeMessage{chm, shm, eem, certm}, ctx)
 		if err != nil {
 			return err

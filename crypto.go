@@ -46,12 +46,46 @@ type cipherSuiteParams struct {
 	ivLen  int         // IV length in octets
 }
 
+type signatureAlgorithm uint8
+
+const (
+	signatureAlgorithmUnknown = iota
+	signatureAlgorithmRSA_PKCS1
+	signatureAlgorithmRSA_PSS
+	signatureAlgorithmECDSA
+)
+
 var (
-	hashMap = map[hashAlgorithm]crypto.Hash{
-		hashAlgorithmSHA1:   crypto.SHA1,
-		hashAlgorithmSHA256: crypto.SHA256,
-		hashAlgorithmSHA384: crypto.SHA384,
-		hashAlgorithmSHA512: crypto.SHA512,
+	hashMap = map[signatureScheme]crypto.Hash{
+		signatureSchemeRSA_PKCS1_SHA1:    crypto.SHA1,
+		signatureSchemeRSA_PKCS1_SHA256:  crypto.SHA256,
+		signatureSchemeRSA_PKCS1_SHA384:  crypto.SHA384,
+		signatureSchemeRSA_PKCS1_SHA512:  crypto.SHA512,
+		signatureSchemeECDSA_P256_SHA256: crypto.SHA256,
+		signatureSchemeECDSA_P384_SHA384: crypto.SHA384,
+		signatureSchemeECDSA_P521_SHA512: crypto.SHA512,
+		signatureSchemeRSA_PSS_SHA256:    crypto.SHA256,
+		signatureSchemeRSA_PSS_SHA384:    crypto.SHA384,
+		signatureSchemeRSA_PSS_SHA512:    crypto.SHA512,
+	}
+
+	sigMap = map[signatureScheme]signatureAlgorithm{
+		signatureSchemeRSA_PKCS1_SHA1:    signatureAlgorithmRSA_PKCS1,
+		signatureSchemeRSA_PKCS1_SHA256:  signatureAlgorithmRSA_PKCS1,
+		signatureSchemeRSA_PKCS1_SHA384:  signatureAlgorithmRSA_PKCS1,
+		signatureSchemeRSA_PKCS1_SHA512:  signatureAlgorithmRSA_PKCS1,
+		signatureSchemeECDSA_P256_SHA256: signatureAlgorithmECDSA,
+		signatureSchemeECDSA_P384_SHA384: signatureAlgorithmECDSA,
+		signatureSchemeECDSA_P521_SHA512: signatureAlgorithmECDSA,
+		signatureSchemeRSA_PSS_SHA256:    signatureAlgorithmRSA_PSS,
+		signatureSchemeRSA_PSS_SHA384:    signatureAlgorithmRSA_PSS,
+		signatureSchemeRSA_PSS_SHA512:    signatureAlgorithmRSA_PSS,
+	}
+
+	curveMap = map[signatureScheme]namedGroup{
+		signatureSchemeECDSA_P256_SHA256: namedGroupP256,
+		signatureSchemeECDSA_P384_SHA384: namedGroupP384,
+		signatureSchemeECDSA_P521_SHA512: namedGroupP521,
 	}
 
 	newAESGCM = func(key []byte) (cipher.AEAD, error) {
@@ -79,23 +113,17 @@ var (
 		},
 	}
 
-	x509AlgMap = map[signatureAlgorithm]map[hashAlgorithm]x509.SignatureAlgorithm{
-		signatureAlgorithmRSA: map[hashAlgorithm]x509.SignatureAlgorithm{
-			hashAlgorithmSHA1:   x509.SHA1WithRSA,
-			hashAlgorithmSHA256: x509.SHA256WithRSA,
-			hashAlgorithmSHA384: x509.SHA384WithRSA,
-			hashAlgorithmSHA512: x509.SHA512WithRSA,
-		},
-		signatureAlgorithmECDSA: map[hashAlgorithm]x509.SignatureAlgorithm{
-			hashAlgorithmSHA1:   x509.ECDSAWithSHA1,
-			hashAlgorithmSHA256: x509.ECDSAWithSHA256,
-			hashAlgorithmSHA384: x509.ECDSAWithSHA384,
-			hashAlgorithmSHA512: x509.ECDSAWithSHA512,
-		},
+	x509AlgMap = map[signatureScheme]x509.SignatureAlgorithm{
+		signatureSchemeRSA_PKCS1_SHA1:    x509.SHA1WithRSA,
+		signatureSchemeRSA_PKCS1_SHA256:  x509.SHA256WithRSA,
+		signatureSchemeRSA_PKCS1_SHA384:  x509.SHA384WithRSA,
+		signatureSchemeRSA_PKCS1_SHA512:  x509.SHA512WithRSA,
+		signatureSchemeECDSA_P256_SHA256: x509.ECDSAWithSHA256,
+		signatureSchemeECDSA_P384_SHA384: x509.ECDSAWithSHA384,
+		signatureSchemeECDSA_P521_SHA512: x509.ECDSAWithSHA512,
 	}
 
 	defaultRSAKeySize = 2048
-	defaultECDSACurve = elliptic.P256()
 )
 
 func curveFromNamedGroup(group namedGroup) (crv elliptic.Curve) {
@@ -106,6 +134,18 @@ func curveFromNamedGroup(group namedGroup) (crv elliptic.Curve) {
 		crv = elliptic.P384()
 	case namedGroupP521:
 		crv = elliptic.P521()
+	}
+	return
+}
+
+func namedGroupFromECDSAKey(key *ecdsa.PublicKey) (g namedGroup) {
+	switch key.Curve.Params().Name {
+	case elliptic.P256().Params().Name:
+		g = namedGroupP256
+	case elliptic.P384().Params().Name:
+		g = namedGroupP384
+	case elliptic.P521().Params().Name:
+		g = namedGroupP521
 	}
 	return
 }
@@ -149,6 +189,18 @@ func primeFromNamedGroup(group namedGroup) (p *big.Int) {
 		p = finiteFieldPrime8192
 	}
 	return
+}
+
+func schemeValidForKey(alg signatureScheme, key crypto.Signer) bool {
+	sigType := sigMap[alg]
+	switch key.(type) {
+	case *rsa.PrivateKey:
+		return sigType == signatureAlgorithmRSA_PKCS1 || sigType == signatureAlgorithmRSA_PSS
+	case *ecdsa.PrivateKey:
+		return sigType == signatureAlgorithmECDSA
+	default:
+		return false
+	}
 }
 
 func ffdheKeyShareFromPrime(p *big.Int) (priv, pub *big.Int, err error) {
@@ -264,21 +316,28 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 	}
 }
 
-func newSigningKey(sig signatureAlgorithm) (crypto.Signer, error) {
+func newSigningKey(sig signatureScheme) (crypto.Signer, error) {
 	switch sig {
-	case signatureAlgorithmRSA:
+	case signatureSchemeRSA_PKCS1_SHA1, signatureSchemeRSA_PKCS1_SHA256,
+		signatureSchemeRSA_PKCS1_SHA384, signatureSchemeRSA_PKCS1_SHA512,
+		signatureSchemeRSA_PSS_SHA256, signatureSchemeRSA_PSS_SHA384,
+		signatureSchemeRSA_PSS_SHA512:
 		return rsa.GenerateKey(prng, defaultRSAKeySize)
-	case signatureAlgorithmECDSA:
-		return ecdsa.GenerateKey(defaultECDSACurve, prng)
+	case signatureSchemeECDSA_P256_SHA256:
+		return ecdsa.GenerateKey(elliptic.P256(), prng)
+	case signatureSchemeECDSA_P384_SHA384:
+		return ecdsa.GenerateKey(elliptic.P384(), prng)
+	case signatureSchemeECDSA_P521_SHA512:
+		return ecdsa.GenerateKey(elliptic.P521(), prng)
 	default:
-		return nil, fmt.Errorf("tls.newsigningkey: Unsupported signature algorithm")
+		return nil, fmt.Errorf("tls.newsigningkey: Unsupported signature algorithm [%04x]", sig)
 	}
 }
 
-func newSelfSigned(name string, alg signatureAndHashAlgorithm, priv crypto.Signer) (*x509.Certificate, error) {
-	sigAlg, ok := x509AlgMap[alg.signature][alg.hash]
+func newSelfSigned(name string, alg signatureScheme, priv crypto.Signer) (*x509.Certificate, error) {
+	sigAlg, ok := x509AlgMap[alg]
 	if !ok {
-		return nil, fmt.Errorf("tls.selfsigned: Unknown signature algorithm")
+		return nil, fmt.Errorf("tls.selfsigned: Unknown signature algorithm [%04x]", alg)
 	}
 	if len(name) == 0 {
 		return nil, fmt.Errorf("tls.selfsigned: No name provided")
@@ -314,19 +373,6 @@ type ecdsaSignature struct {
 	R, S *big.Int
 }
 
-const (
-	contextCertificateVerify = "TLS 1.3, server CertificateVerify"
-)
-
-func encodeSignatureInput(hash crypto.Hash, data []byte, context string) []byte {
-	h := hash.New()
-	h.Write(bytes.Repeat([]byte{0x20}, 64))
-	h.Write([]byte(context))
-	h.Write([]byte{0})
-	h.Write(data)
-	return h.Sum(nil)
-}
-
 type pkcs1Opts struct {
 	hash crypto.Hash
 }
@@ -335,53 +381,96 @@ func (opts pkcs1Opts) HashFunc() crypto.Hash {
 	return opts.hash
 }
 
-func sign(hash crypto.Hash, privateKey crypto.Signer, data []byte, context string) (signatureAlgorithm, []byte, error) {
+func sign(alg signatureScheme, privateKey crypto.Signer, sigInput []byte) ([]byte, error) {
 	var opts crypto.SignerOpts
-	var sigAlg signatureAlgorithm
 
-	logf(logTypeCrypto, "digest to be verified: %x", data)
-	digest := encodeSignatureInput(hash, data, context)
-	logf(logTypeCrypto, "digest with context: %x", digest)
-
-	switch privateKey.(type) {
-	case *rsa.PrivateKey:
-		if allowPKCS1 {
-			sigAlg = signatureAlgorithmRSA
-			opts = &pkcs1Opts{hash: hash}
-		} else {
-			sigAlg = signatureAlgorithmRSAPSS
-			opts = &rsa.PSSOptions{SaltLength: hash.Size(), Hash: hash}
-		}
-	case *ecdsa.PrivateKey:
-		sigAlg = signatureAlgorithmECDSA
+	hash := hashMap[alg]
+	if hash == crypto.SHA1 {
+		return nil, fmt.Errorf("tls.crypt.sign: Use of SHA-1 is forbidden")
 	}
 
-	sig, err := privateKey.Sign(prng, digest, opts)
-	logf(logTypeCrypto, "signature: %x", sig)
-	return sigAlg, sig, err
-}
-
-func verify(alg signatureAndHashAlgorithm, publicKey crypto.PublicKey, data []byte, context string, sig []byte) error {
-	hash := hashMap[alg.hash]
-
-	digest := encodeSignatureInput(hash, data, context)
-
-	switch pub := publicKey.(type) {
-	case *rsa.PublicKey:
-		if allowPKCS1 && alg.signature == signatureAlgorithmRSA {
-			logf(logTypeHandshake, "verifying with PKCS1, hashSize=[%d]", hash.Size())
-			return rsa.VerifyPKCS1v15(pub, hash, digest, sig)
+	sigType := sigMap[alg]
+	var realInput []byte
+	switch key := privateKey.(type) {
+	case *rsa.PrivateKey:
+		switch {
+		case allowPKCS1 && sigType == signatureAlgorithmRSA_PKCS1:
+			logf(logTypeCrypto, "signing with PKCS1, hashSize=[%d]", hash.Size())
+			opts = &pkcs1Opts{hash: hash}
+		case !allowPKCS1 && sigType == signatureAlgorithmRSA_PKCS1:
+			fallthrough
+		case sigType == signatureAlgorithmRSA_PSS:
+			logf(logTypeCrypto, "signing with PSS, hashSize=[%d]", hash.Size())
+			opts = &rsa.PSSOptions{SaltLength: hash.Size(), Hash: hash}
+		default:
+			return nil, fmt.Errorf("tls.crypto.sign: Unsupported algorithm for RSA key")
 		}
 
-		if alg.signature != signatureAlgorithmRSA && alg.signature != signatureAlgorithmRSAPSS {
+		h := hash.New()
+		h.Write(sigInput)
+		realInput = h.Sum(nil)
+	case *ecdsa.PrivateKey:
+		if sigType != signatureAlgorithmECDSA {
+			return nil, fmt.Errorf("tls.crypto.sign: Unsupported algorithm for ECDSA key")
+		}
+
+		algGroup := curveMap[alg]
+		keyGroup := namedGroupFromECDSAKey(key.Public().(*ecdsa.PublicKey))
+		if algGroup != keyGroup {
+			return nil, fmt.Errorf("tls.crypto.sign: Unsupported hash/curve combination")
+		}
+
+		h := hash.New()
+		h.Write(sigInput)
+		realInput = h.Sum(nil)
+	default:
+		return nil, fmt.Errorf("tls.crypto.sign: Unsupported private key type")
+	}
+
+	sig, err := privateKey.Sign(prng, realInput, opts)
+	logf(logTypeCrypto, "signature: %x", sig)
+	return sig, err
+}
+
+func verify(alg signatureScheme, publicKey crypto.PublicKey, sigInput []byte, sig []byte) error {
+	hash := hashMap[alg]
+
+	if hash == crypto.SHA1 {
+		return fmt.Errorf("tls.crypt.sign: Use of SHA-1 is forbidden")
+	}
+
+	sigType := sigMap[alg]
+	switch pub := publicKey.(type) {
+	case *rsa.PublicKey:
+		switch {
+		case allowPKCS1 && sigType == signatureAlgorithmRSA_PKCS1:
+			logf(logTypeCrypto, "verifying with PKCS1, hashSize=[%d]", hash.Size())
+
+			h := hash.New()
+			h.Write(sigInput)
+			realInput := h.Sum(nil)
+			return rsa.VerifyPKCS1v15(pub, hash, realInput, sig)
+		case !allowPKCS1 && sigType == signatureAlgorithmRSA_PKCS1:
+			fallthrough
+		case sigType == signatureAlgorithmRSA_PSS:
+			logf(logTypeCrypto, "verifying with PSS, hashSize=[%d]", hash.Size())
+			opts := &rsa.PSSOptions{SaltLength: hash.Size(), Hash: hash}
+
+			h := hash.New()
+			h.Write(sigInput)
+			realInput := h.Sum(nil)
+			return rsa.VerifyPSS(pub, hash, realInput, sig, opts)
+		default:
 			return fmt.Errorf("tls.verify: Unsupported algorithm for RSA key")
 		}
 
-		opts := &rsa.PSSOptions{SaltLength: hash.Size(), Hash: hash}
-		return rsa.VerifyPSS(pub, hash, digest, sig, opts)
 	case *ecdsa.PublicKey:
-		if alg.signature != signatureAlgorithmECDSA {
+		if sigType != signatureAlgorithmECDSA {
 			return fmt.Errorf("tls.verify: Unsupported algorithm for ECDSA key")
+		}
+
+		if curveMap[alg] != namedGroupFromECDSAKey(pub) {
+			return fmt.Errorf("tls.verify: Unsupported curve for ECDSA key")
 		}
 
 		ecdsaSig := new(ecdsaSignature)
@@ -393,7 +482,11 @@ func verify(alg signatureAndHashAlgorithm, publicKey crypto.PublicKey, data []by
 		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
 			return fmt.Errorf("tls.verify: ECDSA signature contained zero or negative values")
 		}
-		if !ecdsa.Verify(pub, digest, ecdsaSig.R, ecdsaSig.S) {
+
+		h := hash.New()
+		h.Write(sigInput)
+		realInput := h.Sum(nil)
+		if !ecdsa.Verify(pub, realInput, ecdsaSig.R, ecdsaSig.S) {
 			return fmt.Errorf("tls.verify: ECDSA verification failure")
 		}
 		return nil

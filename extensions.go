@@ -286,10 +286,11 @@ func (sg *supportedGroupsExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, sg)
 }
 
-// SignatureAndHashAlgorithm
-//   supported_signature_algorithms<2..2^16-2>;
+// struct {
+//   SignatureScheme supported_signature_algorithms<2..2^16-2>;
+// } SignatureSchemeList
 type signatureAlgorithmsExtension struct {
-	algorithms []signatureAndHashAlgorithm
+	Algorithms []signatureScheme `tls:"head=2,min=2"`
 }
 
 func (sa signatureAlgorithmsExtension) Type() helloExtensionType {
@@ -297,38 +298,11 @@ func (sa signatureAlgorithmsExtension) Type() helloExtensionType {
 }
 
 func (sa signatureAlgorithmsExtension) Marshal() ([]byte, error) {
-	listLen := 2 * len(sa.algorithms)
-
-	data := make([]byte, 2+listLen)
-	data[0] = byte(listLen >> 8)
-	data[1] = byte(listLen)
-	for i, alg := range sa.algorithms {
-		data[2*i+2] = byte(alg.hash)
-		data[2*i+3] = byte(alg.signature)
-	}
-
-	return data, nil
+	return syntax.Marshal(sa)
 }
 
 func (sa *signatureAlgorithmsExtension) Unmarshal(data []byte) (int, error) {
-	if len(data) < 2 {
-		return 0, fmt.Errorf("tls.supportedgroups: Too short for length")
-	}
-
-	listLen := (int(data[0]) << 8) + int(data[1])
-	if len(data) < 2+listLen {
-		return 0, fmt.Errorf("tls.supportedgroups: Too short for list")
-	}
-	if listLen%2 == 1 {
-		return 0, fmt.Errorf("tls.supportedgroups: Odd list length")
-	}
-	sa.algorithms = make([]signatureAndHashAlgorithm, listLen/2)
-	for i := range sa.algorithms {
-		sa.algorithms[i].hash = hashAlgorithm(data[2*i+2])
-		sa.algorithms[i].signature = signatureAlgorithm(data[2*i+3])
-	}
-
-	return 2 + listLen, nil
+	return syntax.Unmarshal(data, sa)
 }
 
 // opaque psk_identity<0..2^16-1>;

@@ -177,7 +177,7 @@ func testConnReadNonzeroAndEOF(t *testing.T, delay time.Duration) error {
 		srvCh <- srv
 	}()
 
-	clientConfig := Config{}
+	clientConfig := Config{ServerName: "example.com"}
 	conn, err := Dial("tcp", ln.Addr().String(), &clientConfig)
 	if err != nil {
 		t.Fatal(err)

@@ -98,18 +98,12 @@ var (
 
 	// SignatureAlgorithms test cases
 	signatureAlgorithmsIn = signatureAlgorithmsExtension{
-		algorithms: []signatureAndHashAlgorithm{
-			signatureAndHashAlgorithm{
-				hash:      hashAlgorithmSHA256,
-				signature: signatureAlgorithmRSAPSS,
-			},
-			signatureAndHashAlgorithm{
-				hash:      hashAlgorithmSHA512,
-				signature: signatureAlgorithmECDSA,
-			},
+		Algorithms: []signatureScheme{
+			signatureSchemeRSA_PSS_SHA256,
+			signatureSchemeECDSA_P256_SHA256,
 		},
 	}
-	signatureAlgorithmsHex = "000404040603"
+	signatureAlgorithmsHex = "000408040403"
 
 	// SNI test cases
 	serverNameRaw = "example.com"
