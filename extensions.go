@@ -129,10 +129,7 @@ func (sni *serverNameExtension) Unmarshal(data []byte) (int, error) {
 		return 0, err
 	}
 
-	if len(list.ServerNameList) == 0 {
-		return 0, fmt.Errorf("tls.servername: No name provided")
-	}
-
+	// Syntax requires at least one entry
 	if nameType := list.ServerNameList[0].NameType; nameType != 0x00 {
 		return 0, fmt.Errorf("tls.servername: Unsupported name type [%x]", nameType)
 	}
