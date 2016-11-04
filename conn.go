@@ -523,7 +523,7 @@ func (c *Conn) clientHandshake() error {
 		ks.shares[i].KeyExchange = pub
 		privateKeys[group] = priv
 	}
-	sv := supportedVersionsExtension{versions: []uint16{supportedVersion}}
+	sv := supportedVersionsExtension{Versions: []uint16{supportedVersion}}
 	sni := serverNameExtension(c.config.ServerName)
 	sg := supportedGroupsExtension{Groups: c.config.Groups}
 	sa := signatureAlgorithmsExtension{Algorithms: c.config.SignatureSchemes}
@@ -537,8 +537,14 @@ func (c *Conn) clientHandshake() error {
 	if key, ok := c.config.ClientPSKs[c.config.ServerName]; ok {
 		logf(logTypeHandshake, "Sending PSK")
 		psk = &preSharedKeyExtension{
-			roleIsServer: false,
-			identities:   [][]byte{key.Identity},
+			handshakeType: handshakeTypeClientHello,
+			identities: []pskIdentity{
+				pskIdentity{Identity: key.Identity},
+			},
+			binders: []pskBinderEntry{
+				// XXX: Obviously this needs to be fixed.  This just meets the syntax
+				pskBinderEntry{Binder: bytes.Repeat([]byte{0xA0}, 32)},
+			},
 		}
 	} else {
 		logf(logTypeHandshake, "No PSK found for [%v] in %+v", c.config.ServerName, c.config.ClientPSKs)
@@ -550,9 +556,7 @@ func (c *Conn) clientHandshake() error {
 			return fmt.Errorf("tls.client: Can't send early data without a PSK")
 		}
 
-		ed = &earlyDataExtension{
-			cipherSuite: c.earlyCipherSuite,
-		}
+		ed = &earlyDataExtension{}
 	}
 
 	// Construct and write ClientHello
@@ -641,7 +645,7 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Do PSK or key agreement depending on the ciphersuite
-	serverPSK := preSharedKeyExtension{roleIsServer: true}
+	serverPSK := preSharedKeyExtension{handshakeType: handshakeTypeServerHello}
 	foundPSK := sh.extensions.Find(&serverPSK)
 	serverKeyShare := keyShareExtension{handshakeType: handshakeTypeServerHello}
 	foundKeyShare := sh.extensions.Find(&serverKeyShare)
@@ -809,8 +813,8 @@ func (c *Conn) serverHandshake() error {
 	supportedGroups := new(supportedGroupsExtension)
 	signatureAlgorithms := new(signatureAlgorithmsExtension)
 	clientKeyShares := &keyShareExtension{handshakeType: handshakeTypeClientHello}
-	clientPSK := &preSharedKeyExtension{roleIsServer: false}
-	clientEarlyData := &earlyDataExtension{roleIsServer: false}
+	clientPSK := &preSharedKeyExtension{handshakeType: handshakeTypeClientHello}
+	clientEarlyData := &earlyDataExtension{}
 	clientALPN := new(alpnExtension)
 
 	gotSupportedVersions := ch.extensions.Find(supportedVersions)
@@ -829,7 +833,7 @@ func (c *Conn) serverHandshake() error {
 		return fmt.Errorf("tls.server: Client did not send supported_versions")
 	}
 	clientSupportsSameVersion := false
-	for _, version := range supportedVersions.versions {
+	for _, version := range supportedVersions.Versions {
 		logf(logTypeHandshake, "[server] version offered by client [%04x] <> [%04x]", version, supportedVersion)
 		clientSupportsSameVersion = (version == supportedVersion)
 		if clientSupportsSameVersion {
@@ -858,7 +862,7 @@ func (c *Conn) serverHandshake() error {
 				copy(pskSecret, key.Key)
 
 				serverPSK = &preSharedKeyExtension{
-					roleIsServer:     true,
+					handshakeType:    handshakeTypeServerHello,
 					selectedIdentity: uint16(i),
 				}
 			}
@@ -903,6 +907,24 @@ func (c *Conn) serverHandshake() error {
 		}
 	}
 
+	// Pick a ciphersuite
+	var chosenSuite cipherSuite
+	foundCipherSuite := false
+	for _, suite := range ch.cipherSuites {
+		if c.config.enabledSuite[suite] {
+			chosenSuite = suite
+			foundCipherSuite = true
+			break
+		}
+	}
+
+	logf(logTypeCrypto, "Supported Client suites [%v]", ch.cipherSuites)
+	if !foundCipherSuite {
+		logf(logTypeHandshake, "No acceptable ciphersuites")
+		return fmt.Errorf("tls.server: No acceptable ciphersuites")
+	}
+	logf(logTypeHandshake, "[server] Chose CipherSuite %x", chosenSuite)
+
 	// Find early_data extension and handle early data
 	if gotEarlyData {
 		logf(logTypeHandshake, "[server] Processing early data")
@@ -912,9 +934,7 @@ func (c *Conn) serverHandshake() error {
 		if pskSecret == nil {
 			return fmt.Errorf("tls.server: EarlyData with no PSK")
 		}
-		if !c.config.enabledSuite[clientEarlyData.cipherSuite] {
-			return fmt.Errorf("tls.server: EarlyData with an unsupported ciphersuite")
-		}
+		// TODO verify that ciphersuite and ALPN are the same as before
 
 		// Compute early handshake / traffic keys from pskSecret
 		// XXX: We init different contexts for early vs. main handshakes, that
@@ -922,7 +942,7 @@ func (c *Conn) serverHandshake() error {
 		// early data vs. the main record flow.  Probably not ideal.
 		logf(logTypeHandshake, "[server] Computing early secrets...")
 		ctx := cryptoContext{}
-		ctx.init(clientEarlyData.cipherSuite, chm, pskSecret, false)
+		ctx.init(chosenSuite, chm, pskSecret, false)
 
 		// Rekey read channel to early traffic keys
 		logf(logTypeHandshake, "[server] Rekey -> handshake...")
@@ -959,35 +979,6 @@ func (c *Conn) serverHandshake() error {
 
 		logf(logTypeHandshake, "[server] Done reading early data [%d] %x", len(c.readBuffer), c.readBuffer)
 	}
-
-	// Pick a ciphersuite
-	var chosenSuite cipherSuite
-	foundCipherSuite := false
-	for _, suite := range ch.cipherSuites {
-		if c.config.enabledSuite[suite] {
-			chosenSuite = suite
-			foundCipherSuite = true
-			break
-		}
-	}
-
-	// If there are no matching suites and PSK is present, check non-PSK
-	if !foundCipherSuite {
-		for _, suite := range ch.cipherSuites {
-			if c.config.enabledSuite[suite] {
-				chosenSuite = suite
-				foundCipherSuite = true
-				break
-			}
-		}
-	}
-
-	logf(logTypeCrypto, "Supported Client suites [%v]", ch.cipherSuites)
-	if !foundCipherSuite {
-		logf(logTypeHandshake, "No acceptable ciphersuites")
-		return fmt.Errorf("tls.server: No acceptable ciphersuites")
-	}
-	logf(logTypeHandshake, "[server] Chose CipherSuite %x", chosenSuite)
 
 	// Init context and decide whether to send KeyShare/PreSharedKey
 	ctx := cryptoContext{}

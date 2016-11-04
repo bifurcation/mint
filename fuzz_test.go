@@ -24,8 +24,8 @@ var structs = []interface{}{
 	&keyShareExtension{handshakeType: handshakeTypeServerHello},
 	&supportedGroupsExtension{},
 	&signatureAlgorithmsExtension{},
-	&preSharedKeyExtension{roleIsServer: false},
-	&preSharedKeyExtension{roleIsServer: true},
+	&preSharedKeyExtension{handshakeType: handshakeTypeClientHello},
+	&preSharedKeyExtension{handshakeType: handshakeTypeServerHello},
 	&supportedVersionsExtension{},
 }
 

@@ -305,22 +305,47 @@ func (sa *signatureAlgorithmsExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, sa)
 }
 
-// opaque psk_identity<0..2^16-1>;
+// struct {
+//     opaque identity<1..2^16-1>;
+//     uint32 obfuscated_ticket_age;
+// } PskIdentity;
+//
+// opaque PskBinderEntry<32..255>;
 //
 // struct {
-//     select (Role) {
-//         case client:
-//             psk_identity identities<2..2^16-1>;
+//     select (Handshake.msg_type) {
+//         case client_hello:
+//             PskIdentity identities<7..2^16-1>;
+//             PskBinderEntry binders<33..2^16-1>;
 //
-//         case server:
+//         case server_hello:
 //             uint16 selected_identity;
-//     }
+//     };
+//
 // } PreSharedKeyExtension;
+type pskIdentity struct {
+	Identity            []byte `tls:"head=2,min=1"`
+	ObfuscatedTicketAge uint32
+}
+
+type pskBinderEntry struct {
+	Binder []byte `tls:"head=1,min=32"`
+}
 
 type preSharedKeyExtension struct {
-	roleIsServer     bool
-	identities       [][]byte
+	handshakeType    handshakeType
+	identities       []pskIdentity
+	binders          []pskBinderEntry
 	selectedIdentity uint16
+}
+
+type preSharedKeyClientInner struct {
+	Identities []pskIdentity    `tls:"head=2,min=7"`
+	Binders    []pskBinderEntry `tls:"head=2,min=33"`
+}
+
+type preSharedKeyServerInner struct {
+	SelectedIdentity uint16
 }
 
 func (psk preSharedKeyExtension) Type() helloExtensionType {
@@ -328,177 +353,76 @@ func (psk preSharedKeyExtension) Type() helloExtensionType {
 }
 
 func (psk preSharedKeyExtension) Marshal() ([]byte, error) {
-	if psk.roleIsServer && len(psk.identities) > 0 {
-		return nil, fmt.Errorf("tls.presharedkey: Server can only provide an index")
-	}
+	switch psk.handshakeType {
+	case handshakeTypeClientHello:
+		return syntax.Marshal(preSharedKeyClientInner{
+			Identities: psk.identities,
+			Binders:    psk.binders,
+		})
 
-	if psk.roleIsServer {
-		id := psk.selectedIdentity
-		return []byte{byte(id >> 8), byte(id)}, nil
-	} else {
-		identities := []byte{}
-		for _, id := range psk.identities {
-			idLen := len(id)
-			header := []byte{byte(idLen >> 8), byte(idLen)}
-			identities = append(identities, header...)
-			identities = append(identities, id...)
+	case handshakeTypeServerHello:
+		if len(psk.identities) > 0 || len(psk.binders) > 0 {
+			return nil, fmt.Errorf("tls.presharedkey: Server can only provide an index")
 		}
-		dataLen := len(identities)
-		header := []byte{byte(dataLen >> 8), byte(dataLen)}
-		identities = append(header, identities...)
-		return identities, nil
+		return syntax.Marshal(preSharedKeyServerInner{psk.selectedIdentity})
+
+	default:
+		return nil, fmt.Errorf("tls.presharedkey: Handshake type not supported")
 	}
 }
 
 func (psk *preSharedKeyExtension) Unmarshal(data []byte) (int, error) {
-	read := 0
-	if psk.roleIsServer {
-		if len(data) != 2 {
-			return 0, fmt.Errorf("tls.presharedkey: Server PSK has incorrect length")
+	switch psk.handshakeType {
+	case handshakeTypeClientHello:
+		var inner preSharedKeyClientInner
+		read, err := syntax.Unmarshal(data, &inner)
+		if err != nil {
+			return 0, err
 		}
 
-		psk.selectedIdentity = (uint16(data[0]) << 8) + uint16(data[1])
-		read = 2
-	} else {
-		totalLen := len(data)
-		if len(data) < 2 {
-			return 0, fmt.Errorf("tls.presharedkey: Client PSK extension too short")
+		psk.identities = inner.Identities
+		psk.binders = inner.Binders
+		return read, nil
+
+	case handshakeTypeServerHello:
+		var inner preSharedKeyServerInner
+		read, err := syntax.Unmarshal(data, &inner)
+		if err != nil {
+			return 0, err
 		}
-		read = 2
-		totalLen = (int(data[0]) << 8) + int(data[1])
 
-		for read < 2+totalLen {
-			if len(data[read:]) < 2 {
-				return 0, fmt.Errorf("tls.presharedkey: PSK extension too short for identity header")
-			}
+		psk.selectedIdentity = inner.SelectedIdentity
+		return read, nil
 
-			idLen := (int(data[read]) << 8) + int(data[read+1])
-			if len(data[read+2:]) < idLen {
-				return 0, fmt.Errorf("tls.presharedkey: PSK extension too short for identity")
-			}
-
-			id := make([]byte, idLen)
-			copy(id, data[read+2:read+2+idLen])
-			psk.identities = append(psk.identities, id)
-
-			read += 2 + idLen
-
-			if psk.roleIsServer {
-				break
-			}
-		}
+	default:
+		return 0, fmt.Errorf("tls.presharedkey: Handshake type not supported")
 	}
-	return read, nil
 }
 
 func (psk preSharedKeyExtension) HasIdentity(id []byte) bool {
 	for _, localID := range psk.identities {
-		if bytes.Equal(localID, id) {
+		if bytes.Equal(localID.Identity, id) {
 			return true
 		}
 	}
 	return false
 }
 
-//   struct {
-//       select (Role) {
-//           case client:
-//               opaque configuration_id<1..2^16-1>;
-//               CipherSuite cipher_suite;
-//               Extension extensions<0..2^16-1>;
-//               opaque context<0..255>;
-//
-//           case server:
-//              struct {};
-//       }
-//   } EarlyDataIndication;
-//
-//   | 2 | opaque | 2 | 2 | extList | 1 | opaque |
+// struct {
+// } EarlyDataIndication;
 
-type earlyDataExtension struct {
-	roleIsServer    bool
-	configurationID []byte
-	cipherSuite     cipherSuite
-	extensions      extensionList
-	context         []byte
-	version         int
-}
+type earlyDataExtension struct{}
 
 func (ed earlyDataExtension) Type() helloExtensionType {
 	return extensionTypeEarlyData
 }
 
 func (ed earlyDataExtension) Marshal() ([]byte, error) {
-	if ed.roleIsServer {
-		return []byte{}, nil
-	}
-
-	extData, err := ed.extensions.Marshal()
-	if err != nil {
-		return nil, err
-	}
-
-	configLen := len(ed.configurationID)
-	extLen := len(extData)
-	contextLen := len(ed.context)
-
-	if configLen > 0xFFFF {
-		return nil, fmt.Errorf("tls.earlydata: ConfigurationID too large to marshal")
-	}
-
-	if contextLen > 0xFF {
-		return nil, fmt.Errorf("tls.earlydata: Context too large to marshal")
-	}
-
-	data := make([]byte, 2+configLen+2+extLen+1+contextLen)
-	data[0] = byte(configLen >> 8)
-	data[1] = byte(configLen)
-	copy(data[2:], ed.configurationID)
-	data[2+configLen] = byte(ed.cipherSuite >> 8)
-	data[2+configLen+1] = byte(ed.cipherSuite)
-	copy(data[2+configLen+2:], extData)
-	data[2+configLen+2+extLen] = byte(contextLen)
-	copy(data[2+configLen+2+extLen+1:], ed.context)
-
-	return data, nil
+	return []byte{}, nil
 }
 
 func (ed *earlyDataExtension) Unmarshal(data []byte) (int, error) {
-	if ed.roleIsServer {
-		return 0, nil
-	}
-
-	if len(data) < 2 {
-		return 0, fmt.Errorf("tls.earlydata: Too short for config header")
-	}
-
-	configLen := (int(data[0]) << 8) + int(data[1])
-	if len(data) < 2+configLen+2 {
-		return 0, fmt.Errorf("tls.earlydata: Too short for config")
-	}
-
-	ed.configurationID = make([]byte, configLen)
-	copy(ed.configurationID, data[2:])
-
-	ed.cipherSuite = (cipherSuite(data[2+configLen]) << 8) + cipherSuite(data[2+configLen+1])
-
-	extLen, err := ed.extensions.Unmarshal(data[2+configLen+2:])
-	if err != nil {
-		return 0, fmt.Errorf("tls.earlydata: Error unmarshaling extensions")
-	}
-	if len(data) < 2+configLen+2+extLen+1 {
-		return 0, fmt.Errorf("tls.earlydata: Too short for context header")
-	}
-
-	contextLen := int(data[2+configLen+2+extLen])
-	if len(data) < 2+configLen+2+extLen+1+contextLen {
-		return 0, fmt.Errorf("tls.earlydata: Too short for context")
-	}
-
-	ed.context = make([]byte, contextLen)
-	copy(ed.context, data[2+configLen+2+extLen+1:])
-
-	return 2 + configLen + 2 + extLen + 1 + contextLen, nil
+	return 0, nil
 }
 
 // opaque ProtocolName<1..2^8-1>;
@@ -510,44 +434,38 @@ type alpnExtension struct {
 	protocols []string
 }
 
+type protocolName struct {
+	Name []byte `tls:"head=1,min=1"`
+}
+
+type alpnExtensionInner struct {
+	Protocols []protocolName `tls:"head=2,min=2"`
+}
+
 func (alpn alpnExtension) Type() helloExtensionType {
 	return extensionTypeALPN
 }
 
 func (alpn alpnExtension) Marshal() ([]byte, error) {
-	listData := []byte{}
-	for _, proto := range alpn.protocols {
-		listData = append(listData, byte(len(proto)))
-		listData = append(listData, []byte(proto)...)
+	protocols := make([]protocolName, len(alpn.protocols))
+	for i, protocol := range alpn.protocols {
+		protocols[i] = protocolName{[]byte(protocol)}
 	}
-
-	listLen := len(listData)
-	lenData := []byte{byte(listLen >> 8), byte(listLen)}
-	return append(lenData, listData...), nil
+	return syntax.Marshal(alpnExtensionInner{protocols})
 }
 
 func (alpn *alpnExtension) Unmarshal(data []byte) (int, error) {
-	if len(data) < 2 {
-		return 0, fmt.Errorf("tls.alpn: Too short for list length")
+	var inner alpnExtensionInner
+	read, err := syntax.Unmarshal(data, &inner)
+
+	if err != nil {
+		return 0, err
 	}
 
-	listLen := (int(data[0]) << 8) + int(data[1])
-	if len(data) < 2+listLen {
-		return 0, fmt.Errorf("tls.alpn: Too short for proto list")
+	alpn.protocols = make([]string, len(inner.Protocols))
+	for i, protocol := range inner.Protocols {
+		alpn.protocols[i] = string(protocol.Name)
 	}
-
-	read := 2
-	alpn.protocols = []string{}
-	for read < listLen+2 {
-		itemLen := int(data[read])
-		read += 1 + itemLen
-		if 2+listLen < read {
-			return 0, fmt.Errorf("tls.alpn: List element length exceeds list length")
-		}
-
-		alpn.protocols = append(alpn.protocols, string(data[read-itemLen:read]))
-	}
-
 	return read, nil
 }
 
@@ -555,7 +473,7 @@ func (alpn *alpnExtension) Unmarshal(data []byte) (int, error) {
 //     ProtocolVersion versions<2..254>;
 // } SupportedVersions;
 type supportedVersionsExtension struct {
-	versions []uint16
+	Versions []uint16 `tls:"head=1,min=2,max=254"`
 }
 
 func (sv supportedVersionsExtension) Type() helloExtensionType {
@@ -563,35 +481,9 @@ func (sv supportedVersionsExtension) Type() helloExtensionType {
 }
 
 func (sv supportedVersionsExtension) Marshal() ([]byte, error) {
-	listLen := 2 * len(sv.versions)
-
-	data := make([]byte, 1+listLen)
-	data[0] = byte(listLen)
-	for i, version := range sv.versions {
-		data[2*i+1] = byte(version >> 8)
-		data[2*i+2] = byte(version)
-	}
-
-	return data, nil
+	return syntax.Marshal(sv)
 }
 
 func (sv *supportedVersionsExtension) Unmarshal(data []byte) (int, error) {
-	if len(data) < 1 {
-		return 0, fmt.Errorf("tls.supportedversions: Too short for length")
-	}
-
-	listLen := int(data[0])
-	if len(data) < 1+listLen {
-		return 0, fmt.Errorf("tls.supportedversions: Too short for list")
-	}
-	if listLen%2 == 1 {
-		return 0, fmt.Errorf("tls.supportedversions: Odd list length")
-	}
-
-	sv.versions = make([]uint16, listLen/2)
-	for i := range sv.versions {
-		sv.versions[i] = (uint16(data[2*i+1]) << 8) + uint16(data[2*i+2])
-	}
-
-	return 1 + listLen, nil
+	return syntax.Unmarshal(data, sv)
 }

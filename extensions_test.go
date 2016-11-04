@@ -3,7 +3,6 @@ package mint
 import (
 	"bytes"
 	"encoding/hex"
-	"fmt"
 	"testing"
 )
 
@@ -111,32 +110,29 @@ var (
 	serverNameHex = "000e00000b" + hex.EncodeToString([]byte(serverNameRaw))
 
 	// PSK test cases
-	pskClientHex = "000c000400010203000404050607"
+	pskClientHex = "000a" + "00040102030405060708" +
+		"0021" + "20" + "A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0"
 	pskServerHex = "0002"
 	pskClientIn  = &preSharedKeyExtension{
-		roleIsServer: false,
-		identities: [][]byte{
-			[]byte{0, 1, 2, 3},
-			[]byte{4, 5, 6, 7},
+		handshakeType: handshakeTypeClientHello,
+		identities: []pskIdentity{
+			pskIdentity{
+				Identity:            []byte{0x01, 0x02, 0x03, 0x04},
+				ObfuscatedTicketAge: 0x05060708,
+			},
+		},
+		binders: []pskBinderEntry{
+			pskBinderEntry{
+				Binder: bytes.Repeat([]byte{0xA0}, 32),
+			},
 		},
 	}
 	pskServerIn = &preSharedKeyExtension{
-		roleIsServer:     true,
+		handshakeType:    handshakeTypeServerHello,
 		selectedIdentity: 2,
 	}
-
-	// EarlyData test cases
-	edClientHex = "000400010203130100120029000e000c0004000102030004040506070404050607"
-	edServerHex = ""
-	edClientIn  = &earlyDataExtension{
-		roleIsServer:    false,
-		configurationID: []byte{0, 1, 2, 3},
-		cipherSuite:     TLS_AES_128_GCM_SHA256,
-		extensions:      extensionList{},
-		context:         []byte{4, 5, 6, 7},
-	}
-	edServerIn = &earlyDataExtension{
-		roleIsServer: true,
+	pskInvalidIn = &preSharedKeyExtension{
+		handshakeType: handshakeTypeHelloRetryRequest,
 	}
 
 	// ALPN test cases
@@ -148,7 +144,7 @@ var (
 
 	// SupportedVersions test cases
 	supportedVersionsIn = supportedVersionsExtension{
-		versions: []uint16{0x0300, 0x0304},
+		Versions: []uint16{0x0300, 0x0304},
 	}
 	supportedVersionsHex = "0403000304"
 )
@@ -478,110 +474,48 @@ func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, pskServer)
 
 	// Test marshal failure on server trying to send multiple
-	pskClientIn.roleIsServer = !pskClientIn.roleIsServer
-	out, err = pskClientIn.Marshal()
+	pskServerIn.identities = pskClientIn.identities
+	out, err = pskServerIn.Marshal()
 	assertError(t, err, "Marshaled multiple key shares for server")
-	pskClientIn.roleIsServer = !pskClientIn.roleIsServer
+	pskServerIn.identities = nil
+
+	// Test marshal failure on unsupported handshake type
+	out, err = pskInvalidIn.Marshal()
+	assertError(t, err, "Marshaled PSK for unsupported handshake type")
 
 	// Test successful unmarshal (client side)
-	psk := preSharedKeyExtension{roleIsServer: false}
+	psk := preSharedKeyExtension{handshakeType: handshakeTypeClientHello}
 	read, err := psk.Unmarshal(pskClient)
 	assertNotError(t, err, "Failed to unmarshal valid KeyShare (client)")
 	assertDeepEquals(t, &psk, pskClientIn)
 	assertEquals(t, read, len(pskClient))
 
 	// Test successful unmarshal (server side)
-	psk = preSharedKeyExtension{roleIsServer: true}
+	psk = preSharedKeyExtension{handshakeType: handshakeTypeServerHello}
 	read, err = psk.Unmarshal(pskServer)
 	assertNotError(t, err, "Failed to unmarshal valid KeyShare (server)")
 	assertDeepEquals(t, &psk, pskServerIn)
 	assertEquals(t, read, len(pskServer))
 
-	// Test unmarshal failure on truncated length (client)
-	psk = preSharedKeyExtension{roleIsServer: false}
+	// Test unmarshal failure on underlying unmarshal failure (client)
+	psk = preSharedKeyExtension{handshakeType: handshakeTypeClientHello}
 	read, err = psk.Unmarshal(pskClient[:1])
 	assertError(t, err, "Unmarshaled a KeyShare without a length")
 
-	// Test unmarshal failure on truncated psk length
-	psk = preSharedKeyExtension{roleIsServer: false}
-	read, err = psk.Unmarshal(pskClient[:3])
-	assertError(t, err, "Unmarshaled a KeyShare without a key share length")
-
-	// Test unmarshal failure on truncated psk value
-	psk = preSharedKeyExtension{roleIsServer: false}
-	read, err = psk.Unmarshal(pskClient[:5])
-	assertError(t, err, "Unmarshaled a KeyShare without a truncated key share value")
+	// Test unmarshal failure on underlying unmarshal failure (server)
+	psk = preSharedKeyExtension{handshakeType: handshakeTypeServerHello}
+	read, err = psk.Unmarshal(pskClient[:1])
+	assertError(t, err, "Unmarshaled a KeyShare without a length")
 
 	// Test finding an identity that is present
-	id := []byte{0, 1, 2, 3}
+	id := []byte{1, 2, 3, 4}
 	found := pskClientIn.HasIdentity(id)
 	assert(t, found, "Failed to find present identity")
 
-	// Test finding an identity that is present
-	id = []byte{0, 1, 2, 4}
+	// Test finding an identity that is not present
+	id = []byte{1, 2, 4, 3}
 	found = pskClientIn.HasIdentity(id)
 	assert(t, !found, "Found a not-present identity")
-}
-
-func TestEarlyDataMarshalUnmarshal(t *testing.T) {
-	edClient, _ := hex.DecodeString(edClientHex)
-	edServer, _ := hex.DecodeString(edServerHex)
-	edClientIn.extensions.Add(pskClientIn)
-
-	// Test extension type
-	assertEquals(t, earlyDataExtension{}.Type(), extensionTypeEarlyData)
-
-	// Test successful marshal (client side)
-	out, err := edClientIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid EarlyData")
-	assertByteEquals(t, out, edClient)
-
-	// Test successful unmarshal (client side)
-	ed := earlyDataExtension{roleIsServer: false}
-	read, err := ed.Unmarshal(edClient)
-	assertNotError(t, err, "Failed to unmarshal valid EarlyData")
-	assertDeepEquals(t, ed, *edClientIn)
-	assertEquals(t, read, len(edClient))
-
-	// Test successful marshal (server side)
-	out, err = edServerIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid EarlyData")
-	assertByteEquals(t, out, edServer)
-
-	// Test successful unmarshal (server side)
-	ed = earlyDataExtension{roleIsServer: true}
-	read, err = ed.Unmarshal(edServer)
-	assertNotError(t, err, "Failed to unmarshal valid EarlyData")
-	assertDeepEquals(t, ed, *edServerIn)
-	assertEquals(t, read, len(edServer))
-
-	// Test marshal failure on extensions too long
-	originalExt := edClientIn.extensions
-	edClientIn.extensions = extListTooLongIn
-	_, err = edClientIn.Marshal()
-	assertError(t, err, "Marshalled EarlyData with extensions too long")
-	edClientIn.extensions = originalExt
-
-	// Test marshal failure on configurationID too long
-	originalConfig := edClientIn.configurationID
-	edClientIn.configurationID = bytes.Repeat([]byte{0}, 0xFFFF+1)
-	_, err = edClientIn.Marshal()
-	assertError(t, err, "Marshalled EarlyData with configurationID too long")
-	edClientIn.configurationID = originalConfig
-
-	// Test marshal failure on context too long
-	originalContext := edClientIn.context
-	edClientIn.context = bytes.Repeat([]byte{0}, 0xFF+1)
-	_, err = edClientIn.Marshal()
-	assertError(t, err, "Marshalled EarlyData with configurationID too long")
-	edClientIn.context = originalContext
-
-	// Test unmarshal failure at various truncation points
-	for _, cut := range []int{1, 4, 11, 28, 30} {
-		ed := earlyDataExtension{}
-		_, err = ed.Unmarshal(edClient[:cut])
-		assertError(t, err, fmt.Sprintf("Unmarshalled EarlyData truncated to %d", cut))
-	}
 }
 
 func TestALPNMarshalUnmarshal(t *testing.T) {
