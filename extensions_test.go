@@ -9,15 +9,15 @@ import (
 var (
 	// Extension test cases
 	extValidIn = extension{
-		ExtensionType: helloExtensionType(0x000a),
+		ExtensionType: extensionType(0x000a),
 		ExtensionData: []byte{0xf0, 0xf1, 0xf2, 0xf3, 0xf4},
 	}
 	extEmptyIn = extension{
-		ExtensionType: helloExtensionType(0x000a),
+		ExtensionType: extensionType(0x000a),
 		ExtensionData: []byte{},
 	}
 	extTooLongIn = extension{
-		ExtensionType: helloExtensionType(0x000a),
+		ExtensionType: extensionType(0x000a),
 		ExtensionData: bytes.Repeat([]byte{0}, maxExtensionDataLen+1),
 	}
 	extValidHex    = "000a0005f0f1f2f3f4"
@@ -27,7 +27,7 @@ var (
 
 	// Extension list test cases
 	extHalfLengthPlus = extension{
-		ExtensionType: helloExtensionType(0x000a),
+		ExtensionType: extensionType(0x000a),
 		ExtensionData: bytes.Repeat([]byte{0}, (maxExtensionDataLen/2)+1),
 	}
 	extListValidIn          = extensionList{extValidIn, extEmptyIn}
@@ -38,6 +38,22 @@ var (
 	extListNoHeaderHex      = "00"
 	extListOverflowOuterHex = "0020000a0005f0f1f2f3f4000a0005f0f1f2f3f4"
 	extListOverflowInnerHex = "0012000a0005f0f1f2f3f4000a0010f0f1f2f3f4"
+
+	// Add/Find test cases
+	keyShareServerRaw, _  = hex.DecodeString(keyShareServerHex)
+	keyShareInvalidRaw, _ = hex.DecodeString(keyShareInvalidHex)
+	extListKeyShareIn     = extensionList{
+		extension{
+			ExtensionType: extensionTypeKeyShare,
+			ExtensionData: keyShareServerRaw,
+		},
+	}
+	extListInvalidIn = extensionList{
+		extension{
+			ExtensionType: extensionTypeKeyShare,
+			ExtensionData: keyShareInvalidRaw,
+		},
+	}
 
 	// KeyShare test cases
 	len256           = keyExchangeSizeFromNamedGroup(namedGroupP256)
@@ -73,42 +89,6 @@ var (
 	keyShareServerHex     = "00170041" + hex.EncodeToString(p256)
 	keyShareInvalidHex    = "0006001700020000"
 
-	// Add/Find test cases
-	keyShareServerRaw, _  = hex.DecodeString(keyShareServerHex)
-	keyShareInvalidRaw, _ = hex.DecodeString(keyShareInvalidHex)
-	extListKeyShareIn     = extensionList{
-		extension{
-			ExtensionType: extensionTypeKeyShare,
-			ExtensionData: keyShareServerRaw,
-		},
-	}
-	extListInvalidIn = extensionList{
-		extension{
-			ExtensionType: extensionTypeKeyShare,
-			ExtensionData: keyShareInvalidRaw,
-		},
-	}
-
-	// SupportedGroups test cases
-	supportedGroupsIn = supportedGroupsExtension{
-		Groups: []namedGroup{namedGroupP256, namedGroupP384},
-	}
-	supportedGroupsHex = "000400170018"
-
-	// SignatureAlgorithms test cases
-	signatureAlgorithmsIn = signatureAlgorithmsExtension{
-		Algorithms: []signatureScheme{
-			signatureSchemeRSA_PSS_SHA256,
-			signatureSchemeECDSA_P256_SHA256,
-		},
-	}
-	signatureAlgorithmsHex = "000408040403"
-
-	// SNI test cases
-	serverNameRaw = "example.com"
-	serverNameIn  = serverNameExtension(serverNameRaw)
-	serverNameHex = "000e00000b" + hex.EncodeToString([]byte(serverNameRaw))
-
 	// PSK test cases
 	pskClientHex = "000a" + "00040102030405060708" +
 		"0021" + "20" + "A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0"
@@ -135,44 +115,123 @@ var (
 		handshakeType: handshakeTypeHelloRetryRequest,
 	}
 
-	// ALPN test cases
-	alpnValidHex    = "000c08687474702f312e31026832"
-	alpnTooShortHex = "0003046874"
-	alpnValidIn     = &alpnExtension{
-		protocols: []string{"http/1.1", "h2"},
-	}
-
-	// SupportedVersions test cases
-	supportedVersionsIn = supportedVersionsExtension{
-		Versions: []uint16{0x0300, 0x0304},
-	}
-	supportedVersionsHex = "0403000304"
-
-	// PskKeyExchangeModes test cases
-	pskKeyExchangeIn = pskKeyExchangeModesExtension{
-		KEModes: []pskKeyExchangeMode{
-			pskModeKE,
-			pskModeDHEKE,
-		},
-	}
-	pskKeyExchangeHex = "020001"
-
-	// EarlyDataIndication test cases
-	earlyDataIn  = earlyDataExtension{}
-	earlyDataHex = ""
-
-	// TicketEarlyDataInfo test cases
-	ticketEarlyDataInfoIn = ticketEarlyDataInfoExtension{
-		MaxEarlyDataSize: 0x01020304,
-	}
-	ticketEarlyDataInfoHex = "01020304"
-
-	// Cookie test cases
-	cookieIn = cookieExtension{
-		Cookie: []byte{0x01, 0x02, 0x03, 0x04},
-	}
-	cookieHex = "000401020304"
+	// SNI test cases (pre-declared so that we can take references in the test case)
+	serverNameRaw = "example.com"
+	serverNameIn  = serverNameExtension(serverNameRaw)
 )
+
+var validExtensionTestCases = map[extensionType]struct {
+	blank        extensionBody
+	unmarshaled  extensionBody
+	marshaledHex string
+}{
+	// ServerName
+	extensionTypeServerName: {
+		blank:        new(serverNameExtension),
+		unmarshaled:  &serverNameIn,
+		marshaledHex: "000e00000b6578616d706c652e636f6d",
+	},
+
+	// SupportedGroups
+	extensionTypeSupportedGroups: {
+		blank: &supportedGroupsExtension{},
+		unmarshaled: &supportedGroupsExtension{
+			Groups: []namedGroup{namedGroupP256, namedGroupP384},
+		},
+		marshaledHex: "000400170018",
+	},
+
+	// SignatureAlgorithms
+	extensionTypeSignatureAlgorithms: {
+		blank: &signatureAlgorithmsExtension{},
+		unmarshaled: &signatureAlgorithmsExtension{
+			Algorithms: []signatureScheme{
+				signatureSchemeRSA_PSS_SHA256,
+				signatureSchemeECDSA_P256_SHA256,
+			},
+		},
+		marshaledHex: "000408040403",
+	},
+
+	// ALPN
+	extensionTypeALPN: {
+		blank: &alpnExtension{},
+		unmarshaled: &alpnExtension{
+			protocols: []string{"http/1.1", "h2"},
+		},
+		marshaledHex: "000c08687474702f312e31026832",
+	},
+
+	// Omitted: KeyShare (depends on handshakeType)
+	// Omitted: PreSharedKey (depends on handshakeType)
+
+	// EarlyData
+	extensionTypeEarlyData: {
+		blank:        &earlyDataExtension{},
+		unmarshaled:  &earlyDataExtension{},
+		marshaledHex: "",
+	},
+
+	// SupportedVersions
+	extensionTypeSupportedVersions: {
+		blank: &supportedVersionsExtension{},
+		unmarshaled: &supportedVersionsExtension{
+			Versions: []uint16{0x0300, 0x0304},
+		},
+		marshaledHex: "0403000304",
+	},
+
+	// Cookie
+	extensionTypeCookie: {
+		blank: &cookieExtension{},
+		unmarshaled: &cookieExtension{
+			Cookie: []byte{0x01, 0x02, 0x03, 0x04},
+		},
+		marshaledHex: "000401020304",
+	},
+
+	// PskKeyExchangeModes
+	extensionTypePSKKeyExchangeModes: {
+		blank: &pskKeyExchangeModesExtension{},
+		unmarshaled: &pskKeyExchangeModesExtension{
+			KEModes: []pskKeyExchangeMode{
+				pskModeKE,
+				pskModeDHEKE,
+			},
+		},
+		marshaledHex: "020001",
+	},
+
+	// TicketEarlyDataInfo
+	extensionTypeTicketEarlyDataInfo: {
+		blank: &ticketEarlyDataInfoExtension{},
+		unmarshaled: &ticketEarlyDataInfoExtension{
+			MaxEarlyDataSize: 0x01020304,
+		},
+		marshaledHex: "01020304",
+	},
+}
+
+func TestExtensionBodyMarshalUnmarshal(t *testing.T) {
+	for extType, test := range validExtensionTestCases {
+		marshaled, err := hex.DecodeString(test.marshaledHex)
+		assertNotError(t, err, "Malformed test case for extension type")
+
+		// Test extension type
+		assertEquals(t, test.unmarshaled.Type(), extType)
+
+		// Test successful marshal
+		out, err := test.unmarshaled.Marshal()
+		assertNotError(t, err, "Failed to marshal valid Cookie")
+		assertByteEquals(t, out, marshaled)
+
+		// Test successful unmarshal
+		read, err := test.blank.Unmarshal(marshaled)
+		assertNotError(t, err, "Failed to unmarshal valid Cookie")
+		assertDeepEquals(t, test.blank, test.unmarshaled)
+		assertEquals(t, read, len(marshaled))
+	}
+}
 
 func TestExtensionMarshalUnmarshal(t *testing.T) {
 	extValid, _ := hex.DecodeString(extValidHex)
@@ -291,35 +350,13 @@ func TestExtensionFind(t *testing.T) {
 }
 
 func TestServerNameMarshalUnmarshal(t *testing.T) {
+	serverNameHex := validExtensionTestCases[extensionTypeServerName].marshaledHex
 	serverName, _ := hex.DecodeString(serverNameHex)
 
-	// Test extension type
-	assertEquals(t, serverNameExtension("").Type(), extensionTypeServerName)
-
-	// Test successful marshal
-	out, err := serverNameIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid ServerName")
-	assertByteEquals(t, out, serverName)
-
-	// Test successful unmarshal
+	// Test unmarshal failure on underlying unmarshal failure
 	var sni serverNameExtension
-	_, err = sni.Unmarshal(serverName)
-	assertNotError(t, err, "Failed to unmarshal valid ServerName")
-	assertDeepEquals(t, sni, serverNameIn)
-
-	// Test unmarshal failure on truncated header
-	_, err = sni.Unmarshal(serverName[:4])
-	assertError(t, err, "Unmarshaled a ServerName without a header")
-
-	// Test unmarshal failure on truncated name
-	_, err = sni.Unmarshal(serverName[:7])
-	assertError(t, err, "Unmarshaled a ServerName without a full name")
-
-	// Test unmarshal failure on length mismatch
-	serverName[4]++
-	_, err = sni.Unmarshal(serverName)
-	assertError(t, err, "Unmarshaled a ServerName with inconsistent lengths")
-	serverName[4]--
+	_, err := sni.Unmarshal(serverName[:1])
+	assertError(t, err, "Unmarshaled a truncated ServerName")
 
 	// Test unmarshal failure on a name that is not a host_name
 	serverName[2]++
@@ -427,78 +464,6 @@ func TestKeyShareMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a key share with an unsupported handshake type")
 }
 
-func TestSupportedGroupsMarshalUnmarshal(t *testing.T) {
-	supportedGroups, _ := hex.DecodeString(supportedGroupsHex)
-
-	// Test extension type
-	assertEquals(t, supportedGroupsExtension{}.Type(), extensionTypeSupportedGroups)
-
-	// Test successful marshal
-	out, err := supportedGroupsIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid SupportedGroups")
-	assertByteEquals(t, out, supportedGroups)
-
-	// Test successful unmarshal
-	sg := supportedGroupsExtension{}
-	read, err := sg.Unmarshal(supportedGroups)
-	assertNotError(t, err, "Failed to unmarshal valid SupportedGroups")
-	assertDeepEquals(t, sg, supportedGroupsIn)
-	assertEquals(t, read, len(supportedGroups))
-
-	// Test unmarshal failure on truncated length
-	sg = supportedGroupsExtension{}
-	read, err = sg.Unmarshal(supportedGroups[:1])
-	assertError(t, err, "Unmarshaled a SupportedGroups without a length")
-
-	// Test unmarshal failure on truncated list
-	sg = supportedGroupsExtension{}
-	read, err = sg.Unmarshal(supportedGroups[:3])
-	assertError(t, err, "Unmarshaled a SupportedGroups without a key share length")
-
-	// Test unmarshal failure on odd list length
-	supportedGroups[1]--
-	sg = supportedGroupsExtension{}
-	read, err = sg.Unmarshal(supportedGroups)
-	assertError(t, err, "Unmarshaled a SupportedGroups with an odd-length list")
-	supportedGroups[1]++
-}
-
-func TestSignatureAlgorithmsMarshalUnmarshal(t *testing.T) {
-	signatureAlgorithms, _ := hex.DecodeString(signatureAlgorithmsHex)
-
-	// Test extension type
-	assertEquals(t, signatureAlgorithmsExtension{}.Type(), extensionTypeSignatureAlgorithms)
-
-	// Test successful marshal
-	out, err := signatureAlgorithmsIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid SignatureAlgorithms")
-	assertByteEquals(t, out, signatureAlgorithms)
-
-	// Test successful unmarshal
-	sg := signatureAlgorithmsExtension{}
-	read, err := sg.Unmarshal(signatureAlgorithms)
-	assertNotError(t, err, "Failed to unmarshal valid SignatureAlgorithms")
-	assertDeepEquals(t, sg, signatureAlgorithmsIn)
-	assertEquals(t, read, len(signatureAlgorithms))
-
-	// Test unmarshal failure on truncated length
-	sg = signatureAlgorithmsExtension{}
-	read, err = sg.Unmarshal(signatureAlgorithms[:1])
-	assertError(t, err, "Unmarshaled a SignatureAlgorithms without a length")
-
-	// Test unmarshal failure on truncated list
-	sg = signatureAlgorithmsExtension{}
-	read, err = sg.Unmarshal(signatureAlgorithms[:3])
-	assertError(t, err, "Unmarshaled a SignatureAlgorithms without a key share length")
-
-	// Test unmarshal failure on odd list length
-	signatureAlgorithms[1]--
-	sg = signatureAlgorithmsExtension{}
-	read, err = sg.Unmarshal(signatureAlgorithms)
-	assertError(t, err, "Unmarshaled a SignatureAlgorithms with an odd-length list")
-	signatureAlgorithms[1]++
-}
-
 func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
 	pskClient, _ := hex.DecodeString(pskClientHex)
 	pskServer, _ := hex.DecodeString(pskServerHex)
@@ -567,148 +532,11 @@ func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
 }
 
 func TestALPNMarshalUnmarshal(t *testing.T) {
-	alpnValid, _ := hex.DecodeString(alpnValidHex)
-	alpnTooShort, _ := hex.DecodeString(alpnTooShortHex)
+	alpnHex := validExtensionTestCases[extensionTypeALPN].marshaledHex
+	alpn, _ := hex.DecodeString(alpnHex)
 
-	// Test extension type
-	assertEquals(t, alpnExtension{}.Type(), extensionTypeALPN)
-
-	// Test successful marshal
-	out, err := alpnValidIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid ALPN extension")
-	assertByteEquals(t, out, alpnValid)
-
-	// Test successful unmarshal
-	alpn := &alpnExtension{}
-	read, err := alpn.Unmarshal(alpnValid)
-	assertNotError(t, err, "Failed to unmarshal valid ALPN extension")
-	assertDeepEquals(t, alpn, alpnValidIn)
-	assertEquals(t, read, len(alpnValid))
-
-	// Test unmarshal failure on data too short for the length
-	alpn = &alpnExtension{}
-	read, err = alpn.Unmarshal(alpnValid[:1])
-	assertError(t, err, "Unmarshaled a ALPN extension that's too short for the length")
-
-	// Test unmarshal failure on data shorter than the stated length
-	alpn = &alpnExtension{}
-	read, err = alpn.Unmarshal(alpnValid[:4])
-	assertError(t, err, "Unmarshaled a ALPN extension that's shorter than the stated length")
-
-	// Test unmarshal failure on data too short
-	alpn = &alpnExtension{}
-	read, err = alpn.Unmarshal(alpnTooShort)
+	// Test unmarshal failure on underlying unmarshal failure
+	ext := &alpnExtension{}
+	_, err := ext.Unmarshal(alpn[:1])
 	assertError(t, err, "Unmarshaled a ALPN extension with a too-long interior length")
-}
-
-func TestSupportedVersionsMarshalUnmarshal(t *testing.T) {
-	supportedVersions, _ := hex.DecodeString(supportedVersionsHex)
-
-	// Test extension type
-	assertEquals(t, supportedVersionsExtension{}.Type(), extensionTypeSupportedVersions)
-
-	// Test successful marshal
-	out, err := supportedVersionsIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid SupportedVersions")
-	assertByteEquals(t, out, supportedVersions)
-
-	// Test successful unmarshal
-	sv := supportedVersionsExtension{}
-	read, err := sv.Unmarshal(supportedVersions)
-	assertNotError(t, err, "Failed to unmarshal valid SupportedVersions")
-	assertDeepEquals(t, sv, supportedVersionsIn)
-	assertEquals(t, read, len(supportedVersions))
-
-	// Test unmarshal failure on truncated length
-	sv = supportedVersionsExtension{}
-	read, err = sv.Unmarshal(supportedVersions[:1])
-	assertError(t, err, "Unmarshaled a SupportedVersions without a length")
-
-	// Test unmarshal failure on truncated list
-	sv = supportedVersionsExtension{}
-	read, err = sv.Unmarshal(supportedVersions[:3])
-	assertError(t, err, "Unmarshaled a SupportedVersions without a key share length")
-
-	// Test unmarshal failure on odd list length
-	supportedVersions[0]--
-	sv = supportedVersionsExtension{}
-	read, err = sv.Unmarshal(supportedVersions)
-	assertError(t, err, "Unmarshaled a SupportedVersions with an odd-length list")
-	supportedVersions[0]++
-}
-
-func TestPSKKeyExchangeModesMarshalUnmarshal(t *testing.T) {
-	pskKeyExchange, _ := hex.DecodeString(pskKeyExchangeHex)
-
-	// Test extension type
-	assertEquals(t, pskKeyExchangeModesExtension{}.Type(), extensionTypePSKKeyExchangeModes)
-
-	// Test successful marshal
-	out, err := pskKeyExchangeIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid PskKeyExchangeModes")
-	assertByteEquals(t, out, pskKeyExchange)
-
-	// Test successful unmarshal
-	pkem := pskKeyExchangeModesExtension{}
-	read, err := pkem.Unmarshal(pskKeyExchange)
-	assertNotError(t, err, "Failed to unmarshal valid PskKeyExchangeModes")
-	assertDeepEquals(t, pkem, pskKeyExchangeIn)
-	assertEquals(t, read, len(pskKeyExchange))
-}
-
-func TestEarlyDataIndicationMarshalUnmarshal(t *testing.T) {
-	earlyData, _ := hex.DecodeString(earlyDataHex)
-
-	// Test extension type
-	assertEquals(t, earlyDataExtension{}.Type(), extensionTypeEarlyData)
-
-	// Test successful marshal
-	out, err := earlyDataIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid EarlyDataIndication")
-	assertByteEquals(t, out, earlyData)
-
-	// Test successful unmarshal
-	edi := earlyDataExtension{}
-	read, err := edi.Unmarshal(earlyData)
-	assertNotError(t, err, "Failed to unmarshal valid EarlyDataIndication")
-	assertDeepEquals(t, edi, earlyDataIn)
-	assertEquals(t, read, len(earlyData))
-}
-
-func TestTicketEarlyDataInfoMarshalUnmarshal(t *testing.T) {
-	ticketEarlyDataInfo, _ := hex.DecodeString(ticketEarlyDataInfoHex)
-
-	// Test extension type
-	assertEquals(t, ticketEarlyDataInfoExtension{}.Type(), extensionTypeTicketEarlyDataInfo)
-
-	// Test successful marshal
-	out, err := ticketEarlyDataInfoIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid TicketEarlyDataInfo")
-	assertByteEquals(t, out, ticketEarlyDataInfo)
-
-	// Test successful unmarshal
-	tedi := ticketEarlyDataInfoExtension{}
-	read, err := tedi.Unmarshal(ticketEarlyDataInfo)
-	assertNotError(t, err, "Failed to unmarshal valid TicketEarlyDataInfo")
-	assertDeepEquals(t, tedi, ticketEarlyDataInfoIn)
-	assertEquals(t, read, len(ticketEarlyDataInfo))
-}
-
-func TestCookieMarshalUnmarshal(t *testing.T) {
-	cookie, _ := hex.DecodeString(cookieHex)
-
-	// Test extension type
-	assertEquals(t, cookieExtension{}.Type(), extensionTypeCookie)
-
-	// Test successful marshal
-	out, err := cookieIn.Marshal()
-	assertNotError(t, err, "Failed to marshal valid Cookie")
-	assertByteEquals(t, out, cookie)
-
-	// Test successful unmarshal
-	c := cookieExtension{}
-	read, err := c.Unmarshal(cookie)
-	assertNotError(t, err, "Failed to unmarshal valid Cookie")
-	assertDeepEquals(t, c, cookieIn)
-	assertEquals(t, read, len(cookie))
 }

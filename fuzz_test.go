@@ -19,6 +19,7 @@ var structs = []interface{}{
 	&extension{},
 	&extensionList{},
 	new(serverNameExtension),
+	&alpnExtension{},
 	&keyShareExtension{handshakeType: handshakeTypeClientHello},
 	&keyShareExtension{handshakeType: handshakeTypeHelloRetryRequest},
 	&keyShareExtension{handshakeType: handshakeTypeServerHello},
@@ -41,15 +42,16 @@ var validHex = []string{
 	// Extensions
 	extValidHex,
 	extListValidHex,
-	serverNameHex,
+	validExtensionTestCases[extensionTypeServerName].marshaledHex,
+	validExtensionTestCases[extensionTypeALPN].marshaledHex,
 	keyShareClientHex,
 	keyShareHelloRetryHex,
 	keyShareServerHex,
-	supportedGroupsHex,
-	signatureAlgorithmsHex,
+	validExtensionTestCases[extensionTypeSupportedGroups].marshaledHex,
+	validExtensionTestCases[extensionTypeSignatureAlgorithms].marshaledHex,
 	pskClientHex,
 	pskServerHex,
-	supportedVersionsHex,
+	validExtensionTestCases[extensionTypeSupportedVersions].marshaledHex,
 }
 
 func randomBytes(n int, rand *rand.Rand) []byte {

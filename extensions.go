@@ -8,7 +8,7 @@ import (
 )
 
 type extensionBody interface {
-	Type() helloExtensionType
+	Type() extensionType
 	Marshal() ([]byte, error)
 	Unmarshal(data []byte) (int, error)
 }
@@ -18,7 +18,7 @@ type extensionBody interface {
 //     opaque extension_data<0..2^16-1>;
 // } Extension;
 type extension struct {
-	ExtensionType helloExtensionType
+	ExtensionType extensionType
 	ExtensionData []byte `tls:"head=2"`
 }
 
@@ -107,7 +107,7 @@ type serverNameListInner struct {
 	ServerNameList []serverNameInner `tls:"head=2,min=1"`
 }
 
-func (sni serverNameExtension) Type() helloExtensionType {
+func (sni serverNameExtension) Type() extensionType {
 	return extensionTypeServerName
 }
 
@@ -130,6 +130,7 @@ func (sni *serverNameExtension) Unmarshal(data []byte) (int, error) {
 	}
 
 	// Syntax requires at least one entry
+	// Entries beyond the first are ignored
 	if nameType := list.ServerNameList[0].NameType; nameType != 0x00 {
 		return 0, fmt.Errorf("tls.servername: Unsupported name type [%x]", nameType)
 	}
@@ -180,7 +181,7 @@ type keyShareServerHelloInner struct {
 	ServerShare keyShareEntry
 }
 
-func (ks keyShareExtension) Type() helloExtensionType {
+func (ks keyShareExtension) Type() extensionType {
 	return extensionTypeKeyShare
 }
 
@@ -271,7 +272,7 @@ type supportedGroupsExtension struct {
 	Groups []namedGroup `tls:"head=2,min=2"`
 }
 
-func (sg supportedGroupsExtension) Type() helloExtensionType {
+func (sg supportedGroupsExtension) Type() extensionType {
 	return extensionTypeSupportedGroups
 }
 
@@ -290,7 +291,7 @@ type signatureAlgorithmsExtension struct {
 	Algorithms []signatureScheme `tls:"head=2,min=2"`
 }
 
-func (sa signatureAlgorithmsExtension) Type() helloExtensionType {
+func (sa signatureAlgorithmsExtension) Type() extensionType {
 	return extensionTypeSignatureAlgorithms
 }
 
@@ -345,7 +346,7 @@ type preSharedKeyServerInner struct {
 	SelectedIdentity uint16
 }
 
-func (psk preSharedKeyExtension) Type() helloExtensionType {
+func (psk preSharedKeyExtension) Type() extensionType {
 	return extensionTypePreSharedKey
 }
 
@@ -414,7 +415,7 @@ type pskKeyExchangeModesExtension struct {
 	KEModes []pskKeyExchangeMode `tls:"head=1,min=1"`
 }
 
-func (pkem pskKeyExchangeModesExtension) Type() helloExtensionType {
+func (pkem pskKeyExchangeModesExtension) Type() extensionType {
 	return extensionTypePSKKeyExchangeModes
 }
 
@@ -431,7 +432,7 @@ func (pkem *pskKeyExchangeModesExtension) Unmarshal(data []byte) (int, error) {
 
 type earlyDataExtension struct{}
 
-func (ed earlyDataExtension) Type() helloExtensionType {
+func (ed earlyDataExtension) Type() extensionType {
 	return extensionTypeEarlyData
 }
 
@@ -451,7 +452,7 @@ type ticketEarlyDataInfoExtension struct {
 	MaxEarlyDataSize uint32
 }
 
-func (tedi ticketEarlyDataInfoExtension) Type() helloExtensionType {
+func (tedi ticketEarlyDataInfoExtension) Type() extensionType {
 	return extensionTypeTicketEarlyDataInfo
 }
 
@@ -480,7 +481,7 @@ type alpnExtensionInner struct {
 	Protocols []protocolName `tls:"head=2,min=2"`
 }
 
-func (alpn alpnExtension) Type() helloExtensionType {
+func (alpn alpnExtension) Type() extensionType {
 	return extensionTypeALPN
 }
 
@@ -514,7 +515,7 @@ type supportedVersionsExtension struct {
 	Versions []uint16 `tls:"head=1,min=2,max=254"`
 }
 
-func (sv supportedVersionsExtension) Type() helloExtensionType {
+func (sv supportedVersionsExtension) Type() extensionType {
 	return extensionTypeSupportedVersions
 }
 
@@ -533,7 +534,7 @@ type cookieExtension struct {
 	Cookie []byte `tls:"head=2,min=1"`
 }
 
-func (c cookieExtension) Type() helloExtensionType {
+func (c cookieExtension) Type() extensionType {
 	return extensionTypeCookie
 }
 

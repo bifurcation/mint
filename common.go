@@ -69,22 +69,21 @@ const (
 )
 
 // enum {...} ExtensionType
-type helloExtensionType uint16
+type extensionType uint16
 
 const (
-	extensionTypeUnknown             helloExtensionType = 0xffff
-	extensionTypeServerName          helloExtensionType = 0
-	extensionTypeSupportedGroups     helloExtensionType = 10
-	extensionTypeSignatureAlgorithms helloExtensionType = 13
-	extensionTypeALPN                helloExtensionType = 16
-	extensionTypeKeyShare            helloExtensionType = 40
-	extensionTypePreSharedKey        helloExtensionType = 41
-	extensionTypeEarlyData           helloExtensionType = 42
-	extensionTypeSupportedVersions   helloExtensionType = 43
-	extensionTypeCookie              helloExtensionType = 44
-	extensionTypePSKKeyExchangeModes helloExtensionType = 45
-	extensionTypeTicketEarlyDataInfo helloExtensionType = 46
-	extensionTypeDraftVersion        helloExtensionType = 0xff02 // Required for NSS
+	extensionTypeUnknown             extensionType = 0xffff
+	extensionTypeServerName          extensionType = 0
+	extensionTypeSupportedGroups     extensionType = 10
+	extensionTypeSignatureAlgorithms extensionType = 13
+	extensionTypeALPN                extensionType = 16
+	extensionTypeKeyShare            extensionType = 40
+	extensionTypePreSharedKey        extensionType = 41
+	extensionTypeEarlyData           extensionType = 42
+	extensionTypeSupportedVersions   extensionType = 43
+	extensionTypeCookie              extensionType = 44
+	extensionTypePSKKeyExchangeModes extensionType = 45
+	extensionTypeTicketEarlyDataInfo extensionType = 46
 )
 
 // enum {...} NamedGroup
