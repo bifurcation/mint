@@ -81,6 +81,9 @@ const (
 	extensionTypePreSharedKey        helloExtensionType = 41
 	extensionTypeEarlyData           helloExtensionType = 42
 	extensionTypeSupportedVersions   helloExtensionType = 43
+	extensionTypeCookie              helloExtensionType = 44
+	extensionTypePSKKeyExchangeModes helloExtensionType = 45
+	extensionTypeTicketEarlyDataInfo helloExtensionType = 46
 	extensionTypeDraftVersion        helloExtensionType = 0xff02 // Required for NSS
 )
 
@@ -105,6 +108,14 @@ const (
 	namedGroupFF4096 namedGroup = 258
 	namedGroupFF6144 namedGroup = 259
 	namedGroupFF8192 namedGroup = 250
+)
+
+// enum {...} PskKeyExchangeMode;
+type pskKeyExchangeMode uint8
+
+const (
+	pskModeKE    pskKeyExchangeMode = 0
+	pskModeDHEKE pskKeyExchangeMode = 1
 )
 
 type marshaler interface {

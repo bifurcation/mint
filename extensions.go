@@ -405,6 +405,27 @@ func (psk preSharedKeyExtension) HasIdentity(id []byte) bool {
 	return false
 }
 
+// enum { psk_ke(0), psk_dhe_ke(1), (255) } PskKeyExchangeMode;
+//
+// struct {
+//     PskKeyExchangeMode ke_modes<1..255>;
+// } PskKeyExchangeModes;
+type pskKeyExchangeModesExtension struct {
+	KEModes []pskKeyExchangeMode `tls:"head=1,min=1"`
+}
+
+func (pkem pskKeyExchangeModesExtension) Type() helloExtensionType {
+	return extensionTypePSKKeyExchangeModes
+}
+
+func (pkem pskKeyExchangeModesExtension) Marshal() ([]byte, error) {
+	return syntax.Marshal(pkem)
+}
+
+func (pkem *pskKeyExchangeModesExtension) Unmarshal(data []byte) (int, error) {
+	return syntax.Unmarshal(data, pkem)
+}
+
 // struct {
 // } EarlyDataIndication;
 
@@ -420,6 +441,26 @@ func (ed earlyDataExtension) Marshal() ([]byte, error) {
 
 func (ed *earlyDataExtension) Unmarshal(data []byte) (int, error) {
 	return 0, nil
+}
+
+// struct {
+//     uint32 max_early_data_size;
+// } TicketEarlyDataInfo;
+
+type ticketEarlyDataInfoExtension struct {
+	MaxEarlyDataSize uint32
+}
+
+func (tedi ticketEarlyDataInfoExtension) Type() helloExtensionType {
+	return extensionTypeTicketEarlyDataInfo
+}
+
+func (tedi ticketEarlyDataInfoExtension) Marshal() ([]byte, error) {
+	return syntax.Marshal(tedi)
+}
+
+func (tedi *ticketEarlyDataInfoExtension) Unmarshal(data []byte) (int, error) {
+	return syntax.Unmarshal(data, tedi)
 }
 
 // opaque ProtocolName<1..2^8-1>;
@@ -483,4 +524,23 @@ func (sv supportedVersionsExtension) Marshal() ([]byte, error) {
 
 func (sv *supportedVersionsExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, sv)
+}
+
+// struct {
+//     opaque cookie<1..2^16-1>;
+// } Cookie;
+type cookieExtension struct {
+	Cookie []byte `tls:"head=2,min=1"`
+}
+
+func (c cookieExtension) Type() helloExtensionType {
+	return extensionTypeCookie
+}
+
+func (c cookieExtension) Marshal() ([]byte, error) {
+	return syntax.Marshal(c)
+}
+
+func (c *cookieExtension) Unmarshal(data []byte) (int, error) {
+	return syntax.Unmarshal(data, c)
 }

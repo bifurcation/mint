@@ -147,6 +147,31 @@ var (
 		Versions: []uint16{0x0300, 0x0304},
 	}
 	supportedVersionsHex = "0403000304"
+
+	// PskKeyExchangeModes test cases
+	pskKeyExchangeIn = pskKeyExchangeModesExtension{
+		KEModes: []pskKeyExchangeMode{
+			pskModeKE,
+			pskModeDHEKE,
+		},
+	}
+	pskKeyExchangeHex = "020001"
+
+	// EarlyDataIndication test cases
+	earlyDataIn  = earlyDataExtension{}
+	earlyDataHex = ""
+
+	// TicketEarlyDataInfo test cases
+	ticketEarlyDataInfoIn = ticketEarlyDataInfoExtension{
+		MaxEarlyDataSize: 0x01020304,
+	}
+	ticketEarlyDataInfoHex = "01020304"
+
+	// Cookie test cases
+	cookieIn = cookieExtension{
+		Cookie: []byte{0x01, 0x02, 0x03, 0x04},
+	}
+	cookieHex = "000401020304"
 )
 
 func TestExtensionMarshalUnmarshal(t *testing.T) {
@@ -610,4 +635,80 @@ func TestSupportedVersionsMarshalUnmarshal(t *testing.T) {
 	read, err = sv.Unmarshal(supportedVersions)
 	assertError(t, err, "Unmarshaled a SupportedVersions with an odd-length list")
 	supportedVersions[0]++
+}
+
+func TestPSKKeyExchangeModesMarshalUnmarshal(t *testing.T) {
+	pskKeyExchange, _ := hex.DecodeString(pskKeyExchangeHex)
+
+	// Test extension type
+	assertEquals(t, pskKeyExchangeModesExtension{}.Type(), extensionTypePSKKeyExchangeModes)
+
+	// Test successful marshal
+	out, err := pskKeyExchangeIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid PskKeyExchangeModes")
+	assertByteEquals(t, out, pskKeyExchange)
+
+	// Test successful unmarshal
+	pkem := pskKeyExchangeModesExtension{}
+	read, err := pkem.Unmarshal(pskKeyExchange)
+	assertNotError(t, err, "Failed to unmarshal valid PskKeyExchangeModes")
+	assertDeepEquals(t, pkem, pskKeyExchangeIn)
+	assertEquals(t, read, len(pskKeyExchange))
+}
+
+func TestEarlyDataIndicationMarshalUnmarshal(t *testing.T) {
+	earlyData, _ := hex.DecodeString(earlyDataHex)
+
+	// Test extension type
+	assertEquals(t, earlyDataExtension{}.Type(), extensionTypeEarlyData)
+
+	// Test successful marshal
+	out, err := earlyDataIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid EarlyDataIndication")
+	assertByteEquals(t, out, earlyData)
+
+	// Test successful unmarshal
+	edi := earlyDataExtension{}
+	read, err := edi.Unmarshal(earlyData)
+	assertNotError(t, err, "Failed to unmarshal valid EarlyDataIndication")
+	assertDeepEquals(t, edi, earlyDataIn)
+	assertEquals(t, read, len(earlyData))
+}
+
+func TestTicketEarlyDataInfoMarshalUnmarshal(t *testing.T) {
+	ticketEarlyDataInfo, _ := hex.DecodeString(ticketEarlyDataInfoHex)
+
+	// Test extension type
+	assertEquals(t, ticketEarlyDataInfoExtension{}.Type(), extensionTypeTicketEarlyDataInfo)
+
+	// Test successful marshal
+	out, err := ticketEarlyDataInfoIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid TicketEarlyDataInfo")
+	assertByteEquals(t, out, ticketEarlyDataInfo)
+
+	// Test successful unmarshal
+	tedi := ticketEarlyDataInfoExtension{}
+	read, err := tedi.Unmarshal(ticketEarlyDataInfo)
+	assertNotError(t, err, "Failed to unmarshal valid TicketEarlyDataInfo")
+	assertDeepEquals(t, tedi, ticketEarlyDataInfoIn)
+	assertEquals(t, read, len(ticketEarlyDataInfo))
+}
+
+func TestCookieMarshalUnmarshal(t *testing.T) {
+	cookie, _ := hex.DecodeString(cookieHex)
+
+	// Test extension type
+	assertEquals(t, cookieExtension{}.Type(), extensionTypeCookie)
+
+	// Test successful marshal
+	out, err := cookieIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid Cookie")
+	assertByteEquals(t, out, cookie)
+
+	// Test successful unmarshal
+	c := cookieExtension{}
+	read, err := c.Unmarshal(cookie)
+	assertNotError(t, err, "Failed to unmarshal valid Cookie")
+	assertDeepEquals(t, c, cookieIn)
+	assertEquals(t, read, len(cookie))
 }
