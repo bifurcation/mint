@@ -4,9 +4,8 @@ var (
 	supportedVersion uint16 = 0x7f12 // draft-18
 
 	// Flags for some minor compat issues
-	allowEmptyEncryptedExtensions = false
-	allowWrongVersionNumber       = true
-	allowPKCS1                    = true
+	allowWrongVersionNumber = true
+	allowPKCS1              = true
 )
 
 // enum {...} ContentType;

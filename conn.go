@@ -267,9 +267,9 @@ func (c *Conn) extendBuffer(n int) error {
 						return fmt.Errorf("Malformed handshake message [%v] != [%v]", read, len(hm.body))
 					}
 
-					logf(logTypeHandshake, "Storing new session ticket with identity [%v]", tkt.ticket)
+					logf(logTypeHandshake, "Storing new session ticket with identity [%v]", tkt.Ticket)
 					psk := PreSharedKey{
-						Identity: tkt.ticket,
+						Identity: tkt.Ticket,
 						Key:      c.context.resumptionSecret,
 					}
 					c.config.ClientPSKs[c.config.ServerName] = psk
@@ -640,15 +640,15 @@ func (c *Conn) clientHandshake() error {
 	logf(logTypeHandshake, "[client] Received ServerHello")
 
 	// Check that the version sent by the server is the one we support
-	if sh.version != supportedVersion {
-		return fmt.Errorf("tls.client: Server sent unsupported version %x", sh.version)
+	if sh.Version != supportedVersion {
+		return fmt.Errorf("tls.client: Server sent unsupported version %x", sh.Version)
 	}
 
 	// Do PSK or key agreement depending on the ciphersuite
 	serverPSK := preSharedKeyExtension{handshakeType: handshakeTypeServerHello}
-	foundPSK := sh.extensions.Find(&serverPSK)
+	foundPSK := sh.Extensions.Find(&serverPSK)
 	serverKeyShare := keyShareExtension{handshakeType: handshakeTypeServerHello}
-	foundKeyShare := sh.extensions.Find(&serverKeyShare)
+	foundKeyShare := sh.Extensions.Find(&serverKeyShare)
 
 	var pskSecret, dhSecret []byte
 	if foundPSK && (serverPSK.selectedIdentity < uint16(len(psk.identities))) {
@@ -668,7 +668,7 @@ func (c *Conn) clientHandshake() error {
 
 	// Init crypto context
 	ctx := cryptoContext{}
-	err = ctx.init(sh.cipherSuite, chm, pskSecret, false)
+	err = ctx.init(sh.CipherSuite, chm, pskSecret, false)
 	if err != nil {
 		return err
 	}
@@ -997,16 +997,16 @@ func (c *Conn) serverHandshake() error {
 
 	// Create the ServerHello
 	sh := &serverHelloBody{
-		version:     supportedVersion,
-		cipherSuite: chosenSuite,
+		Version:     supportedVersion,
+		CipherSuite: chosenSuite,
 	}
-	_, err = prng.Read(sh.random[:])
+	_, err = prng.Read(sh.Random[:])
 	if err != nil {
 		return err
 	}
 	if dhSecret != nil {
 		logf(logTypeHandshake, "[server] sending key share extension")
-		err = sh.extensions.Add(serverKeyShare)
+		err = sh.Extensions.Add(serverKeyShare)
 		if err != nil {
 			return err
 		}
@@ -1016,7 +1016,7 @@ func (c *Conn) serverHandshake() error {
 	}
 	if pskSecret != nil {
 		logf(logTypeHandshake, "[server] sending PSK extension")
-		err = sh.extensions.Add(serverPSK)
+		err = sh.Extensions.Add(serverPSK)
 		if err != nil {
 			return err
 		}
@@ -1059,7 +1059,7 @@ func (c *Conn) serverHandshake() error {
 			return err
 		}
 	}
-	ee := encryptedExtensionsBody(eeList)
+	ee := encryptedExtensionsBody{eeList}
 	eem, err := hOut.WriteMessageBody(&ee)
 	if err != nil {
 		return err
@@ -1185,11 +1185,11 @@ func (c *Conn) serverHandshake() error {
 	if err != nil {
 		return err
 	}
-	tkt.ticketLifetime = c.config.TicketLifetime
+	tkt.TicketLifetime = c.config.TicketLifetime
 
 	if c.config.SendSessionTickets {
 		newPSK := PreSharedKey{
-			Identity: tkt.ticket,
+			Identity: tkt.Ticket,
 			Key:      ctx.resumptionSecret,
 		}
 		c.config.ServerPSKs = append(c.config.ServerPSKs, newPSK)
@@ -1201,7 +1201,7 @@ func (c *Conn) serverHandshake() error {
 			logf(logTypeHandshake, "Returning error: %x", ticketBytes)
 			return err
 		}
-		logf(logTypeHandshake, "Wrote NewSessionTicket %x", tkt.ticket)
+		logf(logTypeHandshake, "Wrote NewSessionTicket %x", tkt.Ticket)
 	}
 
 	c.context = ctx

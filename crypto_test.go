@@ -366,7 +366,7 @@ var (
 	}
 
 	serverHelloContextIn = &serverHelloBody{
-		cipherSuite: TLS_AES_128_GCM_SHA256,
+		CipherSuite: TLS_AES_128_GCM_SHA256,
 	}
 
 	certificateContextIn = &certificateBody{
@@ -392,7 +392,7 @@ func keySetEmpty(k keySet) bool {
 
 func TestCryptoContext(t *testing.T) {
 	rand.Reader.Read(clientHelloContextIn.random[:])
-	rand.Reader.Read(serverHelloContextIn.random[:])
+	rand.Reader.Read(serverHelloContextIn.Random[:])
 
 	clientHelloContextIn.extensions.Add(&supportedGroupsExtension{
 		Groups: []namedGroup{namedGroupP256, namedGroupP521},
@@ -411,7 +411,7 @@ func TestCryptoContext(t *testing.T) {
 		},
 	})
 
-	serverHelloContextIn.extensions.Add(&keyShareExtension{
+	serverHelloContextIn.Extensions.Add(&keyShareExtension{
 		handshakeType: handshakeTypeServerHello,
 		shares: []keyShareEntry{
 			keyShareEntry{Group: namedGroupP521, KeyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
@@ -438,9 +438,9 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test successful init
 	ctx := cryptoContext{}
-	err = ctx.init(serverHelloContextIn.cipherSuite, chm, pskSecretIn, false)
+	err = ctx.init(serverHelloContextIn.CipherSuite, chm, pskSecretIn, false)
 	assertNotError(t, err, "Failed to init context")
-	assertEquals(t, ctx.suite, serverHelloContextIn.cipherSuite)
+	assertEquals(t, ctx.suite, serverHelloContextIn.CipherSuite)
 	assertNotNil(t, ctx.params, "Params not populated")
 	assertNotNil(t, ctx.zero, "Zero not populated")
 	assertByteEquals(t, ctx.pskSecret, pskSecretIn)
@@ -464,7 +464,7 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test successful updateWithServerHello
 	ctx = cryptoContext{}
-	_ = ctx.init(serverHelloContextIn.cipherSuite, chm, pskSecretIn, false)
+	_ = ctx.init(serverHelloContextIn.CipherSuite, chm, pskSecretIn, false)
 	err = ctx.updateWithServerHello(shm, dhSecretIn)
 	assertNotError(t, err, "Failed to update context")
 	assertNotNil(t, ctx.h2, "Failed to set handshake hash (2)")

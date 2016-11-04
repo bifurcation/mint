@@ -32,18 +32,18 @@ var (
 
 	// ServerHello test cases
 	shValidIn = serverHelloBody{
-		version:     supportedVersion,
-		random:      helloRandom,
-		cipherSuite: cipherSuite(0x0001),
-		extensions:  extListValidIn,
+		Version:     supportedVersion,
+		Random:      helloRandom,
+		CipherSuite: cipherSuite(0x0001),
+		Extensions:  extListValidIn,
 	}
 	shEmptyIn = serverHelloBody{
-		version:     supportedVersion,
-		random:      helloRandom,
-		cipherSuite: cipherSuite(0x0001),
+		Version:     supportedVersion,
+		Random:      helloRandom,
+		CipherSuite: cipherSuite(0x0001),
 	}
 	shValidHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListValidHex
-	shEmptyHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001"
+	shEmptyHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + "0000"
 	shOverflowHex = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListOverflowOuterHex
 
 	// Finished test cases
@@ -54,10 +54,8 @@ var (
 	finValidHex = hex.EncodeToString(helloRandom[:])
 
 	// EncryptedExtensions test cases
-	encExtValidIn  = encryptedExtensionsBody(extListValidIn)
-	encExtEmptyIn  = encryptedExtensionsBody{}
+	encExtValidIn  = encryptedExtensionsBody{extListValidIn}
 	encExtValidHex = extListValidHex
-	encExtEmptyHex = ""
 
 	// Certificate test cases
 	cert1Hex = "308201653082010ba003020102020500a0a0a0a0300a0608" +
@@ -135,10 +133,10 @@ var (
 	// NewSessionTicket test cases
 	ticketValidHex = "00010203" + "04050607" + "000408090a0b" + "0006eeff00021122"
 	ticketValidIn  = newSessionTicketBody{
-		ticketLifetime: 0x00010203,
-		ticketAgeAdd:   0x04050607,
-		ticket:         []byte{0x08, 0x09, 0x0a, 0x0b},
-		extensions: []extension{
+		TicketLifetime: 0x00010203,
+		TicketAgeAdd:   0x04050607,
+		Ticket:         []byte{0x08, 0x09, 0x0a, 0x0b},
+		Extensions: []extension{
 			extension{
 				ExtensionType: 0xeeff,
 				ExtensionData: []byte{0x11, 0x22},
@@ -146,11 +144,11 @@ var (
 		},
 	}
 	ticketTooBigIn = newSessionTicketBody{
-		ticketLifetime: 0x00010203,
-		ticket:         make([]byte, maxTicketLen+1),
+		TicketLifetime: 0x00010203,
+		Ticket:         make([]byte, maxTicketLen+1),
 	}
 	ticketExtensionsTooBigIn = newSessionTicketBody{
-		extensions: extListSingleTooLongIn,
+		Extensions: extListSingleTooLongIn,
 	}
 )
 
@@ -214,12 +212,6 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a ClientHello with the wrong version")
 	chValid[1]++
 
-	// Test unmarshal failure on non-empty session ID
-	chValid[34] = 0x04
-	_, err = ch.Unmarshal(chValid)
-	assertError(t, err, "Unmarshaled a ClientHello with non-empty session ID")
-	chValid[34] = 0x00
-
 	// Test unmarshal failure on ciphersuite size overflow
 	chValid[35] = 0xFF
 	_, err = ch.Unmarshal(chValid)
@@ -270,10 +262,10 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, shEmpty)
 
 	// Test marshal failure on extension list marshal failure
-	shValidIn.extensions = extListTooLongIn
+	shValidIn.Extensions = extListTooLongIn
 	out, err = shValidIn.Marshal()
 	assertError(t, err, "Marshaled a ServerHello with bad extensions")
-	shValidIn.extensions = extListValidIn
+	shValidIn.Extensions = extListValidIn
 
 	// Test successful unmarshal
 	var sh serverHelloBody
@@ -286,9 +278,9 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 	read, err = sh.Unmarshal(shEmpty)
 	assertNotError(t, err, "Failed to unmarshal a valid ServerHello")
 	assertEquals(t, read, len(shEmpty))
-	assertByteEquals(t, sh.random[:], shEmptyIn.random[:])
-	assertEquals(t, sh.cipherSuite, shEmptyIn.cipherSuite)
-	assertEquals(t, len(sh.extensions), 0)
+	assertByteEquals(t, sh.Random[:], shEmptyIn.Random[:])
+	assertEquals(t, sh.CipherSuite, shEmptyIn.CipherSuite)
+	assertEquals(t, len(sh.Extensions), 0)
 
 	// Test unmarshal failure on too-short ServerHello
 	_, err = sh.Unmarshal(shValid[:fixedServerHelloBodyLen-1])
@@ -334,8 +326,6 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 // This one is a little brief because it is just an extensionList
 func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 	encExtValid, _ := hex.DecodeString(encExtValidHex)
-	encExtEmpty, _ := hex.DecodeString(encExtEmptyHex)
-	extListEmpty, _ := hex.DecodeString(extListEmptyHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (encryptedExtensionsBody{}).Type(), handshakeTypeEncryptedExtensions)
@@ -351,32 +341,6 @@ func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Failed to unmarshal a valid EncryptedExtensions")
 	assertEquals(t, read, len(encExtValid))
 	assertDeepEquals(t, ee, encExtValidIn)
-
-	// Test proper behavior on empty extensions
-	originalAllowEmptyEncryptedExtensions := allowEmptyEncryptedExtensions
-
-	allowEmptyEncryptedExtensions = true
-
-	out, err = encExtEmptyIn.Marshal()
-	assertNotError(t, err, "Failed to marshal empty EncryptedExtensions (when allowed)")
-	assertByteEquals(t, out, encExtEmpty)
-
-	read, err = ee.Unmarshal(encExtEmpty)
-	assertNotError(t, err, "Failed to unmarshal empty EncryptedExtensions (when allowed)")
-	assertEquals(t, read, len(encExtEmpty))
-	assertDeepEquals(t, len(ee), 0)
-
-	allowEmptyEncryptedExtensions = false
-
-	out, err = encExtEmptyIn.Marshal()
-	assertNotError(t, err, "Failed to marshal empty EncryptedExtensions (when disallowed)")
-	assertByteEquals(t, out, extListEmpty)
-
-	read, err = ee.Unmarshal(encExtEmpty)
-	assertError(t, err, "Failed to reject empty EncryptedExtensions (when disallowed)")
-
-	allowEmptyEncryptedExtensions = originalAllowEmptyEncryptedExtensions
-
 }
 
 func TestCertificateMarshalUnmarshal(t *testing.T) {
@@ -527,10 +491,10 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 
 	// Test creation of a new random ticket
 	tkt, err := newSessionTicket(16)
-	tkt.ticketLifetime = uint32(3)
+	tkt.TicketLifetime = uint32(3)
 	assertNotError(t, err, "Failed to create session ticket")
-	assertEquals(t, tkt.ticketLifetime, uint32(3))
-	assertEquals(t, len(tkt.ticket), 16)
+	assertEquals(t, tkt.TicketLifetime, uint32(3))
+	assertEquals(t, len(tkt.Ticket), 16)
 
 	// Test successful marshal
 	out, err := ticketValidIn.Marshal()

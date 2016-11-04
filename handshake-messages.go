@@ -28,11 +28,11 @@ type handshakeMessageBody interface {
 }
 
 // struct {
-//     ProtocolVersion client_version = { 3, 4 };    /* TLS v1.3 */
+//     ProtocolVersion legacy_version = 0x0303; /* TLS v1.2 */
 //     Random random;
-//     opaque legacy_session_id<0..32>;              /* MUST be [] */
+//     opaque legacy_session_id<0..32>;
 //     CipherSuite cipher_suites<2..2^16-2>;
-//     opaque legacy_compression_methods<1..2^8-1>;  /* MUST be [0] */
+//     opaque legacy_compression_methods<1..2^8-1>;
 //     Extension extensions<0..2^16-1>;
 // } ClientHello;
 type clientHelloBody struct {
@@ -44,105 +44,63 @@ type clientHelloBody struct {
 	extensions   extensionList
 }
 
+type clientHelloBodyInner struct {
+	LegacyVersion            uint16
+	Random                   [32]byte
+	LegacySessionID          []byte        `tls:"head=1,max=32"`
+	CipherSuites             []cipherSuite `tls:"head=2,min=2"`
+	LegacyCompressionMethods []byte        `tls:"head=1,min=1"`
+	Extensions               []extension   `tls:"head=2"`
+}
+
 func (ch clientHelloBody) Type() handshakeType {
 	return handshakeTypeClientHello
 }
 
 func (ch clientHelloBody) Marshal() ([]byte, error) {
-	baseBodyLen := fixedClientHelloBodyLen + 2*len(ch.cipherSuites)
-	body := make([]byte, baseBodyLen)
-	for i := range body {
-		body[i] = 0
-	}
-
-	// Write base fields that are non-zero
-	body[0] = 0x03
-	body[1] = 0x03
-	copy(body[2:34], ch.random[:])
-
-	if len(ch.cipherSuites) == 0 {
-		return nil, fmt.Errorf("tls.clienthello: No ciphersuites provided")
-	}
-	if len(ch.cipherSuites) > maxCipherSuites {
-		return nil, fmt.Errorf("tls.clienthello: Too many ciphersuites")
-	}
-	cipherSuitesLen := 2 * len(ch.cipherSuites)
-	body[35] = byte(cipherSuitesLen >> 8)
-	body[36] = byte(cipherSuitesLen)
-	for i, suite := range ch.cipherSuites {
-		body[2*i+37] = byte(suite >> 8)
-		body[2*i+38] = byte(suite)
-	}
-	body[37+cipherSuitesLen] = 0x01
-
-	extensions, err := ch.extensions.Marshal()
-	if err != nil {
-		return nil, err
-	}
-
-	return append(body, extensions...), nil
+	return syntax.Marshal(clientHelloBodyInner{
+		LegacyVersion:            0x0303,
+		Random:                   ch.random,
+		LegacySessionID:          []byte{},
+		CipherSuites:             ch.cipherSuites,
+		LegacyCompressionMethods: []byte{0},
+		Extensions:               ch.extensions,
+	})
 }
 
 func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
-	if len(data) < fixedClientHelloBodyLen {
-		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; too short")
-	}
-
-	if data[0] != 0x03 || data[1] != 0x03 {
-		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; unsupported version %02x%02x", data[0], data[1])
-	}
-
-	copy(ch.random[:], data[2:34])
-
-	// Since we only do 1.3, we can enforce that the session ID MUST be empty
-	if data[34] != 0x00 {
-		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; non-empty session ID")
-	}
-
-	cipherSuitesLen := (int(data[35]) << 8) + int(data[36])
-	if len(data) < 37+cipherSuitesLen {
-		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; too many ciphersuites")
-	}
-	if cipherSuitesLen%2 != 0 {
-		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; odd ciphersuites size")
-	}
-	ch.cipherSuites = make([]cipherSuite, cipherSuitesLen/2)
-	for i := 0; i < cipherSuitesLen/2; i++ {
-		ch.cipherSuites[i] = (cipherSuite(data[2*i+37]) << 8) + cipherSuite(data[2*i+38])
-	}
-
-	// Since we only do 1.3, we can enforce that the compression methods
-	if len(data) < 37+cipherSuitesLen+2 {
-		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; no compression methods")
-	}
-	if data[37+cipherSuitesLen] != 0x01 || data[37+cipherSuitesLen+1] != 0x00 {
-		return 0, fmt.Errorf("tls.clienthello: Malformed ClientHello; incorrect compression methods")
-	}
-
-	extLen, err := ch.extensions.Unmarshal(data[37+cipherSuitesLen+2:])
+	var inner clientHelloBodyInner
+	read, err := syntax.Unmarshal(data, &inner)
 	if err != nil {
 		return 0, err
 	}
 
-	return 37 + cipherSuitesLen + 2 + extLen, nil
+	// We are strict about these things because we only support 1.3
+	if inner.LegacyVersion != 0x0303 {
+		return 0, fmt.Errorf("tls.clienthello: Incorrect version number")
+	}
+
+	if len(inner.LegacyCompressionMethods) != 1 || inner.LegacyCompressionMethods[0] != 0 {
+		return 0, fmt.Errorf("tls.clienthello: Invalid compression method")
+	}
+
+	ch.random = inner.Random
+	ch.cipherSuites = inner.CipherSuites
+	ch.extensions = inner.Extensions
+	return read, nil
 }
 
 // struct {
-//     ProtocolVersion server_version;
+//     ProtocolVersion version;
 //     Random random;
 //     CipherSuite cipher_suite;
-//     select (extensions_present) {
-//         case false:
-//             struct {};
-//         case true:
-//             Extension extensions<0..2^16-1>;
-//     };
+//     Extension extensions<0..2^16-1>;
 // } ServerHello;
 type serverHelloBody struct {
-	version     uint16
-	random      [32]byte
-	cipherSuite cipherSuite
-	extensions  extensionList
+	Version     uint16
+	Random      [32]byte
+	CipherSuite cipherSuite
+	Extensions  extensionList `tls:"head=2"`
 }
 
 func (sh serverHelloBody) Type() handshakeType {
@@ -150,50 +108,11 @@ func (sh serverHelloBody) Type() handshakeType {
 }
 
 func (sh serverHelloBody) Marshal() ([]byte, error) {
-	body := make([]byte, fixedServerHelloBodyLen)
-
-	body[0] = byte(sh.version >> 8)
-	body[1] = byte(sh.version)
-
-	copy(body[2:34], sh.random[:])
-
-	body[34] = byte(sh.cipherSuite >> 8)
-	body[35] = byte(sh.cipherSuite)
-
-	if len(sh.extensions) > 0 {
-		extensions, err := sh.extensions.Marshal()
-		if err != nil {
-			return nil, err
-		}
-		body = append(body, extensions...)
-	}
-
-	return body, nil
+	return syntax.Marshal(sh)
 }
 
 func (sh *serverHelloBody) Unmarshal(data []byte) (int, error) {
-	if len(data) < fixedServerHelloBodyLen {
-		return 0, fmt.Errorf("tls.serverhello: Malformed ServerHello; too short")
-	}
-
-	sh.version = (uint16(data[0]) << 8) + uint16(data[1])
-
-	copy(sh.random[:], data[2:34])
-	sh.cipherSuite = (cipherSuite(data[34]) << 8) + cipherSuite(data[35])
-
-	read := fixedServerHelloBodyLen
-	if len(data) > fixedServerHelloBodyLen {
-		extLen, err := sh.extensions.Unmarshal(data[fixedServerHelloBodyLen:])
-		if err != nil {
-			return 0, err
-		}
-
-		read += extLen
-	} else {
-		sh.extensions = extensionList{}
-	}
-
-	return read, nil
+	return syntax.Unmarshal(data, sh)
 }
 
 // struct {
@@ -204,6 +123,11 @@ func (sh *serverHelloBody) Unmarshal(data []byte) (int, error) {
 // that calling code can tell us how much data to expect when we marshal /
 // unmarshal.  (We could add this to the marshal/unmarshal methods, but let's
 // try to keep the signature consistent for now.)
+//
+// For similar reasons, we don't use the `syntax` module here, because this
+// struct doesn't map well to standard TLS presentation language concepts.
+//
+// TODO: File a spec bug
 type finishedBody struct {
 	verifyDataLen int
 	verifyData    []byte
@@ -238,33 +162,20 @@ func (fin *finishedBody) Unmarshal(data []byte) (int, error) {
 // } EncryptedExtensions;
 //
 // Marshal() and Unmarshal() are handled by extensionList
-type encryptedExtensionsBody extensionList
+type encryptedExtensionsBody struct {
+	Extensions extensionList `tls:"head=2"`
+}
 
 func (ee encryptedExtensionsBody) Type() handshakeType {
 	return handshakeTypeEncryptedExtensions
 }
 
 func (ee encryptedExtensionsBody) Marshal() ([]byte, error) {
-	if allowEmptyEncryptedExtensions && len(ee) == 0 {
-		return []byte{}, nil
-	}
-
-	return extensionList(ee).Marshal()
+	return syntax.Marshal(ee)
 }
 
 func (ee *encryptedExtensionsBody) Unmarshal(data []byte) (int, error) {
-	var el extensionList
-
-	if allowEmptyEncryptedExtensions && len(data) == 0 {
-		*ee = encryptedExtensionsBody(el)
-		return 0, nil
-	}
-
-	read, err := el.Unmarshal(data)
-	if err == nil {
-		*ee = encryptedExtensionsBody(el)
-	}
-	return read, err
+	return syntax.Unmarshal(data, ee)
 }
 
 // opaque ASN1Cert<1..2^24-1>;
@@ -454,17 +365,17 @@ func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript [
 //     Extension extensions<0..2^16-2>;
 // } NewSessionTicket;
 type newSessionTicketBody struct {
-	ticketLifetime uint32
-	ticketAgeAdd   uint32
-	ticket         []byte
-	extensions     extensionList
+	TicketLifetime uint32
+	TicketAgeAdd   uint32
+	Ticket         []byte        `tls:"head=2,min=1"`
+	Extensions     extensionList `tls:"head=2"`
 }
 
 func newSessionTicket(ticketLen int) (*newSessionTicketBody, error) {
 	tkt := &newSessionTicketBody{
-		ticket: make([]byte, ticketLen),
+		Ticket: make([]byte, ticketLen),
 	}
-	_, err := prng.Read(tkt.ticket)
+	_, err := prng.Read(tkt.Ticket)
 	return tkt, err
 }
 
@@ -473,54 +384,9 @@ func (tkt newSessionTicketBody) Type() handshakeType {
 }
 
 func (tkt newSessionTicketBody) Marshal() ([]byte, error) {
-	if len(tkt.ticket) > maxTicketLen {
-		return nil, fmt.Errorf("tls.ticket: Session ticket too long")
-	}
-
-	extData, err := tkt.extensions.Marshal()
-	if err != nil {
-		return nil, err
-	}
-
-	data := []byte{
-		byte(tkt.ticketLifetime >> 24),
-		byte(tkt.ticketLifetime >> 16),
-		byte(tkt.ticketLifetime >> 8),
-		byte(tkt.ticketLifetime),
-		byte(tkt.ticketAgeAdd >> 24),
-		byte(tkt.ticketAgeAdd >> 16),
-		byte(tkt.ticketAgeAdd >> 8),
-		byte(tkt.ticketAgeAdd),
-		byte(len(tkt.ticket) >> 8),
-		byte(len(tkt.ticket)),
-	}
-	data = append(data, tkt.ticket...)
-	data = append(data, extData...)
-	return data, nil
+	return syntax.Marshal(tkt)
 }
 
 func (tkt *newSessionTicketBody) Unmarshal(data []byte) (int, error) {
-	dataLen := len(data)
-	if dataLen < fixedNewSessionTicketBodyLen {
-		return 0, fmt.Errorf("tls.ticket: Ticket too short to unmarshal")
-	}
-
-	tkt.ticketLifetime = (uint32(data[0]) << 24) + (uint32(data[1]) << 16) +
-		(uint32(data[2]) << 8) + (uint32(data[3]))
-	tkt.ticketAgeAdd = (uint32(data[4]) << 24) + (uint32(data[5]) << 16) +
-		(uint32(data[6]) << 8) + (uint32(data[7]))
-
-	ticketLen := (int(data[8]) << 8) + int(data[9])
-	if len(data[10:]) < ticketLen {
-		return 0, fmt.Errorf("tls.ticket: Ticket message too short for stated ticket length")
-	}
-	tkt.ticket = make([]byte, ticketLen)
-	copy(tkt.ticket, data[10:10+ticketLen])
-
-	extLen, err := tkt.extensions.Unmarshal(data[10+ticketLen:])
-	if err != nil {
-		return 0, err
-	}
-
-	return 10 + ticketLen + extLen, nil
+	return syntax.Unmarshal(data, tkt)
 }

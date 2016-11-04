@@ -18,12 +18,25 @@ const (
 //       ...
 //     } body;
 // } Handshake;
+//
+// We do the select{...} part in a different layer, so we treat the
+// actual message body as opaque:
+//
+// struct {
+//     HandshakeType msg_type;
+//     opaque msg<0..2^24-1>
+// } Handshake;
+//
+// TODO: File a spec bug
 type handshakeMessage struct {
 	// Omitted: length
 	msgType handshakeType
 	body    []byte
 }
 
+// Note: This could be done with the `syntax` module, using the simplified
+// syntax as discussed above.  However, since this is so simple, there's not
+// much benefit to doing so.
 func (hm handshakeMessage) Marshal() []byte {
 	msgLen := len(hm.body)
 	data := make([]byte, 4+len(hm.body))
