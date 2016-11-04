@@ -57,6 +57,19 @@ func (el *extensionList) Add(src extensionBody) error {
 		return err
 	}
 
+	if el == nil {
+		el = new(extensionList)
+	}
+
+	// If one already exists with this type, replace it
+	for i := range *el {
+		if (*el)[i].ExtensionType == src.Type() {
+			(*el)[i].ExtensionData = data
+			return nil
+		}
+	}
+
+	// Otherwise append
 	*el = append(*el, extension{
 		ExtensionType: src.Type(),
 		ExtensionData: data,
@@ -378,6 +391,10 @@ func (psk *preSharedKeyExtension) Unmarshal(data []byte) (int, error) {
 			return 0, err
 		}
 
+		if len(inner.Identities) != len(inner.Binders) {
+			return 0, fmt.Errorf("Lengths of identities and binders not equal")
+		}
+
 		psk.identities = inner.Identities
 		psk.binders = inner.Binders
 		return read, nil
@@ -397,13 +414,13 @@ func (psk *preSharedKeyExtension) Unmarshal(data []byte) (int, error) {
 	}
 }
 
-func (psk preSharedKeyExtension) HasIdentity(id []byte) bool {
-	for _, localID := range psk.identities {
+func (psk preSharedKeyExtension) HasIdentity(id []byte) ([]byte, bool) {
+	for i, localID := range psk.identities {
 		if bytes.Equal(localID.Identity, id) {
-			return true
+			return psk.binders[i].Binder, true
 		}
 	}
-	return false
+	return nil, false
 }
 
 // enum { psk_ke(0), psk_dhe_ke(1), (255) } PskKeyExchangeMode;

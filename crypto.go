@@ -757,6 +757,13 @@ func (ctx cryptoContext) deriveSecret(secret []byte, label string, messageHash [
 	return hkdfExpandLabel(ctx.params.hash, secret, label, messageHash, ctx.params.hash.Size())
 }
 
+func (ctx cryptoContext) computeFinishedData(baseKey []byte, input []byte) []byte {
+	macKey := hkdfExpandLabel(ctx.params.hash, baseKey, labelFinished, []byte{}, ctx.params.hash.Size())
+	mac := hmac.New(ctx.params.hash.New, macKey)
+	mac.Write(input)
+	return mac.Sum(nil)
+}
+
 func (ctx cryptoContext) makeTrafficKeys(secret []byte) keySet {
 	logf(logTypeCrypto, "making traffic keys: secret=%x", secret)
 	H := ctx.params.hash
@@ -772,7 +779,7 @@ func (ctx *cryptoContext) init(suite cipherSuite, chm *handshakeMessage, pskSecr
 	// Configure based on cipherSuite
 	params, ok := cipherSuiteMap[suite]
 	if !ok {
-		return fmt.Errorf("tls.cryptoinit: Unsupported ciphersuite")
+		return fmt.Errorf("tls.cryptoinit: Unsupported ciphersuite [%04x]", suite)
 	}
 	ctx.suite = suite
 	ctx.params = params
@@ -863,12 +870,6 @@ func (ctx *cryptoContext) updateWithServerHello(shm *handshakeMessage, dhSecret 
 	ctx.masterSecret = hkdfExtract(ctx.params.hash, ctx.handshakeSecret, ctx.zero)
 	logf(logTypeCrypto, "master secret: [%d] %x", len(ctx.masterSecret), ctx.masterSecret)
 
-	// Compute the finished keys
-	ctx.clientFinishedKey = hkdfExpandLabel(ctx.params.hash, ctx.clientHandshakeTrafficSecret, labelFinished, []byte{}, ctx.params.hash.Size())
-	ctx.serverFinishedKey = hkdfExpandLabel(ctx.params.hash, ctx.serverHandshakeTrafficSecret, labelFinished, []byte{}, ctx.params.hash.Size())
-	logf(logTypeCrypto, "client finished key: [%d] %x", len(ctx.clientFinishedKey), ctx.clientFinishedKey)
-	logf(logTypeCrypto, "server finished key: [%d] %x", len(ctx.serverFinishedKey), ctx.serverFinishedKey)
-
 	ctx.state = ctxStateServerHello
 	return nil
 }
@@ -891,9 +892,7 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) 
 	logf(logTypeCrypto, "handshake hash for server Finished: [%d] %x", len(ctx.h3), ctx.h3)
 
 	// Compute the server Finished message
-	finishedMAC := hmac.New(ctx.params.hash.New, ctx.serverFinishedKey)
-	finishedMAC.Write(ctx.h3)
-	ctx.serverFinishedData = finishedMAC.Sum(nil)
+	ctx.serverFinishedData = ctx.computeFinishedData(ctx.serverHandshakeTrafficSecret, ctx.h3)
 	logf(logTypeCrypto, "server finished data: [%d] %x", len(ctx.serverFinishedData), ctx.serverFinishedData)
 
 	ctx.serverFinished = &finishedBody{
@@ -950,9 +949,7 @@ func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*handshakeMessage)
 	logf(logTypeCrypto, "handshake hash 5 [%d]: %x", len(ctx.h5), ctx.h5)
 
 	// Compute the client Finished message
-	finishedMAC := hmac.New(ctx.params.hash.New, ctx.clientFinishedKey)
-	finishedMAC.Write(ctx.h5)
-	ctx.clientFinishedData = finishedMAC.Sum(nil)
+	ctx.clientFinishedData = ctx.computeFinishedData(ctx.clientHandshakeTrafficSecret, ctx.h5)
 	logf(logTypeCrypto, "client Finished data: [%d] %x", len(ctx.clientFinishedData), ctx.clientFinishedData)
 
 	ctx.clientFinished = &finishedBody{

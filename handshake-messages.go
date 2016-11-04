@@ -90,6 +90,40 @@ func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
 	return read, nil
 }
 
+func (ch clientHelloBody) Truncated() ([]byte, error) {
+	chData, err := ch.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(ch.extensions) == 0 {
+		return nil, fmt.Errorf("tls.clienthello.truncate: No extensions")
+	}
+
+	pskExt := ch.extensions[len(ch.extensions)-1]
+	if pskExt.ExtensionType != extensionTypePreSharedKey {
+		return nil, fmt.Errorf("tls.clienthello.truncate: Last extension is not PSK")
+	}
+
+	psk := preSharedKeyExtension{
+		handshakeType: handshakeTypeClientHello,
+	}
+	_, err = psk.Unmarshal(pskExt.ExtensionData)
+	if err != nil {
+		return nil, err
+	}
+
+	// Marshal just the binders so that we know how much to truncate
+	binders := struct {
+		Binders []pskBinderEntry `tls:"head=2,min=33"`
+	}{Binders: psk.binders}
+	binderData, _ := syntax.Marshal(binders)
+	binderLen := len(binderData)
+
+	chLen := len(chData)
+	return chData[:chLen-binderLen], nil
+}
+
 // struct {
 //     ProtocolVersion version;
 //     Random random;

@@ -41,11 +41,18 @@ var (
 
 	// Add/Find test cases
 	keyShareServerRaw, _  = hex.DecodeString(keyShareServerHex)
+	keyShareClientRaw, _  = hex.DecodeString(keyShareClientHex)
 	keyShareInvalidRaw, _ = hex.DecodeString(keyShareInvalidHex)
 	extListKeyShareIn     = extensionList{
 		extension{
 			ExtensionType: extensionTypeKeyShare,
 			ExtensionData: keyShareServerRaw,
+		},
+	}
+	extListKeyShareClientIn = extensionList{
+		extension{
+			ExtensionType: extensionTypeKeyShare,
+			ExtensionData: keyShareClientRaw,
 		},
 	}
 	extListInvalidIn = extensionList{
@@ -91,6 +98,8 @@ var (
 
 	// PSK test cases
 	pskClientHex = "000a" + "00040102030405060708" +
+		"0021" + "20" + "A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0"
+	pskClientUnbalancedHex = "0014" + "00040102030405060708" + "00040102030405060708" +
 		"0021" + "20" + "A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0"
 	pskServerHex = "0002"
 	pskClientIn  = &preSharedKeyExtension{
@@ -327,6 +336,17 @@ func TestExtensionAdd(t *testing.T) {
 	assertNotError(t, err, "Failed to add valid extension")
 	assertDeepEquals(t, el, extListKeyShareIn)
 
+	// Test successful add to a nil list
+	var elp *extensionList
+	t.Logf("%v", elp == nil)
+	err = elp.Add(keyShareServerIn)
+	assertNotError(t, err, "Failed to add valid extension")
+
+	// Test successful replace
+	err = el.Add(keyShareClientIn)
+	assertNotError(t, err, "Failed to replace extension")
+	assertDeepEquals(t, el, extListKeyShareClientIn)
+
 	// Test add failure on marshal failure
 	el = extensionList{}
 	err = el.Add(keyShareInvalidIn)
@@ -466,6 +486,7 @@ func TestKeyShareMarshalUnmarshal(t *testing.T) {
 
 func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
 	pskClient, _ := hex.DecodeString(pskClientHex)
+	pskClientUnbalanced, _ := hex.DecodeString(pskClientUnbalancedHex)
 	pskServer, _ := hex.DecodeString(pskServerHex)
 
 	// Test extension type
@@ -520,14 +541,20 @@ func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
 	read, err = psk.Unmarshal(pskClient)
 	assertError(t, err, "Unmarshaled a KeyShare with an unsupported handshake type")
 
+	// Test unmarshal failure on unbalanced identities/binders lengths (client)
+	psk = preSharedKeyExtension{handshakeType: handshakeTypeClientHello}
+	read, err = psk.Unmarshal(pskClientUnbalanced)
+	assertError(t, err, "Unmarshaled a KeyShare unbalanced lengths")
+
 	// Test finding an identity that is present
 	id := []byte{1, 2, 3, 4}
-	found := pskClientIn.HasIdentity(id)
+	binder, found := pskClientIn.HasIdentity(id)
 	assert(t, found, "Failed to find present identity")
+	assertByteEquals(t, binder, bytes.Repeat([]byte{0xA0}, 32))
 
 	// Test finding an identity that is not present
 	id = []byte{1, 2, 4, 3}
-	found = pskClientIn.HasIdentity(id)
+	_, found = pskClientIn.HasIdentity(id)
 	assert(t, !found, "Found a not-present identity")
 }
 

@@ -17,8 +17,10 @@ type Certificate struct {
 }
 
 type PreSharedKey struct {
-	Identity []byte
-	Key      []byte
+	CipherSuite cipherSuite
+	External    bool
+	Identity    []byte
+	Key         []byte
 }
 
 // Config is the struct used to pass configuration settings to a TLS client or
@@ -269,8 +271,10 @@ func (c *Conn) extendBuffer(n int) error {
 
 					logf(logTypeHandshake, "Storing new session ticket with identity [%v]", tkt.Ticket)
 					psk := PreSharedKey{
-						Identity: tkt.Ticket,
-						Key:      c.context.resumptionSecret,
+						CipherSuite: c.context.suite,
+						External:    false,
+						Identity:    tkt.Ticket,
+						Key:         c.context.resumptionSecret,
 					}
 					c.config.ClientPSKs[c.config.ServerName] = psk
 
@@ -507,7 +511,7 @@ func (c *Conn) clientHandshake() error {
 	hOut := newHandshakeLayer(c.out)
 
 	// Construct some extensions
-	logf(logTypeHandshake, "Constructing ClientHello")
+	logf(logTypeHandshake, "[client] Constructing ClientHello")
 	privateKeys := map[namedGroup][]byte{}
 	ks := keyShareExtension{
 		handshakeType: handshakeTypeClientHello,
@@ -533,33 +537,7 @@ func (c *Conn) clientHandshake() error {
 		alpn = &alpnExtension{protocols: c.config.NextProtos}
 	}
 
-	var psk *preSharedKeyExtension
-	if key, ok := c.config.ClientPSKs[c.config.ServerName]; ok {
-		logf(logTypeHandshake, "Sending PSK")
-		psk = &preSharedKeyExtension{
-			handshakeType: handshakeTypeClientHello,
-			identities: []pskIdentity{
-				pskIdentity{Identity: key.Identity},
-			},
-			binders: []pskBinderEntry{
-				// XXX: Obviously this needs to be fixed.  This just meets the syntax
-				pskBinderEntry{Binder: bytes.Repeat([]byte{0xA0}, 32)},
-			},
-		}
-	} else {
-		logf(logTypeHandshake, "No PSK found for [%v] in %+v", c.config.ServerName, c.config.ClientPSKs)
-	}
-
-	var ed *earlyDataExtension
-	if c.earlyData != nil {
-		if psk == nil {
-			return fmt.Errorf("tls.client: Can't send early data without a PSK")
-		}
-
-		ed = &earlyDataExtension{}
-	}
-
-	// Construct and write ClientHello
+	// Construct base ClientHello
 	ch := &clientHelloBody{
 		cipherSuites: c.config.CipherSuites,
 	}
@@ -574,6 +552,7 @@ func (c *Conn) clientHandshake() error {
 		}
 	}
 
+	// Add optional extensions besides PSK
 	// XXX: These can't be folded into the above because Go interface-typed
 	// values are never reported as nil
 	if alpn != nil {
@@ -582,25 +561,72 @@ func (c *Conn) clientHandshake() error {
 			return err
 		}
 	}
-	if psk != nil {
-		err := ch.extensions.Add(psk)
+
+	// Handle PSK and EarlyData just before transmitting, so that we can
+	// calculate the PSK binder value
+	var psk *preSharedKeyExtension
+	var ed *earlyDataExtension
+	if key, ok := c.config.ClientPSKs[c.config.ServerName]; ok {
+		logf(logTypeHandshake, "[client] Sending PSK extension")
+
+		// Start up a crypto context (ClientHello doesn't matter at this point)
+		// XXX: This is really clunky; need to refactor
+		chm, err := handshakeMessageFromBody(ch)
 		if err != nil {
 			return err
 		}
-	}
-	if ed != nil {
-		err := ch.extensions.Add(ed)
+
+		ctx := cryptoContext{}
+		err = ctx.init(key.CipherSuite, chm, key.Key, key.External)
 		if err != nil {
 			return err
 		}
+
+		// Signal early data if we're going to do it
+		if c.earlyData != nil {
+			logf(logTypeHandshake, "[client] Sending early data extension")
+			ed = &earlyDataExtension{}
+			ch.extensions.Add(ed)
+		}
+
+		// Add the shim PSK extension to the ClientHello
+		psk = &preSharedKeyExtension{
+			handshakeType: handshakeTypeClientHello,
+			identities: []pskIdentity{
+				pskIdentity{Identity: key.Identity},
+			},
+			binders: []pskBinderEntry{
+				// Note: Stub to get the length fields right
+				pskBinderEntry{Binder: bytes.Repeat([]byte{0x00}, ctx.params.hash.Size())},
+			},
+		}
+		ch.extensions.Add(psk)
+
+		// Compute the binder value
+		trunc, err := ch.Truncated()
+		if err != nil {
+			return err
+		}
+		binder := ctx.computeFinishedData(ctx.binderKey, trunc)
+
+		// Replace the PSK extension
+		psk.binders[0].Binder = binder
+		ch.extensions.Add(psk)
+	} else {
+		logf(logTypeHandshake, "[client] No PSK found for [%v] in %+v", c.config.ServerName, c.config.ClientPSKs)
 	}
+
+	// Write ClientHello
+	logf(logTypeHandshake, "[client] tic[-2]")
 	chm, err := hOut.WriteMessageBody(ch)
+	logf(logTypeHandshake, "[client] tic[-1]")
 	if err != nil {
 		return err
 	}
 	logf(logTypeHandshake, "[client] Sent ClientHello")
 
 	// Send early data
+	logf(logTypeHandshake, "[client] tic[0]")
 	if ed != nil {
 		logf(logTypeHandshake, "[client] Processing early data...")
 		// We will only get here if we sent exactly one PSK, and this is it
@@ -629,9 +655,11 @@ func (c *Conn) clientHandshake() error {
 			return err
 		}
 	}
+	logf(logTypeHandshake, "[client] tic[x]")
 
 	// Read ServerHello
 	sh := new(serverHelloBody)
+	logf(logTypeHandshake, "[client] Awaiting ServerHello")
 	shm, err := hIn.ReadMessageBody(sh)
 	if err != nil {
 		logf(logTypeHandshake, "[client] Error reading ServerHello")
@@ -856,11 +884,30 @@ func (c *Conn) serverHandshake() error {
 
 		for i, key := range c.config.ServerPSKs {
 			logf(logTypeHandshake, "[server] Checking for %x", key.Identity)
-			if clientPSK.HasIdentity(key.Identity) {
-				logf(logTypeHandshake, "Matched %x", key.Identity)
+			if clientBinder, found := clientPSK.HasIdentity(key.Identity); found {
+				logf(logTypeHandshake, "Matched identity %x", key.Identity)
+
+				// Verify the binder
+				ctx := cryptoContext{}
+				err := ctx.init(key.CipherSuite, chm, key.Key, key.External)
+				if err != nil {
+					return err
+				}
+				trunc, err := ch.Truncated()
+				if err != nil {
+					return err
+				}
+
+				binder := ctx.computeFinishedData(ctx.binderKey, trunc)
+				if !bytes.Equal(binder, clientBinder) {
+					// XXX: Keep looking if binder check fails; is this correct?
+					logf(logTypeHandshake, "Binder check failed identity %x", key.Identity)
+					continue
+				}
+
+				logf(logTypeHandshake, "Using PSK identity %x", key.Identity)
 				pskSecret = make([]byte, len(key.Key))
 				copy(pskSecret, key.Key)
-
 				serverPSK = &preSharedKeyExtension{
 					handshakeType:    handshakeTypeServerHello,
 					selectedIdentity: uint16(i),
@@ -1189,8 +1236,10 @@ func (c *Conn) serverHandshake() error {
 
 	if c.config.SendSessionTickets {
 		newPSK := PreSharedKey{
-			Identity: tkt.Ticket,
-			Key:      ctx.resumptionSecret,
+			CipherSuite: ctx.suite,
+			External:    false,
+			Identity:    tkt.Ticket,
+			Key:         ctx.resumptionSecret,
 		}
 		c.config.ServerPSKs = append(c.config.ServerPSKs, newPSK)
 

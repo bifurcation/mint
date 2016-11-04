@@ -114,8 +114,10 @@ var (
 	serverKey, _    = x509.ParsePKCS1PrivateKey(serverKeyDER)
 
 	psk = PreSharedKey{
-		Identity: []byte{0, 1, 2, 3},
-		Key:      []byte{4, 5, 6, 7},
+		CipherSuite: TLS_AES_128_GCM_SHA256,
+		External:    true,
+		Identity:    []byte{0, 1, 2, 3},
+		Key:         []byte{4, 5, 6, 7},
 	}
 	certificates = []*Certificate{
 		&Certificate{
@@ -228,7 +230,30 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 }
 
 func TestBasicFlows(t *testing.T) {
-	for _, conf := range []*Config{basicConfig, alpnConfig, pskConfig, pskECDHEConfig, pskDHEConfig, ffdhConfig, x25519Config} {
+	for _, conf := range []*Config{basicConfig, alpnConfig, ffdhConfig, x25519Config} {
+		cConn, sConn := pipe()
+
+		client := Client(cConn, conf)
+		server := Server(sConn, conf)
+
+		done := make(chan bool)
+		go func(t *testing.T) {
+			err := server.Handshake()
+			assertNotError(t, err, "Server failed handshake")
+			done <- true
+		}(t)
+
+		err := client.Handshake()
+		assertNotError(t, err, "Client failed handshake")
+
+		<-done
+
+		assertContextEquals(t, client.context, server.context)
+	}
+}
+
+func TestPSKFlows(t *testing.T) {
+	for _, conf := range []*Config{pskConfig, pskECDHEConfig, pskDHEConfig} {
 		cConn, sConn := pipe()
 
 		client := Client(cConn, conf)

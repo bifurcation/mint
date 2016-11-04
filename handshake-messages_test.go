@@ -30,6 +30,41 @@ var (
 	chOverflowHex = "0303" + hex.EncodeToString(helloRandom[:]) + "00" +
 		"0006000100020003" + "0100" + extListOverflowOuterHex
 
+	// ClientHello truncation test cases
+	chTruncPSKData, _ = hex.DecodeString(pskClientHex)
+	chTruncHex        = "0303" + hex.EncodeToString(helloRandom[:]) + "00" +
+		"0006000100020003" + "0100" + "00330029002f000a00040102030405060708"
+	chTruncValid = clientHelloBody{
+		random:       helloRandom,
+		cipherSuites: chCipherSuites,
+		extensions: []extension{
+			extension{
+				ExtensionType: extensionTypePreSharedKey,
+				ExtensionData: chTruncPSKData,
+			},
+		},
+	}
+	chTruncInvalid = clientHelloBody{}
+	chTruncNoExt   = clientHelloBody{
+		random:       helloRandom,
+		cipherSuites: chCipherSuites,
+		extensions:   []extension{},
+	}
+	chTruncNoPSK = clientHelloBody{
+		random:       helloRandom,
+		cipherSuites: chCipherSuites,
+		extensions: []extension{
+			extension{ExtensionType: extensionTypeEarlyData},
+		},
+	}
+	chTruncBadPSK = clientHelloBody{
+		random:       helloRandom,
+		cipherSuites: chCipherSuites,
+		extensions: []extension{
+			extension{ExtensionType: extensionTypePreSharedKey},
+		},
+	}
+
 	// ServerHello test cases
 	shValidIn = serverHelloBody{
 		Version:     supportedVersion,
@@ -241,6 +276,31 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	// Test unmarshal failure on extension list unmarshal failure
 	chLen, err = ch.Unmarshal(chOverflow)
 	assertError(t, err, "Unmarshaled a ClientHello with invalid extensions")
+}
+
+func TestClientHelloTruncate(t *testing.T) {
+	chTrunc, _ := hex.DecodeString(chTruncHex)
+
+	// Test success
+	trunc, err := chTruncValid.Truncated()
+	assertNotError(t, err, "Error truncating valid ClientHello")
+	assertByteEquals(t, trunc, chTrunc)
+
+	// Test failure on marshal failure
+	_, err = chTruncInvalid.Truncated()
+	assertError(t, err, "Truncated a ClientHello that should not have marshaled")
+
+	// Test failure on no extensions
+	_, err = chTruncNoExt.Truncated()
+	assertError(t, err, "Truncated a ClientHello with no extensions")
+
+	// Test failure on last extension not PSK
+	_, err = chTruncNoPSK.Truncated()
+	assertError(t, err, "Truncated a ClientHello whose last extension was not a PSK")
+
+	// Test failiure on last extension malformed PSK
+	_, err = chTruncBadPSK.Truncated()
+	assertError(t, err, "Truncated a ClientHello with a mal-formed PSK")
 }
 
 func TestServerHelloMarshalUnmarshal(t *testing.T) {
