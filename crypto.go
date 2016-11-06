@@ -383,14 +383,6 @@ func encodeSignatureInput(hash crypto.Hash, data []byte, context string) []byte 
 	return h.Sum(nil)
 }
 
-type pkcs1Opts struct {
-	hash crypto.Hash
-}
-
-func (opts pkcs1Opts) HashFunc() crypto.Hash {
-	return opts.hash
-}
-
 func sign(hash crypto.Hash, privateKey crypto.Signer, data []byte, context string) (signatureAlgorithm, []byte, error) {
 	var opts crypto.SignerOpts
 	var sigAlg signatureAlgorithm
@@ -403,7 +395,7 @@ func sign(hash crypto.Hash, privateKey crypto.Signer, data []byte, context strin
 	case *rsa.PrivateKey:
 		if allowPKCS1 {
 			sigAlg = signatureAlgorithmRSA
-			opts = &pkcs1Opts{hash: hash}
+			opts = hash
 		} else {
 			sigAlg = signatureAlgorithmRSAPSS
 			opts = &rsa.PSSOptions{SaltLength: hash.Size(), Hash: hash}
