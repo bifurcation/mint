@@ -436,35 +436,33 @@ func TestCryptoContext(t *testing.T) {
 
 	// BEGIN TESTS
 
+	// TODO test preInit
+	// TODO test earlyUpdateWithClientHello
+
 	// Test successful init
 	ctx := cryptoContext{}
-	err = ctx.init(serverHelloContextIn.CipherSuite, chm, pskSecretIn, false)
+	err = ctx.init(serverHelloContextIn.CipherSuite, chm)
 	assertNotError(t, err, "Failed to init context")
 	assertEquals(t, ctx.suite, serverHelloContextIn.CipherSuite)
 	assertNotNil(t, ctx.params, "Params not populated")
 	assertNotNil(t, ctx.zero, "Zero not populated")
-	assertByteEquals(t, ctx.pskSecret, pskSecretIn)
 	assertNotNil(t, ctx.earlySecret, "Early secret not populated")
-	assertNotNil(t, ctx.binderKey, "Binder key not populated")
 	assertNotNil(t, ctx.handshakeHash, "Failed to init handshake hash")
-	assertNotNil(t, ctx.earlyTrafficSecret, "Failed to set early traffic secret")
-	assertNotNil(t, ctx.earlyExporterSecret, "Failed to set early exporter secret")
-	assertNotNil(t, ctx.clientEarlyTrafficKeys, "Failed to set early traffic keys")
 
 	// Test successful init with nil PSK secret
 	ctx = cryptoContext{}
-	err = ctx.init(TLS_AES_128_GCM_SHA256, chm, nil, false)
+	err = ctx.init(TLS_AES_128_GCM_SHA256, chm)
 	assertNotError(t, err, "Failed to init context with nil PSK secret")
 	assertByteEquals(t, ctx.pskSecret, ctx.zero)
 
 	// Test init failure on usupported ciphersuite
 	ctx = cryptoContext{}
-	err = ctx.init(TLS_CHACHA20_POLY1305_SHA256, chm, nil, false)
+	err = ctx.init(TLS_CHACHA20_POLY1305_SHA256, chm)
 	assertError(t, err, "Init'ed context with an unsupported ciphersuite")
 
 	// Test successful updateWithServerHello
 	ctx = cryptoContext{}
-	_ = ctx.init(serverHelloContextIn.CipherSuite, chm, pskSecretIn, false)
+	_ = ctx.init(serverHelloContextIn.CipherSuite, chm)
 	err = ctx.updateWithServerHello(shm, dhSecretIn)
 	assertNotError(t, err, "Failed to update context")
 	assertNotNil(t, ctx.h2, "Failed to set handshake hash (2)")
@@ -480,14 +478,14 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test successful updateWithServerHello with nil dhSecret
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm)
 	err = ctx.updateWithServerHello(shm, nil)
 	assertNotError(t, err, "Failed to update context with nil DH secret")
 	assertByteEquals(t, ctx.dhSecret, ctx.zero)
 
 	// Test successful updateWithServerFirstFlight
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm)
 	_ = ctx.updateWithServerHello(shm, nil)
 	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
 	assertNotError(t, err, "Failed to update context")
@@ -504,7 +502,7 @@ func TestCryptoContext(t *testing.T) {
 	// Test successful updateWithClientSecondFlight
 	// TODO: Use a more realistic second flight
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm)
 	_ = ctx.updateWithServerHello(shm, dhSecretIn)
 	_ = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
 	err = ctx.updateWithClientSecondFlight([]*handshakeMessage{cm})
@@ -529,7 +527,7 @@ func TestCryptoContext(t *testing.T) {
 
 	// Test that the order of operations is enforced
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm)
 
 	ctx.state = ctxStateUnknown
 	err = ctx.updateWithServerHello(shm, dhSecretIn)

@@ -114,10 +114,10 @@ var (
 	serverKey, _    = x509.ParsePKCS1PrivateKey(serverKeyDER)
 
 	psk = PreSharedKey{
-		CipherSuite: TLS_AES_128_GCM_SHA256,
-		External:    true,
-		Identity:    []byte{0, 1, 2, 3},
-		Key:         []byte{4, 5, 6, 7},
+		CipherSuite:  TLS_AES_128_GCM_SHA256,
+		IsResumption: false,
+		Identity:     []byte{0, 1, 2, 3},
+		Key:          []byte{4, 5, 6, 7},
 	}
 	certificates = []*Certificate{
 		&Certificate{
@@ -200,12 +200,17 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 	assertByteEquals(t, c.h6, s.h6)
 
 	assertByteEquals(t, c.pskSecret, s.pskSecret)
-
 	assertByteEquals(t, c.earlySecret, s.earlySecret)
-	assertByteEquals(t, c.binderKey, s.binderKey)
-	assertByteEquals(t, c.earlyTrafficSecret, s.earlyTrafficSecret)
-	assertByteEquals(t, c.earlyExporterSecret, s.earlyExporterSecret)
-	assertDeepEquals(t, c.clientEarlyTrafficKeys, s.clientEarlyTrafficKeys)
+
+	if c.binderKey != nil && s.binderKey != nil {
+		assertByteEquals(t, c.binderKey, s.binderKey)
+	}
+
+	if c.earlyTrafficSecret != nil && s.earlyTrafficSecret != nil {
+		assertByteEquals(t, c.earlyTrafficSecret, s.earlyTrafficSecret)
+		assertByteEquals(t, c.earlyExporterSecret, s.earlyExporterSecret)
+		assertDeepEquals(t, c.clientEarlyTrafficKeys, s.clientEarlyTrafficKeys)
+	}
 
 	assertByteEquals(t, c.dhSecret, s.dhSecret)
 	assertByteEquals(t, c.handshakeSecret, s.handshakeSecret)
