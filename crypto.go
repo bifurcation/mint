@@ -843,7 +843,7 @@ func (ctx *cryptoContext) init(suite cipherSuite, chm *handshakeMessage) error {
 		copy(ctx.pskSecret, ctx.zero)
 	}
 
-	ctx.earlySecret = hkdfExtract(ctx.params.hash, ctx.zero, ctx.zero)
+	ctx.earlySecret = hkdfExtract(ctx.params.hash, ctx.zero, ctx.pskSecret)
 	logf(logTypeCrypto, "early secret: [%d] %x", len(ctx.earlySecret), ctx.earlySecret)
 
 	// Start up the handshake hash

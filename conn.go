@@ -1,9 +1,9 @@
 package mint
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -54,11 +54,9 @@ type Config struct {
 	// Client fields
 	ServerName      string
 	AuthCertificate func(chain []certificateEntry) error // TODO(#20) -> Both
-	ClientPSKs      map[string]PreSharedKey
 
 	// Server fields
 	Certificates       []*Certificate
-	ServerPSKs         []PreSharedKey
 	SendSessionTickets bool
 	TicketLifetime     uint32
 	TicketLen          int
@@ -68,6 +66,7 @@ type Config struct {
 	Groups           []namedGroup
 	SignatureSchemes []signatureScheme
 	NextProtos       []string
+	PSKs             map[string]PreSharedKey
 
 	// Hidden fields (used for caching in convenient form)
 	enabledSuite  map[cipherSuite]bool
@@ -98,8 +97,8 @@ func (c *Config) Init(isClient bool) error {
 	if c.TicketLen == 0 {
 		c.TicketLen = defaultTicketLen
 	}
-	if c.ClientPSKs == nil {
-		c.ClientPSKs = map[string]PreSharedKey{}
+	if c.PSKs == nil {
+		c.PSKs = map[string]PreSharedKey{}
 	}
 
 	// If there is no certificate, generate one
@@ -121,35 +120,6 @@ func (c *Config) Init(isClient bool) error {
 			},
 		}
 	}
-
-	// Build caches
-	c.enabledSuite = map[cipherSuite]bool{}
-	c.enabledGroup = map[namedGroup]bool{}
-	c.enabledProto = map[string]bool{}
-	c.enabledScheme = map[signatureScheme]bool{}
-	c.certsByName = map[string]*Certificate{}
-
-	for _, suite := range c.CipherSuites {
-		c.enabledSuite[suite] = true
-	}
-	for _, group := range c.Groups {
-		c.enabledGroup[group] = true
-	}
-	for _, proto := range c.NextProtos {
-		c.enabledProto[proto] = true
-	}
-	for _, scheme := range c.SignatureSchemes {
-		c.enabledScheme[scheme] = true
-	}
-	for _, cert := range c.Certificates {
-		if len(cert.Chain) == 0 {
-			continue
-		}
-		for _, name := range cert.Chain[0].DNSNames {
-			c.certsByName[name] = cert
-		}
-	}
-	logf(logTypeCrypto, "Enabled suites [%v]", c.enabledSuite)
 
 	return nil
 }
@@ -276,7 +246,7 @@ func (c *Conn) extendBuffer(n int) error {
 						Identity:     tkt.Ticket,
 						Key:          c.context.resumptionSecret,
 					}
-					c.config.ClientPSKs[c.config.ServerName] = psk
+					c.config.PSKs[c.config.ServerName] = psk
 
 				case handshakeTypeKeyUpdate:
 					// TODO: Support KeyUpdate
@@ -507,7 +477,7 @@ func (c *Conn) Handshake() error {
 func (c *Conn) clientHandshake() error {
 	logf(logTypeHandshake, "Starting clientHandshake")
 
-	h := &handshake{}
+	h := &clientHandshake{}
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
 
@@ -516,7 +486,7 @@ func (c *Conn) clientHandshake() error {
 		CipherSuites:     c.config.CipherSuites,
 		Groups:           c.config.Groups,
 		SignatureSchemes: c.config.SignatureSchemes,
-		PSKs:             c.config.ClientPSKs,
+		PSKs:             c.config.PSKs,
 	}
 	opts := connectionOptions{
 		ServerName: c.config.ServerName,
@@ -558,7 +528,6 @@ func (c *Conn) clientHandshake() error {
 			return err
 		}
 	}
-	logf(logTypeHandshake, "[client] tic[x]")
 
 	// Read and Process ServerHello
 	sh := new(serverHelloBody)
@@ -643,6 +612,7 @@ func (c *Conn) clientHandshake() error {
 func (c *Conn) serverHandshake() error {
 	logf(logTypeHandshake, "Starting serverHandshake")
 
+	h := &serverHandshake{}
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
 
@@ -655,162 +625,30 @@ func (c *Conn) serverHandshake() error {
 	}
 	logf(logTypeHandshake, "[server] Read ClientHello")
 
-	supportedVersions := new(supportedVersionsExtension)
-	serverName := new(serverNameExtension)
-	supportedGroups := new(supportedGroupsExtension)
-	signatureAlgorithms := new(signatureAlgorithmsExtension)
-	clientKeyShares := &keyShareExtension{handshakeType: handshakeTypeClientHello}
-	clientPSK := &preSharedKeyExtension{handshakeType: handshakeTypeClientHello}
-	clientEarlyData := &earlyDataExtension{}
-	clientALPN := new(alpnExtension)
-
-	gotSupportedVersions := ch.extensions.Find(supportedVersions)
-	gotServerName := ch.extensions.Find(serverName)
-	gotSupportedGroups := ch.extensions.Find(supportedGroups)
-	gotSignatureAlgorithms := ch.extensions.Find(signatureAlgorithms)
-	gotKeyShares := ch.extensions.Find(clientKeyShares)
-	gotPSK := ch.extensions.Find(clientPSK)
-	gotEarlyData := ch.extensions.Find(clientEarlyData)
-	gotALPN := ch.extensions.Find(clientALPN)
-
-	// If the client didn't send supportedVersions or doesn't support 1.3,
-	// then we're done here.
-	if !gotSupportedVersions {
-		logf(logTypeHandshake, "[server] Client did not send supported_versions")
-		return fmt.Errorf("tls.server: Client did not send supported_versions")
+	caps := capabilities{
+		CipherSuites:     c.config.CipherSuites,
+		Groups:           c.config.Groups,
+		SignatureSchemes: c.config.SignatureSchemes,
+		PSKs:             c.config.PSKs,
+		NextProtos:       c.config.NextProtos,
+		Certificates:     c.config.Certificates,
 	}
-	clientSupportsSameVersion := false
-	for _, version := range supportedVersions.Versions {
-		logf(logTypeHandshake, "[server] version offered by client [%04x] <> [%04x]", version, supportedVersion)
-		clientSupportsSameVersion = (version == supportedVersion)
-		if clientSupportsSameVersion {
-			break
-		}
-	}
-	if !clientSupportsSameVersion {
-		logf(logTypeHandshake, "[server] Client does not support the same version")
-		return fmt.Errorf("tls.server: Client does not support the same version")
-	}
-
-	// Start up a crypto context
-	ctx := cryptoContext{}
-
-	// Find pre_shared_key extension and look it up
-	var serverPSK *preSharedKeyExtension
-	var pskSecret []byte
-	if gotPSK {
-		logf(logTypeHandshake, "[server] Got PSK extension; processing")
-		for _, id := range clientPSK.identities {
-			logf(logTypeHandshake, "[server] Client provided PSK identity %x", id)
-		}
-
-		for i, key := range c.config.ServerPSKs {
-			logf(logTypeHandshake, "[server] Checking for %x", key.Identity)
-			if clientBinder, found := clientPSK.HasIdentity(key.Identity); found {
-				logf(logTypeHandshake, "Matched identity %x", key.Identity)
-
-				// Verify the binder
-				ctx.preInit(key)
-				trunc, err := ch.Truncated()
-				if err != nil {
-					return err
-				}
-
-				binder := ctx.computeFinishedData(ctx.binderKey, trunc)
-				if !bytes.Equal(binder, clientBinder) {
-					// XXX: Keep looking if binder check fails; is this correct?
-					logf(logTypeHandshake, "Binder check failed identity %x", key.Identity)
-					continue
-				}
-
-				logf(logTypeHandshake, "Using PSK identity %x", key.Identity)
-				pskSecret = make([]byte, len(key.Key))
-				copy(pskSecret, key.Key)
-				serverPSK = &preSharedKeyExtension{
-					handshakeType:    handshakeTypeServerHello,
-					selectedIdentity: uint16(i),
-				}
-			}
-		}
-	}
-
-	// Find the ALPN extension and select a protocol
-	var serverALPN *alpnExtension
-	if gotALPN {
-		logf(logTypeHandshake, "[server] Got ALPN offer: %v", clientALPN.protocols)
-		for _, proto := range clientALPN.protocols {
-			if c.config.enabledProto[proto] {
-				logf(logTypeHandshake, "[server] Sending ALPN value %v", proto)
-				serverALPN = &alpnExtension{protocols: []string{proto}}
-				break
-			}
-		}
-	}
-
-	// Find key_share extension and do key agreement
-	var serverKeyShare *keyShareExtension
-	var dhSecret []byte
-	if gotKeyShares {
-		logf(logTypeHandshake, "[server] Got KeyShare extension; processing")
-		for _, share := range clientKeyShares.shares {
-			if c.config.enabledGroup[share.Group] {
-				pub, priv, err := newKeyShare(share.Group)
-				if err != nil {
-					return err
-				}
-
-				dhSecret, err = keyAgreement(share.Group, share.KeyExchange, priv)
-				serverKeyShare = &keyShareExtension{
-					handshakeType: handshakeTypeServerHello,
-					shares:        []keyShareEntry{keyShareEntry{Group: share.Group, KeyExchange: pub}},
-				}
-				if err != nil {
-					return err
-				}
-				break
-			}
-		}
-	}
-
-	// Pick a ciphersuite
-	var chosenSuite cipherSuite
-	foundCipherSuite := false
-	for _, suite := range ch.cipherSuites {
-		if c.config.enabledSuite[suite] {
-			chosenSuite = suite
-			foundCipherSuite = true
-			break
-		}
-	}
-
-	logf(logTypeCrypto, "Supported Client suites [%v]", ch.cipherSuites)
-	if !foundCipherSuite {
-		logf(logTypeHandshake, "No acceptable ciphersuites")
-		return fmt.Errorf("tls.server: No acceptable ciphersuites")
-	}
-	logf(logTypeHandshake, "[server] Chose CipherSuite %x", chosenSuite)
+	sh, serverFirstFlight, signaledEarlyData, err := h.HandleClientHello(ch, caps)
 
 	// Find early_data extension and handle early data
-	if gotEarlyData {
+	if signaledEarlyData {
 		logf(logTypeHandshake, "[server] Processing early data")
-
-		// Can't do early data if we don't have a PSK
-		// TODO Handle this more elegantly
-		if pskSecret == nil {
-			return fmt.Errorf("tls.server: EarlyData with no PSK")
-		}
-		// TODO verify that ciphersuite and ALPN are the same as before
 
 		// Compute early handshake / traffic keys from pskSecret
 		// XXX: We init different contexts for early vs. main handshakes, that
 		// means that in principle, we could end up with different ciphersuites for
 		// early data vs. the main record flow.  Probably not ideal.
 		logf(logTypeHandshake, "[server] Computing early secrets...")
-		ctx.earlyUpdateWithClientHello(chm)
+		h.Context.earlyUpdateWithClientHello(chm)
 
 		// Rekey read channel to early traffic keys
 		logf(logTypeHandshake, "[server] Rekey -> handshake...")
-		err = c.in.Rekey(ctx.params.cipher, ctx.clientEarlyTrafficKeys.key, ctx.clientEarlyTrafficKeys.iv)
+		err = c.in.Rekey(h.Context.params.cipher, h.Context.clientEarlyTrafficKeys.key, h.Context.clientEarlyTrafficKeys.iv)
 		if err != nil {
 			return err
 		}
@@ -844,201 +682,66 @@ func (c *Conn) serverHandshake() error {
 		logf(logTypeHandshake, "[server] Done reading early data [%d] %x", len(c.readBuffer), c.readBuffer)
 	}
 
-	// Init context and decide whether to send KeyShare/PreSharedKey
-	err = ctx.init(chosenSuite, chm)
-	if err != nil {
-		return err
-	}
-	logf(logTypeHandshake, "[server] Initialized context")
-
-	// If we're not using a PSK mode, then we need to have certain extensions
-	if (pskSecret == nil) && (!gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms) {
-		logf(logTypeHandshake, "[server] Insufficient extensions (%v %v %v %v)",
-			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
-		return fmt.Errorf("tls.server: Missing extension in ClientHello")
-	}
-
-	// Create the ServerHello
-	sh := &serverHelloBody{
-		Version:     supportedVersion,
-		CipherSuite: chosenSuite,
-	}
-	_, err = prng.Read(sh.Random[:])
-	if err != nil {
-		return err
-	}
-	if dhSecret != nil {
-		logf(logTypeHandshake, "[server] sending key share extension")
-		err = sh.Extensions.Add(serverKeyShare)
-		if err != nil {
-			return err
-		}
-	} else {
-		logf(logTypeHandshake, "[server] not sending key share extension; deleting DH secret")
-		dhSecret = nil
-	}
-	if pskSecret != nil {
-		logf(logTypeHandshake, "[server] sending PSK extension")
-		err = sh.Extensions.Add(serverPSK)
-		if err != nil {
-			return err
-		}
-	} else {
-		logf(logTypeHandshake, "[server] not sending PSK extension; deleting PSK secret")
-		pskSecret = nil
-	}
-	logf(logTypeHandshake, "[server] Done creating ServerHello")
-
 	// Write ServerHello and update the crypto context
-	shm, err := hOut.WriteMessageBody(sh)
+	_, err = hOut.WriteMessageBody(sh)
 	if err != nil {
 		logf(logTypeHandshake, "[server] Unable to send ServerHello %v", err)
 		return err
 	}
 	logf(logTypeHandshake, "[server] Wrote ServerHello")
-	err = ctx.updateWithServerHello(shm, dhSecret)
-	if err != nil {
-		return err
-	}
 
 	// Rekey to handshake keys
-	err = c.in.Rekey(ctx.params.cipher, ctx.clientHandshakeKeys.key, ctx.clientHandshakeKeys.iv)
+	err = c.in.Rekey(h.Context.params.cipher, h.Context.clientHandshakeKeys.key, h.Context.clientHandshakeKeys.iv)
 	if err != nil {
 		return err
 	}
-	err = c.out.Rekey(ctx.params.cipher, ctx.serverHandshakeKeys.key, ctx.serverHandshakeKeys.iv)
+	err = c.out.Rekey(h.Context.params.cipher, h.Context.serverHandshakeKeys.key, h.Context.serverHandshakeKeys.iv)
 	if err != nil {
 		return err
 	}
 	logf(logTypeHandshake, "[server] Completed rekey")
-	dumpCryptoContext("server", ctx)
+	dumpCryptoContext("server", h.Context)
 
-	// Send an EncryptedExtensions message (even if it's empty)
-	eeList := extensionList{}
-	if serverALPN != nil {
-		logf(logTypeHandshake, "[server] sending ALPN extension")
-		err = eeList.Add(serverALPN)
+	// Write remainder of server first flight
+	for _, msg := range serverFirstFlight {
+		err := hOut.WriteMessage(msg)
 		if err != nil {
+			logf(logTypeHandshake, "[server] Unable to send handshake message %v", err)
 			return err
 		}
 	}
-	ee := encryptedExtensionsBody{eeList}
-	eem, err := hOut.WriteMessageBody(&ee)
-	if err != nil {
-		return err
-	}
-	transcript := []*handshakeMessage{eem}
 
-	// Authenticate with a certificate if required
-	if pskSecret == nil {
-		// Select a certificate
-		var privateKey crypto.Signer
-		var chain []*x509.Certificate
-		foundCert := false
-		for _, cert := range c.config.Certificates {
-			for _, name := range cert.Chain[0].DNSNames {
-				if name == string(*serverName) {
-					foundCert = true
-					chain = cert.Chain
-					privateKey = cert.PrivateKey
-				}
-			}
+	// Read and process the client's second flight
+	transcript := []*handshakeMessage{}
+	var finishedMessage *handshakeMessage
+	for {
+		hm, err := hIn.ReadMessage()
+		if err != nil {
+			logf(logTypeHandshake, "Error reading message: %v", err)
+			return err
 		}
-		if !foundCert {
-			return fmt.Errorf("No certificate available for the requested name [%s]", *serverName)
-		}
+		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
-		// Select a signature scheme from among those offered by the client
-		var sigAlg signatureScheme
-		foundSigAlg := false
-		for _, alg := range signatureAlgorithms.Algorithms {
-
-			valid := schemeValidForKey(alg, privateKey)
-			enabled := c.config.enabledScheme[alg]
-
-			if !valid || !enabled {
-				continue
-			}
-
-			sigAlg = alg
-			foundSigAlg = true
+		if hm.msgType == handshakeTypeFinished {
+			finishedMessage = hm
 			break
+		} else {
+			transcript = append(transcript, hm)
 		}
-		if !foundSigAlg {
-			return fmt.Errorf("No signature schemes available for this client and certificate")
-		}
-		logf(logTypeHandshake, "Computing CertificateVerify with scheme %04x", sigAlg)
-
-		// If there's no name match, use the first in the list or fail
-		if chain == nil {
-			if len(c.config.Certificates) > 0 {
-				chain = c.config.Certificates[0].Chain
-				privateKey = c.config.Certificates[0].PrivateKey
-			} else {
-				return fmt.Errorf("No certificate found for %s", string(*serverName))
-			}
-		}
-
-		// Create and send Certificate, CertificateVerify
-		// TODO Certificate selection based on ClientHello
-		certificate := &certificateBody{
-			certificateList: make([]certificateEntry, len(chain)),
-		}
-		for i, cert := range chain {
-			certificate.certificateList[i] = certificateEntry{certData: cert}
-		}
-		certm, err := hOut.WriteMessageBody(certificate)
-		if err != nil {
-			return err
-		}
-
-		certificateVerify := &certificateVerifyBody{Algorithm: sigAlg}
-		logf(logTypeHandshake, "%04x %v", sigAlg, ctx.params.hash)
-		err = certificateVerify.Sign(privateKey, []*handshakeMessage{chm, shm, eem, certm}, ctx)
-		if err != nil {
-			return err
-		}
-		certvm, err := hOut.WriteMessageBody(certificateVerify)
-		if err != nil {
-			return err
-		}
-
-		transcript = append(transcript, []*handshakeMessage{certm, certvm}...)
 	}
+	logf(logTypeHandshake, "[client] Done reading server's first flight")
 
-	// Update the crypto context (assumes no further client messages except Finished)
-	err = ctx.updateWithServerFirstFlight(transcript)
+	err = h.HandleClientSecondFlight(transcript, finishedMessage)
 	if err != nil {
 		return err
-	}
-	err = ctx.updateWithClientSecondFlight(nil)
-	if err != nil {
-		return err
-	}
-
-	// Create and write server Finished
-	_, err = hOut.WriteMessageBody(ctx.serverFinished)
-	if err != nil {
-		return err
-	}
-
-	// Read and verify client Finished
-	cfin := new(finishedBody)
-	cfin.verifyDataLen = ctx.clientFinished.verifyDataLen
-	_, err = hIn.ReadMessageBody(cfin)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(cfin.verifyData, ctx.clientFinished.verifyData) {
-		return fmt.Errorf("tls.client: Client's Finished failed to verify")
 	}
 
 	// Rekey to application keys
-	err = c.in.Rekey(ctx.params.cipher, ctx.clientTrafficKeys.key, ctx.clientTrafficKeys.iv)
+	err = c.in.Rekey(h.Context.params.cipher, h.Context.clientTrafficKeys.key, h.Context.clientTrafficKeys.iv)
 	if err != nil {
 		return err
 	}
-	err = c.out.Rekey(ctx.params.cipher, ctx.serverTrafficKeys.key, ctx.serverTrafficKeys.iv)
+	err = c.out.Rekey(h.Context.params.cipher, h.Context.serverTrafficKeys.key, h.Context.serverTrafficKeys.iv)
 	if err != nil {
 		return err
 	}
@@ -1052,12 +755,13 @@ func (c *Conn) serverHandshake() error {
 
 	if c.config.SendSessionTickets {
 		newPSK := PreSharedKey{
-			CipherSuite:  ctx.suite,
+			CipherSuite:  h.Context.suite,
 			IsResumption: true,
 			Identity:     tkt.Ticket,
-			Key:          ctx.resumptionSecret,
+			Key:          h.Context.resumptionSecret,
 		}
-		c.config.ServerPSKs = append(c.config.ServerPSKs, newPSK)
+		idHex := hex.EncodeToString(newPSK.Identity)
+		c.config.PSKs[idHex] = newPSK
 
 		ticketBytes, err := tkt.Marshal()
 		logf(logTypeHandshake, "About to write NewSessionTicket %x", ticketBytes)
@@ -1069,6 +773,6 @@ func (c *Conn) serverHandshake() error {
 		logf(logTypeHandshake, "Wrote NewSessionTicket %x", tkt.Ticket)
 	}
 
-	c.context = ctx
+	c.context = h.Context
 	return nil
 }

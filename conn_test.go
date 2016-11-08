@@ -125,8 +125,7 @@ var (
 			PrivateKey: serverKey,
 		},
 	}
-	clientPSKs = map[string]PreSharedKey{serverName: psk}
-	serverPSKs = []PreSharedKey{psk}
+	psks = map[string]PreSharedKey{serverName: psk}
 
 	basicConfig = &Config{
 		ServerName:   serverName,
@@ -142,24 +141,21 @@ var (
 	pskConfig = &Config{
 		ServerName:   serverName,
 		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
-		ClientPSKs:   clientPSKs,
-		ServerPSKs:   serverPSKs,
+		PSKs:         psks,
 	}
 
 	pskECDHEConfig = &Config{
 		ServerName:   serverName,
 		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
-		ClientPSKs:   clientPSKs,
-		ServerPSKs:   serverPSKs,
+		PSKs:         psks,
 	}
 
 	pskDHEConfig = &Config{
 		ServerName:   serverName,
 		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
-		ClientPSKs:   clientPSKs,
-		ServerPSKs:   serverPSKs,
+		PSKs:         psks,
 		Groups:       []namedGroup{namedGroupFF2048},
 	}
 
@@ -303,12 +299,15 @@ func TestResumption(t *testing.T) {
 	<-done
 
 	assertContextEquals(t, client1.context, server1.context)
-	assertEquals(t, len(clientConfig.ClientPSKs), 1)
-	assertEquals(t, len(serverConfig.ServerPSKs), 1)
+	assertEquals(t, len(clientConfig.PSKs), 1)
+	assertEquals(t, len(serverConfig.PSKs), 1)
 
-	serverPSK := serverConfig.ServerPSKs[0]
+	var serverPSK PreSharedKey
+	for _, key := range serverConfig.PSKs {
+		serverPSK = key
+	}
 	var clientPSK PreSharedKey
-	for _, key := range clientConfig.ClientPSKs {
+	for _, key := range clientConfig.PSKs {
 		clientPSK = key
 	}
 	assertDeepEquals(t, clientPSK, serverPSK)
