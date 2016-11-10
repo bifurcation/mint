@@ -12,6 +12,7 @@ var port string
 
 func main() {
 	var config mint.Config
+	config.SendSessionTickets = true
 	config.Init(false)
 
 	flag.StringVar(&port, "port", "4430", "port")
