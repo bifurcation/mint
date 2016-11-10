@@ -19,13 +19,15 @@ var structs = []interface{}{
 	&extension{},
 	&extensionList{},
 	new(serverNameExtension),
-	&keyShareExtension{roleIsServer: false},
-	&keyShareExtension{roleIsServer: true},
+	&alpnExtension{},
+	&keyShareExtension{handshakeType: handshakeTypeClientHello},
+	&keyShareExtension{handshakeType: handshakeTypeHelloRetryRequest},
+	&keyShareExtension{handshakeType: handshakeTypeServerHello},
 	&supportedGroupsExtension{},
 	&signatureAlgorithmsExtension{},
-	&preSharedKeyExtension{roleIsServer: false},
-	&preSharedKeyExtension{roleIsServer: true},
-	&draftVersionExtension{},
+	&preSharedKeyExtension{handshakeType: handshakeTypeClientHello},
+	&preSharedKeyExtension{handshakeType: handshakeTypeServerHello},
+	&supportedVersionsExtension{},
 }
 
 var validHex = []string{
@@ -40,14 +42,16 @@ var validHex = []string{
 	// Extensions
 	extValidHex,
 	extListValidHex,
-	serverNameHex,
+	validExtensionTestCases[extensionTypeServerName].marshaledHex,
+	validExtensionTestCases[extensionTypeALPN].marshaledHex,
 	keyShareClientHex,
+	keyShareHelloRetryHex,
 	keyShareServerHex,
-	supportedGroupsHex,
-	signatureAlgorithmsHex,
+	validExtensionTestCases[extensionTypeSupportedGroups].marshaledHex,
+	validExtensionTestCases[extensionTypeSignatureAlgorithms].marshaledHex,
 	pskClientHex,
 	pskServerHex,
-	draftVersionHex,
+	validExtensionTestCases[extensionTypeSupportedVersions].marshaledHex,
 }
 
 func randomBytes(n int, rand *rand.Rand) []byte {

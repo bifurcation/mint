@@ -8,9 +8,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	_ "crypto/sha256"
-	"crypto/x509"
 	"encoding/asn1"
 	"encoding/hex"
+	"io"
 	"math/big"
 	"testing"
 )
@@ -39,6 +39,16 @@ var (
 	hkdfEncodedLabelHex      = "002a" + "0d" + hex.EncodeToString([]byte("TLS 1.3, "+hkdfLabel)) + "20" + hkdfHashHex
 	hkdfExpandLabelOutputHex = "474de877d26b9e14ba50d91657bdf8bdb0fb7152f0ef8d908bb68eb697bb64c6bf2f2d81fa987e86bc32"
 )
+
+type mockSigner struct{}
+
+func (m mockSigner) Public() crypto.PublicKey {
+	return m
+}
+
+func (m mockSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error) {
+	return nil, nil
+}
 
 func TestNewKeyShare(t *testing.T) {
 	// Test success cases
@@ -133,40 +143,58 @@ func TestKeyAgreement(t *testing.T) {
 
 func TestNewSigningKey(t *testing.T) {
 	// Test RSA success
-	privRSA, err := newSigningKey(signatureAlgorithmRSA)
+	privRSA, err := newSigningKey(signatureSchemeRSA_PKCS1_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
 	_, ok := privRSA.(*rsa.PrivateKey)
 	assert(t, ok, "New RSA key was not actually an RSA key")
 
-	// Test ECDSA success
-	privECDSA, err := newSigningKey(signatureAlgorithmECDSA)
+	// Test ECDSA success (P-256)
+	privECDSA, err := newSigningKey(signatureSchemeECDSA_P256_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
-	assert(t, ok, "New RSA key was not actually an RSA key")
+	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
+	pub := privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
+	assertEquals(t, namedGroupP256, namedGroupFromECDSAKey(pub))
+
+	// Test ECDSA success (P-384)
+	privECDSA, err = newSigningKey(signatureSchemeECDSA_P384_SHA384)
+	assertNotError(t, err, "failed to generate RSA private key")
+	_, ok = privECDSA.(*ecdsa.PrivateKey)
+	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
+	pub = privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
+	assertEquals(t, namedGroupP384, namedGroupFromECDSAKey(pub))
+
+	// Test ECDSA success (P-521)
+	privECDSA, err = newSigningKey(signatureSchemeECDSA_P521_SHA512)
+	assertNotError(t, err, "failed to generate RSA private key")
+	_, ok = privECDSA.(*ecdsa.PrivateKey)
+	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
+	pub = privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
+	assertEquals(t, namedGroupP521, namedGroupFromECDSAKey(pub))
 
 	// Test unsupported algorithm
-	_, err = newSigningKey(signatureAlgorithmEdDSA)
+	_, err = newSigningKey(signatureSchemeEd25519)
 	assertError(t, err, "Created a private key for an unsupported algorithm")
 }
 
 func TestSelfSigned(t *testing.T) {
-	priv, err := newSigningKey(signatureAlgorithmECDSA)
+	priv, err := newSigningKey(signatureSchemeECDSA_P256_SHA256)
 	assertNotError(t, err, "Failed to create private key")
 
 	// Test success
-	alg := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmECDSA}
+	alg := signatureSchemeECDSA_P256_SHA256
 	cert, err := newSelfSigned("example.com", alg, priv)
 	assertNotError(t, err, "Failed to sign certificate")
 	assert(t, len(cert.Raw) > 0, "Certificate had empty raw value")
-	assertEquals(t, cert.SignatureAlgorithm, x509AlgMap[alg.signature][alg.hash])
+	assertEquals(t, cert.SignatureAlgorithm, x509AlgMap[alg])
 
 	// Test failure on unknown signature algorithm
-	alg = signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSAPSS}
+	alg = signatureSchemeRSA_PSS_SHA256
 	_, err = newSelfSigned("example.com", alg, priv)
 	assertError(t, err, "Signed with an unsupported algorithm")
 
 	// Test failure on certificate signing failure (due to algorithm mismatch)
-	alg = signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}
+	alg = signatureSchemeRSA_PKCS1_SHA256
 	_, err = newSelfSigned("example.com", alg, priv)
 	assertError(t, err, "Signed with a mismatched algorithm")
 }
@@ -176,81 +204,118 @@ func TestSignVerify(t *testing.T) {
 		10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
 		20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
 		30, 31}
-	context := "TLS 1.3, test"
 
-	privRSA, err := newSigningKey(signatureAlgorithmRSA)
+	privRSA, err := newSigningKey(signatureSchemeRSA_PSS_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
-	privECDSA, err := newSigningKey(signatureAlgorithmECDSA)
-	assertNotError(t, err, "failed to generate RSA private key")
+	privECDSA, err := newSigningKey(signatureSchemeECDSA_P256_SHA256)
+	assertNotError(t, err, "failed to generate ECDSA private key")
 
-	// Test successful signing
-	sigAlgRSA, sigRSA, err := sign(crypto.SHA256, privRSA, data, context)
-	assertNotError(t, err, "Failed to generate RSA signature")
-	assertEquals(t, sigAlgRSA, signatureAlgorithmRSA)
-
+	// Test successful signing with PKCS#1 when it is allowed
 	originalAllowPKCS1 := allowPKCS1
-	allowPKCS1 = false
-	sigAlgRSAPSS, sigRSAPSS, err := sign(crypto.SHA256, privRSA, data, context)
-	assertNotError(t, err, "Failed to generate RSA-PSS signature")
-	assertEquals(t, sigAlgRSAPSS, signatureAlgorithmRSAPSS)
+	allowPKCS1 = true
+	sigRSA, err := sign(signatureSchemeRSA_PKCS1_SHA256, privRSA, data)
+	assertNotError(t, err, "Failed to generate RSA signature")
 	allowPKCS1 = originalAllowPKCS1
 
-	sigAlgECDSA, sigECDSA, err := sign(crypto.SHA256, privECDSA, data, context)
-	assertNotError(t, err, "Failed to generate ECDSA signature")
-	assertEquals(t, sigAlgECDSA, signatureAlgorithmECDSA)
-
-	// Test successful verification
-	algRSA := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSA}
-	err = verify(algRSA, privRSA.Public(), data, context, sigRSA)
-	assertNotError(t, err, "Failed to verify a valid RSA-PSS signature")
-
+	// Test successful signing with PKCS#1 when it is not allowed
+	// (i.e., when it gets morphed into PSS)
 	originalAllowPKCS1 = allowPKCS1
 	allowPKCS1 = false
-	algRSAPSS := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmRSAPSS}
-	err = verify(algRSAPSS, privRSA.Public(), data, context, sigRSAPSS)
+	sigRSAPSS, err := sign(signatureSchemeRSA_PKCS1_SHA256, privRSA, data)
+	assertNotError(t, err, "Failed to generate RSA-PSS signature")
+	allowPKCS1 = originalAllowPKCS1
+
+	// Test successful signing with PSS
+	originalAllowPKCS1 = allowPKCS1
+	allowPKCS1 = false
+	sigRSAPSS, err = sign(signatureSchemeRSA_PSS_SHA256, privRSA, data)
+	assertNotError(t, err, "Failed to generate RSA-PSS signature")
+	allowPKCS1 = originalAllowPKCS1
+
+	// Test successful signing with ECDSA
+	sigECDSA, err := sign(signatureSchemeECDSA_P256_SHA256, privECDSA, data)
+	assertNotError(t, err, "Failed to generate ECDSA signature")
+
+	// Test signature failure on use of SHA-1
+	_, err = sign(signatureSchemeRSA_PKCS1_SHA1, privRSA, data)
+	assertError(t, err, "Allowed a SHA-1 signature")
+
+	// Test signature failure on use of an non-RSA key with an RSA alg
+	_, err = sign(signatureSchemeRSA_PKCS1_SHA1, privECDSA, data)
+	assertError(t, err, "Allowed an RSA signature with a non-RSA key")
+
+	// Test signature failure on use of an non-ECDSA key with an ECDSA alg
+	_, err = sign(signatureSchemeECDSA_P256_SHA256, privRSA, data)
+	assertError(t, err, "Allowed a ECDSA signature with a non-ECDSA key")
+
+	// Test signature failure on use of an ECDSA key from the wrong curve
+	_, err = sign(signatureSchemeECDSA_P384_SHA384, privRSA, data)
+	assertError(t, err, "Allowed a ECDSA signature with key from the wrong curve")
+
+	// Test signature failure on use of an unsupported key type
+	_, err = sign(signatureSchemeECDSA_P384_SHA384, mockSigner{}, data)
+	assertError(t, err, "Allowed a ECDSA signature with key from the wrong curve")
+
+	// Test successful verification with PKCS#1 when it is allowed
+	originalAllowPKCS1 = allowPKCS1
+	allowPKCS1 = true
+	err = verify(signatureSchemeRSA_PKCS1_SHA256, privRSA.Public(), data, sigRSA)
+	assertNotError(t, err, "Failed to verify a valid RSA-PKCS1 signature")
+	allowPKCS1 = originalAllowPKCS1
+
+	// Test successful verification with PKCS#1 transformed into PSS
+	originalAllowPKCS1 = allowPKCS1
+	allowPKCS1 = false
+	err = verify(signatureSchemeRSA_PKCS1_SHA256, privRSA.Public(), data, sigRSAPSS)
 	assertNotError(t, err, "Failed to verify a valid RSA-PSS signature")
 	allowPKCS1 = originalAllowPKCS1
 
-	algECDSA := signatureAndHashAlgorithm{hashAlgorithmSHA256, signatureAlgorithmECDSA}
-	err = verify(algECDSA, privECDSA.Public(), data, context, sigECDSA)
+	// Test successful verification with PSS
+	err = verify(signatureSchemeRSA_PSS_SHA256, privRSA.Public(), data, sigRSAPSS)
 	assertNotError(t, err, "Failed to verify a valid ECDSA signature")
 
-	// Test RSA verify failure on bad algorithm
-	originalAllowPKCS1 = allowPKCS1
-	allowPKCS1 = false
-	err = verify(algRSA, privRSA.Public(), data, context, sigRSA)
-	assertError(t, err, "Verified RSA with something other than PSS")
-	allowPKCS1 = originalAllowPKCS1
+	// Test successful verification with ECDSA
+	err = verify(signatureSchemeECDSA_P256_SHA256, privECDSA.Public(), data, sigECDSA)
+	assertNotError(t, err, "Failed to verify a valid ECDSA signature")
 
-	err = verify(algECDSA, privRSA.Public(), data, context, sigRSA)
-	assertError(t, err, "Verified RSA with a non-RSA algorithm")
+	// Test that SHA-1 is forbidden
+	err = verify(signatureSchemeRSA_PKCS1_SHA1, privECDSA.Public(), data, sigECDSA)
+	assertError(t, err, "Allowed verification of a SHA-1 signature")
 
-	// Test ECDSA verify failure on bad algorithm
-	err = verify(algRSAPSS, privECDSA.Public(), data, context, sigECDSA)
+	// Test RSA verify failure on unsupported algorithm
+	err = verify(signatureSchemeECDSA_P256_SHA256, privRSA.Public(), data, sigRSA)
+	assertError(t, err, "Verified ECDSA with an RSA key")
+
+	// Test ECDSA verify failure on unsupported algorithm
+	err = verify(signatureSchemeRSA_PSS_SHA256, privECDSA.Public(), data, sigECDSA)
+	assertError(t, err, "Verified ECDSA with a bad algorithm")
+
+	// Test ECDSA verify failure on unsupported curve
+	err = verify(signatureSchemeECDSA_P384_SHA384, privECDSA.Public(), data, sigECDSA)
 	assertError(t, err, "Verified ECDSA with a bad algorithm")
 
 	// Test ECDSA verify failure on ASN.1 unmarshal failure
-	err = verify(algECDSA, privECDSA.Public(), data, context, sigECDSA[:8])
+	err = verify(signatureSchemeECDSA_P256_SHA256, privECDSA.Public(), data, sigECDSA[:8])
 	assertError(t, err, "Verified ECDSA with a bad ASN.1")
 
 	// Test ECDSA verify failure on trailing data
-	err = verify(algECDSA, privECDSA.Public(), data, context, append(sigECDSA, data...))
+	err = verify(signatureSchemeECDSA_P256_SHA256, privECDSA.Public(), data, append(sigECDSA, data...))
 	assertError(t, err, "Verified ECDSA with a trailing ASN.1")
 
 	// Test ECDSA verify failure on zero / negative values
 	zeroSigIn := ecdsaSignature{big.NewInt(0), big.NewInt(0)}
 	zeroSig, err := asn1.Marshal(zeroSigIn)
-	err = verify(algECDSA, privECDSA.Public(), data, context, zeroSig)
+	err = verify(signatureSchemeECDSA_P256_SHA256, privECDSA.Public(), data, zeroSig)
 	assertError(t, err, "Verified ECDSA with zero signature")
 
 	// Test ECDSA verify failure on signature validation failure
 	sigECDSA[7] ^= 0xFF
-	err = verify(algECDSA, privECDSA.Public(), data, context, sigECDSA)
+	err = verify(signatureSchemeECDSA_P256_SHA256, privECDSA.Public(), data, sigECDSA)
 	assertError(t, err, "Verified ECDSA with corrupted signature")
 	sigECDSA[7] ^= 0xFF
 
 	// Test verify failure on unknown public key type
-	err = verify(algECDSA, struct{}{}, data, context, sigECDSA)
+	err = verify(signatureSchemeECDSA_P256_SHA256, struct{}{}, data, sigECDSA)
 	assertError(t, err, "Verified with invalid public key type")
 }
 
@@ -296,23 +361,25 @@ func random(n int) []byte {
 var (
 	clientHelloContextIn = &clientHelloBody{
 		cipherSuites: []cipherSuite{
-			TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			TLS_AES_128_GCM_SHA256,
 		},
 	}
 
 	serverHelloContextIn = &serverHelloBody{
-		cipherSuite: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		CipherSuite: TLS_AES_128_GCM_SHA256,
 	}
 
 	certificateContextIn = &certificateBody{
 		certificateRequestContext: []byte{},
-		certificateList:           []*x509.Certificate{cert1, cert2},
+		certificateList: []certificateEntry{
+			{certData: cert1},
+			{certData: cert2},
+		},
 	}
 
 	certificateVerifyContextIn = &certificateVerifyBody{
-		alg:       signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmRSA},
-		signature: random(64),
+		Algorithm: signatureSchemeRSA_PSS_SHA256,
+		Signature: random(64),
 	}
 
 	dhSecretIn  = random(32)
@@ -320,37 +387,34 @@ var (
 )
 
 func keySetEmpty(k keySet) bool {
-	return len(k.clientWriteKey) == 0 &&
-		len(k.serverWriteKey) == 0 &&
-		len(k.clientWriteIV) == 0 &&
-		len(k.serverWriteIV) == 0
+	return len(k.key) == 0 && len(k.iv) == 0
 }
 
 func TestCryptoContext(t *testing.T) {
 	rand.Reader.Read(clientHelloContextIn.random[:])
-	rand.Reader.Read(serverHelloContextIn.random[:])
+	rand.Reader.Read(serverHelloContextIn.Random[:])
 
 	clientHelloContextIn.extensions.Add(&supportedGroupsExtension{
-		groups: []namedGroup{namedGroupP256, namedGroupP521},
+		Groups: []namedGroup{namedGroupP256, namedGroupP521},
 	})
 	clientHelloContextIn.extensions.Add(&signatureAlgorithmsExtension{
-		algorithms: []signatureAndHashAlgorithm{
-			signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmRSA},
-			signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmECDSA},
+		Algorithms: []signatureScheme{
+			signatureSchemeRSA_PSS_SHA256,
+			signatureSchemeECDSA_P256_SHA256,
 		},
 	})
 	clientHelloContextIn.extensions.Add(&keyShareExtension{
-		roleIsServer: false,
-		shares: []keyShare{
-			keyShare{group: namedGroupP256, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP256))},
-			keyShare{group: namedGroupP521, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
+		handshakeType: handshakeTypeClientHello,
+		shares: []keyShareEntry{
+			keyShareEntry{Group: namedGroupP256, KeyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP256))},
+			keyShareEntry{Group: namedGroupP521, KeyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
 		},
 	})
 
-	serverHelloContextIn.extensions.Add(&keyShareExtension{
-		roleIsServer: true,
-		shares: []keyShare{
-			keyShare{group: namedGroupP521, keyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
+	serverHelloContextIn.Extensions.Add(&keyShareExtension{
+		handshakeType: handshakeTypeServerHello,
+		shares: []keyShareEntry{
+			keyShareEntry{Group: namedGroupP521, KeyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
 		},
 	})
 
@@ -363,173 +427,132 @@ func TestCryptoContext(t *testing.T) {
 	cvm, err := handshakeMessageFromBody(certificateVerifyContextIn)
 	assertNotError(t, err, "Error in prep [3]")
 
-	alg := signatureAndHashAlgorithm{hash: hashAlgorithmSHA256, signature: signatureAlgorithmECDSA}
-	priv, err := newSigningKey(signatureAlgorithmECDSA)
+	alg := signatureSchemeECDSA_P256_SHA256
+	priv, err := newSigningKey(signatureSchemeECDSA_P256_SHA256)
 	assertNotError(t, err, "Failed to generate key pair")
 	cert, err := newSelfSigned("example.com", alg, priv)
 	assertNotError(t, err, "Failed to sign certificate")
-	certificateContextIn.certificateList[0] = cert
+	certificateContextIn.certificateList[0].certData = cert
 
 	// BEGIN TESTS
 
 	// Test successful init
 	ctx := cryptoContext{}
-	err = ctx.init(serverHelloContextIn.cipherSuite, pskSecretIn)
+	err = ctx.init(serverHelloContextIn.CipherSuite, chm, pskSecretIn, false)
 	assertNotError(t, err, "Failed to init context")
-	assertEquals(t, ctx.suite, serverHelloContextIn.cipherSuite)
+	assertEquals(t, ctx.suite, serverHelloContextIn.CipherSuite)
 	assertNotNil(t, ctx.params, "Params not populated")
 	assertNotNil(t, ctx.zero, "Zero not populated")
 	assertByteEquals(t, ctx.pskSecret, pskSecretIn)
 	assertNotNil(t, ctx.earlySecret, "Early secret not populated")
+	assertNotNil(t, ctx.binderKey, "Binder key not populated")
+	assertNotNil(t, ctx.handshakeHash, "Failed to init handshake hash")
+	assertNotNil(t, ctx.earlyTrafficSecret, "Failed to set early traffic secret")
+	assertNotNil(t, ctx.earlyExporterSecret, "Failed to set early exporter secret")
+	assertNotNil(t, ctx.clientEarlyTrafficKeys, "Failed to set early traffic keys")
 
-	return
-
-	// Test successful init with nil PSK secret when required
+	// Test successful init with nil PSK secret
 	ctx = cryptoContext{}
-	err = ctx.init(TLS_PSK_WITH_AES_128_GCM_SHA256, nil)
-	assertError(t, err, "Init'ed context with nil PSK when one was required")
-
-	// Test successful init with nil PSK secret when not required
-	ctx = cryptoContext{}
-	err = ctx.init(serverHelloContextIn.cipherSuite, nil)
-	assertNotError(t, err, "Failed to init context")
+	err = ctx.init(TLS_AES_128_GCM_SHA256, chm, nil, false)
+	assertNotError(t, err, "Failed to init context with nil PSK secret")
 	assertByteEquals(t, ctx.pskSecret, ctx.zero)
 
 	// Test init failure on usupported ciphersuite
 	ctx = cryptoContext{}
-	err = ctx.init(TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, nil)
+	err = ctx.init(TLS_CHACHA20_POLY1305_SHA256, chm, nil, false)
 	assertError(t, err, "Init'ed context with an unsupported ciphersuite")
-
-	// Test successful updateWithClientHello
-	// TODO: Test with non-nil resumptionContext
-	ctx = cryptoContext{}
-	_ = ctx.init(serverHelloContextIn.cipherSuite, pskSecretIn)
-	err = ctx.updateWithClientHello(chm, nil)
-	assertNotError(t, err, "Failed to update context")
-	assertNotNil(t, ctx.handshakeHash, "Failed to init handshake hash")
-	assertNotNil(t, ctx.earlyHandshakeHash, "Failed to init early handshake hash")
-	assertNotNil(t, ctx.resumptionHash, "Failed to set resumption hash")
-	assertNotNil(t, ctx.earlyTrafficSecret, "Failed to set early traffic secret")
-	assertNotNil(t, ctx.earlyHandshakeKeys, "Failed to set early handshake keys")
-	assertNotNil(t, ctx.earlyApplicationKeys, "Failed to set early traffic keys")
-	assertNotNil(t, ctx.earlyFinishedKey, "Failed to set early finished key")
-
-	// Test successful updateWithEarlyHandshake
-	// TODO: More realistic messages
-	ctx = cryptoContext{}
-	_ = ctx.init(serverHelloContextIn.cipherSuite, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
-	err = ctx.updateWithEarlyHandshake([]*handshakeMessage{cm})
-	assertNotError(t, err, "Failed to update context")
-	assertNotNil(t, ctx.hE, "Failed to set early finished hash")
-	assertNotNil(t, ctx.earlyFinishedData, "Failed to set early finished data")
-	assertNotNil(t, ctx.earlyFinished, "Failed to set early finished message")
 
 	// Test successful updateWithServerHello
 	ctx = cryptoContext{}
-	_ = ctx.init(serverHelloContextIn.cipherSuite, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
+	_ = ctx.init(serverHelloContextIn.CipherSuite, chm, pskSecretIn, false)
 	err = ctx.updateWithServerHello(shm, dhSecretIn)
 	assertNotError(t, err, "Failed to update context")
 	assertNotNil(t, ctx.h2, "Failed to set handshake hash (2)")
 	assertByteEquals(t, ctx.dhSecret, dhSecretIn)
 	assertNotNil(t, ctx.handshakeSecret, "Failed to set handshake secret")
-	assertNotNil(t, ctx.handshakeTrafficSecret, "Failed to set handshake traffic secret")
-	assertNotNil(t, ctx.handshakeKeys, "Failed to set handshake keys")
+	assertNotNil(t, ctx.clientHandshakeTrafficSecret, "Failed to set client handshake traffic secret")
+	assertNotNil(t, ctx.serverHandshakeTrafficSecret, "Failed to set server handshake traffic secret")
+	assertNotNil(t, ctx.clientHandshakeKeys, "Failed to set client handshake keys")
+	assertNotNil(t, ctx.serverHandshakeKeys, "Failed to set server handshake keys")
 	assertNotNil(t, ctx.masterSecret, "Failed to set master secret")
+	assertNotNil(t, ctx.clientFinishedKey, "Failed to set client finished key")
+	assertNotNil(t, ctx.serverFinishedKey, "Failed to set server finished key")
 
-	// Test successful updateWithServerHello with nil dhSecret when required
+	// Test successful updateWithServerHello with nil dhSecret
 	ctx = cryptoContext{}
-	_ = ctx.init(serverHelloContextIn.cipherSuite, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
 	err = ctx.updateWithServerHello(shm, nil)
-	assertError(t, err, "Allowed update with no dhSecret when one was required")
-
-	// Test successful updateWithServerHello with nil dhSecret when not required
-	ctx = cryptoContext{}
-	_ = ctx.init(TLS_PSK_WITH_AES_128_GCM_SHA256, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
-	err = ctx.updateWithServerHello(shm, nil)
-	assertNotError(t, err, "Failed to update context")
+	assertNotError(t, err, "Failed to update context with nil DH secret")
 	assertByteEquals(t, ctx.dhSecret, ctx.zero)
 
 	// Test successful updateWithServerFirstFlight
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_PSK_WITH_AES_128_GCM_SHA256, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
 	_ = ctx.updateWithServerHello(shm, nil)
 	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
 	assertNotError(t, err, "Failed to update context")
 	assertNotNil(t, ctx.h3, "Failed to set handshake hash (3)")
 	assertNotNil(t, ctx.h4, "Failed to set handshake hash (4)")
-	assertNotNil(t, ctx.serverFinishedKey, "Failed to set server finished key")
 	assertNotNil(t, ctx.serverFinishedData, "Failed to set server finished data")
 	assertNotNil(t, ctx.serverFinished, "Failed to set server finished message")
-	assertNotNil(t, ctx.trafficSecret, "Failed to set traffic secret")
-	assertNotNil(t, ctx.trafficKeys, "Failed to set traffic keys")
+	assertNotNil(t, ctx.clientTrafficSecret, "Failed to set client traffic secret")
+	assertNotNil(t, ctx.serverTrafficSecret, "Failed to set server traffic secret")
+	assertNotNil(t, ctx.clientTrafficKeys, "Failed to set client traffic keys")
+	assertNotNil(t, ctx.serverTrafficKeys, "Failed to set server traffic keys")
+	assertNotNil(t, ctx.exporterSecret, "Failed to set exporter secret")
 
 	// Test successful updateWithClientSecondFlight
 	// TODO: Use a more realistic second flight
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_PSK_WITH_AES_128_GCM_SHA256, pskSecretIn)
-	_ = ctx.updateWithClientHello(chm, nil)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
 	_ = ctx.updateWithServerHello(shm, dhSecretIn)
 	_ = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
 	err = ctx.updateWithClientSecondFlight([]*handshakeMessage{cm})
 	assertNotError(t, err, "Failed to update context")
 	assertNotNil(t, ctx.h5, "Failed to set handshake hash (5)")
 	assertNotNil(t, ctx.h6, "Failed to set handshake hash (6)")
-	assertNotNil(t, ctx.clientFinishedKey, "Failed to set client finished key")
 	assertNotNil(t, ctx.clientFinishedData, "Failed to set client finished data")
 	assertNotNil(t, ctx.clientFinished, "Failed to set client finished message")
-	assertNotNil(t, ctx.exporterSecret, "Failed to set exporter secret")
 	assertNotNil(t, ctx.resumptionSecret, "Failed to set resumption secret")
-	assertNotNil(t, ctx.resumptionPSK, "Failed to set resumption PSK")
-	assertNotNil(t, ctx.resumptionContext, "Failed to set resumption context")
 
 	// Test key update
-	oldKeys := ctx.trafficKeys
+	oldClientKeys := ctx.clientTrafficKeys
+	oldServerKeys := ctx.serverTrafficKeys
 	err = ctx.updateKeys()
-	newKeys := ctx.trafficKeys
+	newClientKeys := ctx.clientTrafficKeys
+	newServerKeys := ctx.serverTrafficKeys
 	assertNotError(t, err, "UpdateKeys failed")
-	assert(t, !bytes.Equal(oldKeys.clientWriteKey, newKeys.clientWriteKey), "Client write key didn't change")
-	assert(t, !bytes.Equal(oldKeys.serverWriteKey, newKeys.serverWriteKey), "Server write key didn't change")
-	assert(t, !bytes.Equal(oldKeys.clientWriteIV, newKeys.clientWriteIV), "Client write IV didn't change")
-	assert(t, !bytes.Equal(oldKeys.serverWriteIV, newKeys.serverWriteIV), "Server write IV didn't change")
+	assert(t, !bytes.Equal(oldClientKeys.key, newClientKeys.key), "Client write key didn't change")
+	assert(t, !bytes.Equal(oldServerKeys.key, newServerKeys.key), "Server write key didn't change")
+	assert(t, !bytes.Equal(oldClientKeys.iv, newClientKeys.iv), "Client write IV didn't change")
+	assert(t, !bytes.Equal(oldServerKeys.iv, newServerKeys.iv), "Server write IV didn't change")
 
 	// Test that the order of operations is enforced
 	ctx = cryptoContext{}
-	_ = ctx.init(TLS_PSK_WITH_AES_128_GCM_SHA256, pskSecretIn)
+	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm, pskSecretIn, false)
 
-	ctx.state = ctxStateServerHello
-	err = ctx.updateWithClientHello(chm, nil)
-	assertError(t, err, "Allowed updateWithClientHello in wrong state")
-	ctx.state = ctxStateNew
-	err = ctx.updateWithClientHello(chm, nil)
-	assertNotError(t, err, "Rejected updateWithClientHello in proper state")
-
-	ctx.state = ctxStateNew
+	ctx.state = ctxStateUnknown
 	err = ctx.updateWithServerHello(shm, dhSecretIn)
 	assertError(t, err, "Allowed updateWithServerHello in wrong state")
 	ctx.state = ctxStateClientHello
 	err = ctx.updateWithServerHello(shm, dhSecretIn)
 	assertNotError(t, err, "Rejected updateWithServerHello in proper state")
 
-	ctx.state = ctxStateNew
+	ctx.state = ctxStateUnknown
 	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
 	assertError(t, err, "Allowed updateWithServerFirstFlight in wrong state")
 	ctx.state = ctxStateServerHello
 	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
 	assertNotError(t, err, "Rejected updateWithServerFirstFlight in proper state")
 
-	ctx.state = ctxStateNew
+	ctx.state = ctxStateUnknown
 	err = ctx.updateWithClientSecondFlight([]*handshakeMessage{cm})
 	assertError(t, err, "Allowed updateWithServerFirstFlight in wrong state")
 	ctx.state = ctxStateServerFirstFlight
 	err = ctx.updateWithClientSecondFlight([]*handshakeMessage{cm})
 	assertNotError(t, err, "Rejected updateWithServerFirstFlight in proper state")
 
-	ctx.state = ctxStateNew
+	ctx.state = ctxStateUnknown
 	err = ctx.updateKeys()
 	assertError(t, err, "Allowed UpdateKeys in wrong state")
 

@@ -1,12 +1,11 @@
 package mint
 
 var (
-	draftVersionImplemented = 13
+	supportedVersion uint16 = 0x7f12 // draft-18
 
 	// Flags for some minor compat issues
-	allowEmptyEncryptedExtensions = false
-	allowWrongVersionNumber       = false
-	allowPKCS1                    = true
+	allowWrongVersionNumber = true
+	allowPKCS1              = true
 )
 
 // enum {...} ContentType;
@@ -40,74 +39,51 @@ const (
 type cipherSuite uint16
 
 const (
-	// REQUIRED
-	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 cipherSuite = 0xC02B
-	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   cipherSuite = 0xC02F
-	// RECOMMENDED
-	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384       cipherSuite = 0xC02C
-	TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 cipherSuite = 0xCCA9
-	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384         cipherSuite = 0xC030
-	TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256   cipherSuite = 0xCCA8
-	// OTHER
-	TLS_PSK_WITH_AES_128_GCM_SHA256             cipherSuite = 0x00A8
-	TLS_PSK_WITH_AES_256_GCM_SHA384             cipherSuite = 0x00A9
-	TLS_PSK_WITH_CHACHA20_POLY1305_SHA256       cipherSuite = 0xCCAB
-	TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 cipherSuite = 0xCCAC
-	TLS_DHE_RSA_WITH_AES_128_GCM_SHA256         cipherSuite = 0x009E
-	TLS_DHE_RSA_WITH_AES_256_GCM_SHA384         cipherSuite = 0x009F
-	TLS_DHE_PSK_WITH_AES_128_GCM_SHA256         cipherSuite = 0x00AA
-	TLS_DHE_PSK_WITH_AES_256_GCM_SHA384         cipherSuite = 0x00AB
-	// FAKE
-	TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256 cipherSuite = 0xD001
-	TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384 cipherSuite = 0xD002
+	TLS_AES_128_GCM_SHA256       cipherSuite = 0x1301
+	TLS_AES_256_GCM_SHA384       cipherSuite = 0x1302
+	TLS_CHACHA20_POLY1305_SHA256 cipherSuite = 0x1303
+	TLS_AES_128_CCM_SHA256       cipherSuite = 0x1304
+	TLS_AES_256_CCM_8_SHA256     cipherSuite = 0x1305
 )
 
-// enum {...} HashAlgorithm
-type hashAlgorithm uint8
+// enum {...} SignatureScheme
+type signatureScheme uint16
 
 const (
-	// Omitted: *_RESERVED
-	hashAlgorithmSHA1   hashAlgorithm = 2
-	hashAlgorithmSHA256 hashAlgorithm = 4
-	hashAlgorithmSHA384 hashAlgorithm = 5
-	hashAlgorithmSHA512 hashAlgorithm = 6
+	// RSASSA-PKCS1-v1_5 algorithms
+	signatureSchemeRSA_PKCS1_SHA1   signatureScheme = 0x0201
+	signatureSchemeRSA_PKCS1_SHA256 signatureScheme = 0x0401
+	signatureSchemeRSA_PKCS1_SHA384 signatureScheme = 0x0501
+	signatureSchemeRSA_PKCS1_SHA512 signatureScheme = 0x0601
+	// ECDSA algorithms
+	signatureSchemeECDSA_P256_SHA256 signatureScheme = 0x0403
+	signatureSchemeECDSA_P384_SHA384 signatureScheme = 0x0503
+	signatureSchemeECDSA_P521_SHA512 signatureScheme = 0x0603
+	// RSASSA-PSS algorithms
+	signatureSchemeRSA_PSS_SHA256 signatureScheme = 0x0804
+	signatureSchemeRSA_PSS_SHA384 signatureScheme = 0x0805
+	signatureSchemeRSA_PSS_SHA512 signatureScheme = 0x0806
+	// EdDSA algorithms
+	signatureSchemeEd25519 signatureScheme = 0x0807
+	signatureSchemeEd448   signatureScheme = 0x0808
 )
-
-// enum {...} SignatureAlgorithm
-type signatureAlgorithm uint8
-
-const (
-	// Omitted: *_RESERVED
-	signatureAlgorithmRSA    signatureAlgorithm = 1
-	signatureAlgorithmDSA    signatureAlgorithm = 2
-	signatureAlgorithmECDSA  signatureAlgorithm = 3
-	signatureAlgorithmRSAPSS signatureAlgorithm = 4
-	signatureAlgorithmEdDSA  signatureAlgorithm = 5
-)
-
-// struct {
-//     HashAlgorithm hash;
-//     SignatureAlgorithm signature;
-// } SignatureAndHashAlgorithm;
-//
-type signatureAndHashAlgorithm struct {
-	hash      hashAlgorithm
-	signature signatureAlgorithm
-}
 
 // enum {...} ExtensionType
-type helloExtensionType uint16
+type extensionType uint16
 
 const (
-	extensionTypeUnknown             helloExtensionType = 0xffff
-	extensionTypeServerName          helloExtensionType = 0
-	extensionTypeSupportedGroups     helloExtensionType = 10
-	extensionTypeSignatureAlgorithms helloExtensionType = 13
-	extensionTypeALPN                helloExtensionType = 16
-	extensionTypeKeyShare            helloExtensionType = 40
-	extensionTypePreSharedKey        helloExtensionType = 41
-	extensionTypeEarlyData           helloExtensionType = 42
-	extensionTypeDraftVersion        helloExtensionType = 0xff02 // Required for NSS
+	extensionTypeUnknown             extensionType = 0xffff
+	extensionTypeServerName          extensionType = 0
+	extensionTypeSupportedGroups     extensionType = 10
+	extensionTypeSignatureAlgorithms extensionType = 13
+	extensionTypeALPN                extensionType = 16
+	extensionTypeKeyShare            extensionType = 40
+	extensionTypePreSharedKey        extensionType = 41
+	extensionTypeEarlyData           extensionType = 42
+	extensionTypeSupportedVersions   extensionType = 43
+	extensionTypeCookie              extensionType = 44
+	extensionTypePSKKeyExchangeModes extensionType = 45
+	extensionTypeTicketEarlyDataInfo extensionType = 46
 )
 
 // enum {...} NamedGroup
@@ -131,6 +107,14 @@ const (
 	namedGroupFF4096 namedGroup = 258
 	namedGroupFF6144 namedGroup = 259
 	namedGroupFF8192 namedGroup = 250
+)
+
+// enum {...} PskKeyExchangeMode;
+type pskKeyExchangeMode uint8
+
+const (
+	pskModeKE    pskKeyExchangeMode = 0
+	pskModeDHEKE pskKeyExchangeMode = 1
 )
 
 type marshaler interface {

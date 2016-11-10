@@ -114,8 +114,10 @@ var (
 	serverKey, _    = x509.ParsePKCS1PrivateKey(serverKeyDER)
 
 	psk = PreSharedKey{
-		Identity: []byte{0, 1, 2, 3},
-		Key:      []byte{4, 5, 6, 7},
+		CipherSuite: TLS_AES_128_GCM_SHA256,
+		External:    true,
+		Identity:    []byte{0, 1, 2, 3},
+		Key:         []byte{4, 5, 6, 7},
 	}
 	certificates = []*Certificate{
 		&Certificate{
@@ -139,14 +141,14 @@ var (
 
 	pskConfig = &Config{
 		ServerName:   serverName,
-		CipherSuites: []cipherSuite{TLS_PSK_WITH_AES_128_GCM_SHA256},
+		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		ClientPSKs:   clientPSKs,
 		ServerPSKs:   serverPSKs,
 	}
 
 	pskECDHEConfig = &Config{
 		ServerName:   serverName,
-		CipherSuites: []cipherSuite{TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256},
+		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
 		ClientPSKs:   clientPSKs,
 		ServerPSKs:   serverPSKs,
@@ -154,10 +156,11 @@ var (
 
 	pskDHEConfig = &Config{
 		ServerName:   serverName,
-		CipherSuites: []cipherSuite{TLS_DHE_PSK_WITH_AES_128_GCM_SHA256},
+		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
 		ClientPSKs:   clientPSKs,
 		ServerPSKs:   serverPSKs,
+		Groups:       []namedGroup{namedGroupFF2048},
 	}
 
 	resumptionConfig = &Config{
@@ -169,25 +172,27 @@ var (
 	ffdhConfig = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
-		CipherSuites: []cipherSuite{TLS_DHE_RSA_WITH_AES_128_GCM_SHA256},
+		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Groups:       []namedGroup{namedGroupFF2048},
 	}
 
 	x25519Config = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
-		CipherSuites: []cipherSuite{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Groups:       []namedGroup{namedGroupX25519},
 	}
 )
 
 func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 	assertEquals(t, c.suite, s.suite)
-	assertEquals(t, c.params, s.params)
+	// XXX: Figure out a way to compare ciphers?
+	assertEquals(t, c.params.hash, s.params.hash)
+	assertEquals(t, c.params.keyLen, s.params.keyLen)
+	assertEquals(t, c.params.ivLen, s.params.ivLen)
 	assertByteEquals(t, c.zero, s.zero)
 
 	assertByteEquals(t, c.h1, s.h1)
-	assertByteEquals(t, c.hE, s.hE)
 	assertByteEquals(t, c.h2, s.h2)
 	assertByteEquals(t, c.h3, s.h3)
 	assertByteEquals(t, c.h4, s.h4)
@@ -195,17 +200,19 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 	assertByteEquals(t, c.h6, s.h6)
 
 	assertByteEquals(t, c.pskSecret, s.pskSecret)
-	assertByteEquals(t, c.dhSecret, s.dhSecret)
-	assertByteEquals(t, c.resumptionHash, s.resumptionHash)
 
 	assertByteEquals(t, c.earlySecret, s.earlySecret)
+	assertByteEquals(t, c.binderKey, s.binderKey)
 	assertByteEquals(t, c.earlyTrafficSecret, s.earlyTrafficSecret)
-	assertDeepEquals(t, c.earlyHandshakeKeys, s.earlyHandshakeKeys)
-	assertDeepEquals(t, c.earlyApplicationKeys, s.earlyApplicationKeys)
+	assertByteEquals(t, c.earlyExporterSecret, s.earlyExporterSecret)
+	assertDeepEquals(t, c.clientEarlyTrafficKeys, s.clientEarlyTrafficKeys)
 
+	assertByteEquals(t, c.dhSecret, s.dhSecret)
 	assertByteEquals(t, c.handshakeSecret, s.handshakeSecret)
-	assertByteEquals(t, c.handshakeTrafficSecret, s.handshakeTrafficSecret)
-	assertDeepEquals(t, c.handshakeKeys, s.handshakeKeys)
+	assertByteEquals(t, c.clientHandshakeTrafficSecret, s.clientHandshakeTrafficSecret)
+	assertByteEquals(t, c.serverHandshakeTrafficSecret, s.serverHandshakeTrafficSecret)
+	assertDeepEquals(t, c.clientHandshakeKeys, s.clientHandshakeKeys)
+	assertDeepEquals(t, c.serverHandshakeKeys, s.serverHandshakeKeys)
 
 	assertByteEquals(t, c.serverFinishedKey, s.serverFinishedKey)
 	assertByteEquals(t, c.serverFinishedData, s.serverFinishedData)
@@ -214,16 +221,39 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 	assertByteEquals(t, c.clientFinishedData, s.clientFinishedData)
 
 	assertByteEquals(t, c.masterSecret, s.masterSecret)
-	assertByteEquals(t, c.trafficSecret, s.trafficSecret)
-	assertDeepEquals(t, c.trafficKeys, s.trafficKeys)
+	assertByteEquals(t, c.clientTrafficSecret, s.clientTrafficSecret)
+	assertByteEquals(t, c.serverTrafficSecret, s.serverTrafficSecret)
+	assertDeepEquals(t, c.clientTrafficKeys, s.clientTrafficKeys)
+	assertDeepEquals(t, c.serverTrafficKeys, s.serverTrafficKeys)
 	assertByteEquals(t, c.exporterSecret, s.exporterSecret)
 	assertByteEquals(t, c.resumptionSecret, s.resumptionSecret)
-	assertByteEquals(t, c.resumptionPSK, s.resumptionPSK)
-	assertByteEquals(t, c.resumptionContext, s.resumptionContext)
 }
 
 func TestBasicFlows(t *testing.T) {
-	for _, conf := range []*Config{basicConfig, alpnConfig, pskConfig, pskECDHEConfig, pskDHEConfig, ffdhConfig, x25519Config} {
+	for _, conf := range []*Config{basicConfig, alpnConfig, ffdhConfig, x25519Config} {
+		cConn, sConn := pipe()
+
+		client := Client(cConn, conf)
+		server := Server(sConn, conf)
+
+		done := make(chan bool)
+		go func(t *testing.T) {
+			err := server.Handshake()
+			assertNotError(t, err, "Server failed handshake")
+			done <- true
+		}(t)
+
+		err := client.Handshake()
+		assertNotError(t, err, "Client failed handshake")
+
+		<-done
+
+		assertContextEquals(t, client.context, server.context)
+	}
+}
+
+func TestPSKFlows(t *testing.T) {
+	for _, conf := range []*Config{pskConfig, pskECDHEConfig, pskDHEConfig} {
 		cConn, sConn := pipe()
 
 		client := Client(cConn, conf)
@@ -296,7 +326,6 @@ func TestResumption(t *testing.T) {
 	<-done
 
 	assertContextEquals(t, client2.context, server2.context)
-	assertEquals(t, client2.context.params.mode, handshakeModePSK)
 
 	// TODO re-enable assertByteEquals(t, client2.context.SS, client1.context.resumptionSecret)
 }
@@ -307,7 +336,7 @@ func Test0xRTT(t *testing.T) {
 
 	client := Client(cConn, conf)
 	client.earlyData = []byte("hello 0xRTT world!")
-	client.earlyCipherSuite = TLS_PSK_WITH_AES_128_GCM_SHA256
+	client.earlyCipherSuite = TLS_AES_128_GCM_SHA256
 
 	server := Server(sConn, conf)
 
