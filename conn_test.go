@@ -210,7 +210,7 @@ var (
 	}
 )
 
-func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
+func assertContextEquals(t *testing.T, c *cryptoContext, s *cryptoContext) {
 	assertEquals(t, c.suite, s.suite)
 	// XXX: Figure out a way to compare ciphers?
 	assertEquals(t, c.params.hash, s.params.hash)
@@ -279,7 +279,7 @@ func TestBasicFlows(t *testing.T) {
 
 		<-done
 
-		assertContextEquals(t, client.context, server.context)
+		assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
 	}
 }
 
@@ -302,7 +302,7 @@ func TestPSKFlows(t *testing.T) {
 
 		<-done
 
-		assertContextEquals(t, client.context, server.context)
+		assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
 	}
 }
 
@@ -328,7 +328,7 @@ func TestResumption(t *testing.T) {
 	client1.Read(nil)
 	<-done
 
-	assertContextEquals(t, client1.context, server1.context)
+	assertContextEquals(t, client1.handshake.CryptoContext(), server1.handshake.CryptoContext())
 	assertEquals(t, len(clientConfig.PSKs), 1)
 	assertEquals(t, len(serverConfig.PSKs), 1)
 
@@ -359,9 +359,9 @@ func TestResumption(t *testing.T) {
 	client2.Read(nil)
 	<-done
 
-	assertContextEquals(t, client2.context, server2.context)
+	assertContextEquals(t, client2.handshake.CryptoContext(), server2.handshake.CryptoContext())
 
-	// TODO re-enable assertByteEquals(t, client2.context.SS, client1.context.resumptionSecret)
+	// TODO re-enable assertByteEquals(t, client2.handshake.CryptoContext().SS, client1.handshake.CryptoContext().resumptionSecret)
 }
 
 func Test0xRTT(t *testing.T) {
@@ -385,7 +385,7 @@ func Test0xRTT(t *testing.T) {
 
 	<-done
 
-	assertContextEquals(t, client.context, server.context)
+	assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
 	assertByteEquals(t, client.earlyData, server.readBuffer)
 }
 

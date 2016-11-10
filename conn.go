@@ -176,6 +176,7 @@ type Conn struct {
 
 	earlyData []byte
 
+	handshake         handshake
 	handshakeMutex    sync.Mutex
 	handshakeErr      error
 	handshakeComplete bool
@@ -185,7 +186,6 @@ type Conn struct {
 	readBuffer        []byte
 	in, out           *recordLayer
 	inMutex, outMutex sync.Mutex
-	context           cryptoContext
 }
 
 func newConn(conn net.Conn, config *Config, isClient bool) *Conn {
@@ -230,27 +230,44 @@ func (c *Conn) extendBuffer(n int) error {
 
 				switch hm.msgType {
 				case handshakeTypeNewSessionTicket:
-					var tkt newSessionTicketBody
-					read, err := tkt.Unmarshal(hm.body)
+					psk, err := c.handshake.HandleNewSessionTicket(hm)
 					if err != nil {
 						return err
 					}
-					if read != len(hm.body) {
-						return fmt.Errorf("Malformed handshake message [%v] != [%v]", read, len(hm.body))
-					}
 
-					logf(logTypeHandshake, "Storing new session ticket with identity [%v]", tkt.Ticket)
-					psk := PreSharedKey{
-						CipherSuite:  c.context.suite,
-						IsResumption: true,
-						Identity:     tkt.Ticket,
-						Key:          c.context.resumptionSecret,
-					}
+					logf(logTypeHandshake, "Storing new session ticket with identity [%x]", psk.Identity)
 					c.config.PSKs[c.config.ServerName] = psk
 
 				case handshakeTypeKeyUpdate:
-					// TODO: Support KeyUpdate
-					fallthrough
+					outboundUpdate, err := c.handshake.HandleKeyUpdate(hm)
+					if err != nil {
+						return err
+					}
+
+					// Rekey inbound
+					cipher, keys := c.handshake.InboundKeys()
+					err = c.in.Rekey(cipher, keys.key, keys.iv)
+					if err != nil {
+						return err
+					}
+
+					if outboundUpdate != nil {
+						// Rekey outbound
+						cipher, keys := c.handshake.OutboundKeys()
+						err = c.out.Rekey(cipher, keys.key, keys.iv)
+						if err != nil {
+							return err
+						}
+
+						// Send KeyUpdate
+						err = c.out.WriteRecord(&tlsPlaintext{
+							contentType: recordTypeHandshake,
+							fragment:    outboundUpdate.Marshal(),
+						})
+						if err != nil {
+							return err
+						}
+					}
 				default:
 					c.sendAlert(alertUnexpectedMessage)
 					return fmt.Errorf("Unsupported post-handshake handshake message [%v]", hm.msgType)
@@ -429,19 +446,6 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
-func (c *Conn) ConnectionState() ConnectionState {
-	certList := make([]*x509.Certificate, len(c.certificateList))
-	for i, entry := range c.certificateList {
-		certList[i] = entry.certData
-	}
-
-	return ConnectionState{
-		HandshakeComplete: c.handshakeComplete,
-		CipherSuite:       c.context.suite,
-		PeerCertificates:  certList,
-	}
-}
-
 // Handshake causes a TLS handshake on the connection.  The `isClient` member
 // determines whether a client or server handshake is performed.  If a
 // handshake has already been performed, then its result will be returned.
@@ -604,7 +608,7 @@ func (c *Conn) clientHandshake() error {
 		return err
 	}
 
-	c.context = h.Context
+	c.handshake = h
 	return nil
 }
 
@@ -801,6 +805,6 @@ func (c *Conn) serverHandshake() error {
 		logf(logTypeHandshake, "Wrote NewSessionTicket %x", newPSK.Identity)
 	}
 
-	c.context = h.Context
+	c.handshake = h
 	return nil
 }

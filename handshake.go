@@ -25,6 +25,52 @@ type connectionOptions struct {
 	EarlyData  []byte
 }
 
+type handshake interface {
+	IsClient() bool
+	CryptoContext() *cryptoContext
+	InboundKeys() (aeadFactory, keySet)
+	OutboundKeys() (aeadFactory, keySet)
+	HandleKeyUpdate(*handshakeMessage) (*handshakeMessage, error)
+	HandleNewSessionTicket(*handshakeMessage) (PreSharedKey, error)
+}
+
+///// Common methods
+
+func handleKeyUpdate(client bool, ctx *cryptoContext, hm *handshakeMessage) (*handshakeMessage, error) {
+	var ku keyUpdateBody
+	_, err := ku.Unmarshal(hm.body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Roll the inbound keys
+	err = ctx.updateKeys(!client)
+	if err != nil {
+		return nil, err
+	}
+
+	// If requested, roll outbound keys and send a KeyUpdate
+	var outboundMessage *handshakeMessage
+	if ku.KeyUpdateRequest == keyUpdateRequested {
+		err = ctx.updateKeys(client)
+		if err != nil {
+			return nil, err
+		}
+
+		outboundKU := keyUpdateBody{
+			KeyUpdateRequest: keyUpdateNotRequested,
+		}
+		// Infallible in practice
+		data, _ := outboundKU.Marshal()
+		outboundMessage = &handshakeMessage{
+			msgType: handshakeTypeKeyUpdate,
+			body:    data,
+		}
+	}
+
+	return outboundMessage, nil
+}
+
 ///// Client-side Handshake methods
 
 type clientHandshake struct {
@@ -38,6 +84,43 @@ type clientHandshake struct {
 
 	clientHello *handshakeMessage
 	serverHello *handshakeMessage
+}
+
+func (h *clientHandshake) IsClient() bool {
+	return true
+}
+
+func (h *clientHandshake) CryptoContext() *cryptoContext {
+	return &h.Context
+}
+
+func (h *clientHandshake) InboundKeys() (aeadFactory, keySet) {
+	return h.Context.params.cipher, h.Context.serverTrafficKeys
+}
+
+func (h *clientHandshake) OutboundKeys() (aeadFactory, keySet) {
+	return h.Context.params.cipher, h.Context.clientTrafficKeys
+}
+
+func (h *clientHandshake) HandleKeyUpdate(hm *handshakeMessage) (*handshakeMessage, error) {
+	return handleKeyUpdate(true, &h.Context, hm)
+}
+
+func (h *clientHandshake) HandleNewSessionTicket(hm *handshakeMessage) (PreSharedKey, error) {
+	var tkt newSessionTicketBody
+	_, err := tkt.Unmarshal(hm.body)
+	if err != nil {
+		return PreSharedKey{}, err
+	}
+
+	psk := PreSharedKey{
+		CipherSuite:  h.Context.suite,
+		IsResumption: true,
+		Identity:     tkt.Ticket,
+		Key:          h.Context.resumptionSecret,
+	}
+
+	return psk, nil
 }
 
 func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabilities) (*handshakeMessage, error) {
@@ -285,6 +368,30 @@ func (h *clientHandshake) HandleServerFirstFlight(transcript []*handshakeMessage
 
 type serverHandshake struct {
 	Context cryptoContext
+}
+
+func (h *serverHandshake) IsClient() bool {
+	return true
+}
+
+func (h *serverHandshake) CryptoContext() *cryptoContext {
+	return &h.Context
+}
+
+func (h *serverHandshake) HandleKeyUpdate(hm *handshakeMessage) (*handshakeMessage, error) {
+	return handleKeyUpdate(true, &h.Context, hm)
+}
+
+func (h *serverHandshake) HandleNewSessionTicket(hm *handshakeMessage) (PreSharedKey, error) {
+	return PreSharedKey{}, fmt.Errorf("tls.server: Client sent NewSessionTicket")
+}
+
+func (h *serverHandshake) InboundKeys() (aeadFactory, keySet) {
+	return h.Context.params.cipher, h.Context.clientTrafficKeys
+}
+
+func (h *serverHandshake) OutboundKeys() (aeadFactory, keySet) {
+	return h.Context.params.cipher, h.Context.serverTrafficKeys
 }
 
 func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabilities) (*handshakeMessage, []*handshakeMessage, bool, error) {
