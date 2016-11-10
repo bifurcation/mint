@@ -666,3 +666,24 @@ func (h *serverHandshake) HandleClientSecondFlight(transcript []*handshakeMessag
 
 	return nil
 }
+
+func (h *serverHandshake) CreateNewSessionTicket(length int, lifetime uint32) (PreSharedKey, *handshakeMessage, error) {
+	// TODO: Check that we're in the right state for this
+
+	tkt, err := newSessionTicket(length)
+	if err != nil {
+		return PreSharedKey{}, nil, err
+	}
+
+	tkt.TicketLifetime = lifetime
+
+	newPSK := PreSharedKey{
+		CipherSuite:  h.Context.suite,
+		IsResumption: true,
+		Identity:     tkt.Ticket,
+		Key:          h.Context.resumptionSecret,
+	}
+
+	tktm, err := handshakeMessageFromBody(tkt)
+	return newPSK, tktm, err
+}

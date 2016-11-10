@@ -746,30 +746,20 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Send a new session ticket
-	tkt, err := newSessionTicket(c.config.TicketLen)
-	if err != nil {
-		return err
-	}
-	tkt.TicketLifetime = c.config.TicketLifetime
-
 	if c.config.SendSessionTickets {
-		newPSK := PreSharedKey{
-			CipherSuite:  h.Context.suite,
-			IsResumption: true,
-			Identity:     tkt.Ticket,
-			Key:          h.Context.resumptionSecret,
-		}
-		idHex := hex.EncodeToString(newPSK.Identity)
-		c.config.PSKs[idHex] = newPSK
-
-		ticketBytes, err := tkt.Marshal()
-		logf(logTypeHandshake, "About to write NewSessionTicket %x", ticketBytes)
-		_, err = hOut.WriteMessageBody(tkt)
+		newPSK, newSessionTicket, err := h.CreateNewSessionTicket(c.config.TicketLen, c.config.TicketLifetime)
 		if err != nil {
-			logf(logTypeHandshake, "Returning error: %x", ticketBytes)
 			return err
 		}
-		logf(logTypeHandshake, "Wrote NewSessionTicket %x", tkt.Ticket)
+
+		pskIDHex := hex.EncodeToString(newPSK.Identity)
+		c.config.PSKs[pskIDHex] = newPSK
+
+		err = hOut.WriteMessage(newSessionTicket)
+		if err != nil {
+			return err
+		}
+		logf(logTypeHandshake, "Wrote NewSessionTicket %x", newPSK.Identity)
 	}
 
 	c.context = h.Context
