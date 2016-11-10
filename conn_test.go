@@ -114,10 +114,10 @@ var (
 	serverKey, _    = x509.ParsePKCS1PrivateKey(serverKeyDER)
 
 	psk = PreSharedKey{
-		CipherSuite: TLS_AES_128_GCM_SHA256,
-		External:    true,
-		Identity:    []byte{0, 1, 2, 3},
-		Key:         []byte{4, 5, 6, 7},
+		CipherSuite:  TLS_AES_128_GCM_SHA256,
+		IsResumption: false,
+		Identity:     []byte{0, 1, 2, 3},
+		Key:          []byte{4, 5, 6, 7},
 	}
 	certificates = []*Certificate{
 		&Certificate{
@@ -125,8 +125,7 @@ var (
 			PrivateKey: serverKey,
 		},
 	}
-	clientPSKs = map[string]PreSharedKey{serverName: psk}
-	serverPSKs = []PreSharedKey{psk}
+	psks = map[string]PreSharedKey{serverName: psk}
 
 	basicConfig = &Config{
 		ServerName:   serverName,
@@ -142,24 +141,21 @@ var (
 	pskConfig = &Config{
 		ServerName:   serverName,
 		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
-		ClientPSKs:   clientPSKs,
-		ServerPSKs:   serverPSKs,
+		PSKs:         psks,
 	}
 
 	pskECDHEConfig = &Config{
 		ServerName:   serverName,
 		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
-		ClientPSKs:   clientPSKs,
-		ServerPSKs:   serverPSKs,
+		PSKs:         psks,
 	}
 
 	pskDHEConfig = &Config{
 		ServerName:   serverName,
 		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
-		ClientPSKs:   clientPSKs,
-		ServerPSKs:   serverPSKs,
+		PSKs:         psks,
 		Groups:       []namedGroup{namedGroupFF2048},
 	}
 
@@ -200,12 +196,17 @@ func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
 	assertByteEquals(t, c.h6, s.h6)
 
 	assertByteEquals(t, c.pskSecret, s.pskSecret)
-
 	assertByteEquals(t, c.earlySecret, s.earlySecret)
-	assertByteEquals(t, c.binderKey, s.binderKey)
-	assertByteEquals(t, c.earlyTrafficSecret, s.earlyTrafficSecret)
-	assertByteEquals(t, c.earlyExporterSecret, s.earlyExporterSecret)
-	assertDeepEquals(t, c.clientEarlyTrafficKeys, s.clientEarlyTrafficKeys)
+
+	if c.binderKey != nil && s.binderKey != nil {
+		assertByteEquals(t, c.binderKey, s.binderKey)
+	}
+
+	if c.earlyTrafficSecret != nil && s.earlyTrafficSecret != nil {
+		assertByteEquals(t, c.earlyTrafficSecret, s.earlyTrafficSecret)
+		assertByteEquals(t, c.earlyExporterSecret, s.earlyExporterSecret)
+		assertDeepEquals(t, c.clientEarlyTrafficKeys, s.clientEarlyTrafficKeys)
+	}
 
 	assertByteEquals(t, c.dhSecret, s.dhSecret)
 	assertByteEquals(t, c.handshakeSecret, s.handshakeSecret)
@@ -298,12 +299,15 @@ func TestResumption(t *testing.T) {
 	<-done
 
 	assertContextEquals(t, client1.context, server1.context)
-	assertEquals(t, len(clientConfig.ClientPSKs), 1)
-	assertEquals(t, len(serverConfig.ServerPSKs), 1)
+	assertEquals(t, len(clientConfig.PSKs), 1)
+	assertEquals(t, len(serverConfig.PSKs), 1)
 
-	serverPSK := serverConfig.ServerPSKs[0]
+	var serverPSK PreSharedKey
+	for _, key := range serverConfig.PSKs {
+		serverPSK = key
+	}
 	var clientPSK PreSharedKey
-	for _, key := range clientConfig.ClientPSKs {
+	for _, key := range clientConfig.PSKs {
 		clientPSK = key
 	}
 	assertDeepEquals(t, clientPSK, serverPSK)

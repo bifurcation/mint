@@ -719,10 +719,13 @@ type cryptoContext struct {
 	h5            []byte // = h4 + Client...
 	h6            []byte // = h5 + ClientFinished
 
-	// init(cipherSuite, ClientHello, pskSecret, ResumptionInfo)
-	pskSecret              []byte // input
+	// preInit(PreSharedKey)
+	earlyHash crypto.Hash
+	pskSecret []byte // input
+	binderKey []byte
+
+	// earlyUpdateWithClientHello(ClientHello)
 	earlySecret            []byte
-	binderKey              []byte
 	earlyTrafficSecret     []byte
 	earlyExporterSecret    []byte
 	clientEarlyTrafficKeys keySet
@@ -773,7 +776,53 @@ func (ctx cryptoContext) makeTrafficKeys(secret []byte) keySet {
 	}
 }
 
-func (ctx *cryptoContext) init(suite cipherSuite, chm *handshakeMessage, pskSecret []byte, isResumption bool) error {
+func (ctx *cryptoContext) preInit(psk PreSharedKey) error {
+	// Configure based on cipherSuite
+	params, ok := cipherSuiteMap[psk.CipherSuite]
+	if !ok {
+		return fmt.Errorf("tls.cryptoinit: Unsupported ciphersuite from PSK [%04x]", psk.CipherSuite)
+	}
+	ctx.suite = psk.CipherSuite
+	ctx.params = params
+	ctx.zero = bytes.Repeat([]byte{0}, ctx.params.hash.Size())
+
+	// Cache the hash function for this suite so that we can verify it didn't change
+	ctx.earlyHash = ctx.params.hash
+
+	// Import the PSK secret
+	ctx.pskSecret = make([]byte, len(psk.Key))
+	copy(ctx.pskSecret, psk.Key)
+
+	// Compute the early secret
+	ctx.earlySecret = hkdfExtract(ctx.params.hash, ctx.zero, ctx.pskSecret)
+	logf(logTypeCrypto, "early secret: [%d] %x", len(ctx.earlySecret), ctx.earlySecret)
+
+	// Compute binder
+	binderLabel := labelExternalBinder
+	if psk.IsResumption {
+		binderLabel = labelResumptionBinder
+	}
+	ctx.binderKey = ctx.deriveSecret(ctx.earlySecret, binderLabel, []byte{})
+	return nil
+}
+
+func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *handshakeMessage) {
+	chBytes := chm.Marshal()
+
+	ctx.earlyTrafficSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyTrafficSecret, chBytes)
+	ctx.earlyExporterSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyExporterSecret, chBytes)
+	ctx.clientEarlyTrafficKeys = ctx.makeTrafficKeys(ctx.earlyTrafficSecret)
+
+	logf(logTypeCrypto, "binder key: [%d] %x", len(ctx.binderKey), ctx.binderKey)
+	logf(logTypeCrypto, "early traffic secret: [%d] %x", len(ctx.earlyTrafficSecret), ctx.earlyTrafficSecret)
+	logf(logTypeCrypto, "early exporter secret: [%d] %x", len(ctx.earlyExporterSecret), ctx.earlyExporterSecret)
+	logf(logTypeCrypto, "early traffic keys: [%d] %x [%d] %x",
+		len(ctx.clientEarlyTrafficKeys.key), ctx.clientEarlyTrafficKeys.key,
+		len(ctx.clientEarlyTrafficKeys.iv), ctx.clientEarlyTrafficKeys.iv)
+}
+
+// TODO: Merge with UpdateWithServerHello?
+func (ctx *cryptoContext) init(suite cipherSuite, chm *handshakeMessage) error {
 	logf(logTypeCrypto, "Initializing crypto context")
 
 	// Configure based on cipherSuite
@@ -785,14 +834,17 @@ func (ctx *cryptoContext) init(suite cipherSuite, chm *handshakeMessage, pskSecr
 	ctx.params = params
 	ctx.zero = bytes.Repeat([]byte{0}, ctx.params.hash.Size())
 
-	// Import the PSK secret if provided or set to zero
-	if pskSecret != nil {
-		ctx.pskSecret = make([]byte, len(pskSecret))
-		copy(ctx.pskSecret, pskSecret)
+	if ctx.pskSecret != nil {
+		if ctx.params.hash != ctx.earlyHash {
+			return fmt.Errorf("tls.cryptoinit: Change of hash between early and normal init early=[%02x] suite=[%04x] hash=[%02x]", ctx.earlyHash, ctx.suite, ctx.params.hash)
+		}
 	} else {
 		ctx.pskSecret = make([]byte, len(ctx.zero))
 		copy(ctx.pskSecret, ctx.zero)
 	}
+
+	ctx.earlySecret = hkdfExtract(ctx.params.hash, ctx.zero, ctx.pskSecret)
+	logf(logTypeCrypto, "early secret: [%d] %x", len(ctx.earlySecret), ctx.earlySecret)
 
 	// Start up the handshake hash
 	bytes := chm.Marshal()
@@ -801,26 +853,6 @@ func (ctx *cryptoContext) init(suite cipherSuite, chm *handshakeMessage, pskSecr
 	ctx.handshakeHash.Write(bytes)
 	ctx.h1 = ctx.handshakeHash.Sum(nil)
 	logf(logTypeCrypto, "handshake hash 1 [%d]: %x", len(ctx.h1), ctx.h1)
-
-	// Compute the early secret
-	ctx.earlySecret = hkdfExtract(ctx.params.hash, ctx.zero, ctx.pskSecret)
-	logf(logTypeCrypto, "early secret: [%d] %x", len(ctx.earlySecret), ctx.earlySecret)
-
-	// Derive keys from the early secret
-	binderLabel := labelExternalBinder
-	if isResumption {
-		binderLabel = labelResumptionBinder
-	}
-	ctx.binderKey = ctx.deriveSecret(ctx.earlySecret, binderLabel, []byte{})
-	ctx.earlyTrafficSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyTrafficSecret, ctx.h1)
-	ctx.earlyExporterSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyExporterSecret, ctx.h1)
-	ctx.clientEarlyTrafficKeys = ctx.makeTrafficKeys(ctx.earlyTrafficSecret)
-	logf(logTypeCrypto, "binder key: [%d] %x", len(ctx.binderKey), ctx.binderKey)
-	logf(logTypeCrypto, "early traffic secret: [%d] %x", len(ctx.earlyTrafficSecret), ctx.earlyTrafficSecret)
-	logf(logTypeCrypto, "early exporter secret: [%d] %x", len(ctx.earlyExporterSecret), ctx.earlyExporterSecret)
-	logf(logTypeCrypto, "early traffic keys: [%d] %x [%d] %x",
-		len(ctx.clientEarlyTrafficKeys.key), ctx.clientEarlyTrafficKeys.key,
-		len(ctx.clientEarlyTrafficKeys.iv), ctx.clientEarlyTrafficKeys.iv)
 
 	ctx.state = ctxStateClientHello
 	return nil

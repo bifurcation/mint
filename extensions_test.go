@@ -338,7 +338,6 @@ func TestExtensionAdd(t *testing.T) {
 
 	// Test successful add to a nil list
 	var elp *extensionList
-	t.Logf("%v", elp == nil)
 	err = elp.Add(keyShareServerIn)
 	assertNotError(t, err, "Failed to add valid extension")
 
