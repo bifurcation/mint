@@ -677,6 +677,11 @@ func (h *serverHandshake) CreateNewSessionTicket(length int, lifetime uint32) (P
 
 	tkt.TicketLifetime = lifetime
 
+	err = tkt.Extensions.Add(&ticketEarlyDataInfoExtension{1 << 24})
+	if err != nil {
+		return PreSharedKey{}, nil, err
+	}
+
 	newPSK := PreSharedKey{
 		CipherSuite:  h.Context.suite,
 		IsResumption: true,
