@@ -20,6 +20,7 @@ var (
 	keyFile      string
 	responseFile string
 	h2           bool
+	sendTickets  bool
 )
 
 type responder []byte
@@ -35,6 +36,7 @@ func main() {
 	flag.StringVar(&keyFile, "key", "", "private key in PEM format")
 	flag.StringVar(&responseFile, "response", "", "file to serve")
 	flag.BoolVar(&h2, "h2", false, "whether to use HTTP/2 (exclusively)")
+	flag.BoolVar(&sendTickets, "tickets", true, "whether to send session tickets")
 	flag.Parse()
 
 	var certChain []*x509.Certificate
@@ -87,6 +89,8 @@ func main() {
 	if h2 {
 		config.NextProtos = []string{"h2"}
 	}
+
+	config.SendSessionTickets = sendTickets
 
 	if certChain != nil && priv != nil {
 		log.Printf("Loading cert: %v key: %v", certFile, keyFile)
