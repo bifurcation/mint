@@ -802,15 +802,24 @@ func (ctx *cryptoContext) preInit(psk PreSharedKey) error {
 	if psk.IsResumption {
 		binderLabel = labelResumptionBinder
 	}
-	ctx.binderKey = ctx.deriveSecret(ctx.earlySecret, binderLabel, []byte{})
+
+	// XXX: Spec says "", but NSS uses []byte{0}.
+	// TODO: File a spec bug
+	h := ctx.params.hash.New()
+	h.Write([]byte{0})
+	ctx.binderKey = ctx.deriveSecret(ctx.earlySecret, binderLabel, h.Sum(nil))
 	return nil
 }
 
 func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *handshakeMessage) {
 	chBytes := chm.Marshal()
 
-	ctx.earlyTrafficSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyTrafficSecret, chBytes)
-	ctx.earlyExporterSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyExporterSecret, chBytes)
+	h := ctx.params.hash.New()
+	h.Write(chBytes)
+	chHash := h.Sum(nil)
+
+	ctx.earlyTrafficSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyTrafficSecret, chHash)
+	ctx.earlyExporterSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyExporterSecret, chHash)
 	ctx.clientEarlyTrafficKeys = ctx.makeTrafficKeys(ctx.earlyTrafficSecret)
 
 	logf(logTypeCrypto, "binder key: [%d] %x", len(ctx.binderKey), ctx.binderKey)
