@@ -494,13 +494,13 @@ func (c *Conn) clientHandshake() error {
 		EarlyData:  c.earlyData,
 	}
 
-	ch, err := h.CreateClientHello(opts, caps)
+	chm, err := h.CreateClientHello(opts, caps)
 	if err != nil {
 		return err
 	}
 
 	// Write ClientHello
-	_, err = hOut.WriteMessageBody(ch)
+	err = hOut.WriteMessage(chm)
 	if err != nil {
 		return err
 	}
@@ -530,16 +530,15 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Read and Process ServerHello
-	sh := new(serverHelloBody)
 	logf(logTypeHandshake, "[client] Awaiting ServerHello")
-	_, err = hIn.ReadMessageBody(sh)
+	shm, err := hIn.ReadMessage()
 	if err != nil {
 		logf(logTypeHandshake, "[client] Error reading ServerHello")
 		return err
 	}
 	logf(logTypeHandshake, "[client] Received ServerHello")
 
-	err = h.HandleServerHello(sh)
+	err = h.HandleServerHello(shm)
 	if err != nil {
 		return err
 	}
@@ -633,7 +632,7 @@ func (c *Conn) serverHandshake() error {
 		NextProtos:       c.config.NextProtos,
 		Certificates:     c.config.Certificates,
 	}
-	sh, serverFirstFlight, signaledEarlyData, err := h.HandleClientHello(ch, caps)
+	shm, serverFirstFlight, signaledEarlyData, err := h.HandleClientHello(chm, caps)
 
 	// Find early_data extension and handle early data
 	if signaledEarlyData {
@@ -683,7 +682,7 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Write ServerHello and update the crypto context
-	_, err = hOut.WriteMessageBody(sh)
+	err = hOut.WriteMessage(shm)
 	if err != nil {
 		logf(logTypeHandshake, "[server] Unable to send ServerHello %v", err)
 		return err

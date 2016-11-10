@@ -40,7 +40,7 @@ type clientHandshake struct {
 	serverHello *handshakeMessage
 }
 
-func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabilities) (*clientHelloBody, error) {
+func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabilities) (*handshakeMessage, error) {
 	// key_shares
 	h.OfferedDH = map[namedGroup][]byte{}
 	ks := keyShareExtension{
@@ -101,7 +101,6 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 		h.OfferedPSK = key
 
 		// Narrow ciphersuites to ones that match PSK hash
-		// TODO: Just store the hash on the key
 		keyParams, ok := cipherSuiteMap[key.CipherSuite]
 		if !ok {
 			return nil, fmt.Errorf("Unsupported ciphersuite from PSK")
@@ -148,13 +147,12 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 		psk.binders[0].Binder = binder
 		ch.extensions.Add(psk)
 
-		// Compute the early traffic and exporter keys
-		chm, err := handshakeMessageFromBody(ch)
+		h.clientHello, err = handshakeMessageFromBody(ch)
 		if err != nil {
 			return nil, err
 		}
 
-		h.Context.earlyUpdateWithClientHello(chm)
+		h.Context.earlyUpdateWithClientHello(h.clientHello)
 	}
 
 	h.clientHello, err = handshakeMessageFromBody(ch)
@@ -162,10 +160,17 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 		return nil, err
 	}
 
-	return ch, nil
+	return h.clientHello, nil
 }
 
-func (h *clientHandshake) HandleServerHello(sh *serverHelloBody) error {
+func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
+	// Unmarshal the ServerHello
+	sh := &serverHelloBody{}
+	_, err := sh.Unmarshal(shm.body)
+	if err != nil {
+		return err
+	}
+
 	// Check that the version sent by the server is the one we support
 	if sh.Version != supportedVersion {
 		return fmt.Errorf("tls.client: Server sent unsupported version %x", sh.Version)
@@ -194,13 +199,13 @@ func (h *clientHandshake) HandleServerHello(sh *serverHelloBody) error {
 		logf(logTypeHandshake, "[client] got key share extension")
 	}
 
-	var err error
-	h.serverHello, err = handshakeMessageFromBody(sh)
+	h.serverHello = shm
+
+	err = h.Context.init(sh.CipherSuite, h.clientHello)
 	if err != nil {
 		return err
 	}
 
-	h.Context.init(sh.CipherSuite, h.clientHello)
 	h.Context.updateWithServerHello(h.serverHello, dhSecret)
 	return nil
 }
@@ -275,7 +280,13 @@ type serverHandshake struct {
 	Context cryptoContext
 }
 
-func (h *serverHandshake) HandleClientHello(ch *clientHelloBody, caps capabilities) (*serverHelloBody, []*handshakeMessage, bool, error) {
+func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabilities) (*handshakeMessage, []*handshakeMessage, bool, error) {
+	ch := &clientHelloBody{}
+	_, err := ch.Unmarshal(chm.body)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
 	supportedVersions := new(supportedVersionsExtension)
 	serverName := new(serverNameExtension)
 	supportedGroups := new(supportedGroupsExtension)
@@ -379,11 +390,6 @@ func (h *serverHandshake) HandleClientHello(ch *clientHelloBody, caps capabiliti
 
 				// If we're going to need to receive early data, prepare the relevant keys
 				if gotEarlyData {
-					chm, err := handshakeMessageFromBody(ch)
-					if err != nil {
-						return nil, nil, false, err
-					}
-
 					h.Context.earlyUpdateWithClientHello(chm)
 				}
 
@@ -479,7 +485,7 @@ func (h *serverHandshake) HandleClientHello(ch *clientHelloBody, caps capabiliti
 		Version:     supportedVersion,
 		CipherSuite: chosenSuite,
 	}
-	_, err := prng.Read(sh.Random[:])
+	_, err = prng.Read(sh.Random[:])
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -505,11 +511,6 @@ func (h *serverHandshake) HandleClientHello(ch *clientHelloBody, caps capabiliti
 	}
 	logf(logTypeHandshake, "[server] Done creating ServerHello")
 
-	chm, err := handshakeMessageFromBody(ch)
-	if err != nil {
-		return nil, nil, false, err
-	}
-
 	shm, err := handshakeMessageFromBody(sh)
 	if err != nil {
 		return nil, nil, false, err
@@ -525,8 +526,6 @@ func (h *serverHandshake) HandleClientHello(ch *clientHelloBody, caps capabiliti
 	if err != nil {
 		return nil, nil, false, err
 	}
-
-	// TODO: EE, Cert, CertVerify, Finished
 
 	// Send an EncryptedExtensions message (even if it's empty)
 	eeList := extensionList{}
@@ -643,7 +642,7 @@ func (h *serverHandshake) HandleClientHello(ch *clientHelloBody, caps capabiliti
 
 	transcript = append(transcript, fm)
 
-	return sh, transcript, gotEarlyData, nil
+	return shm, transcript, gotEarlyData, nil
 }
 
 func (h *serverHandshake) HandleClientSecondFlight(transcript []*handshakeMessage, finishedMessage *handshakeMessage) error {
