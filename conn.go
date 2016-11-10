@@ -633,6 +633,9 @@ func (c *Conn) serverHandshake() error {
 		Certificates:     c.config.Certificates,
 	}
 	shm, serverFirstFlight, signaledEarlyData, err := h.HandleClientHello(chm, caps)
+	if err != nil {
+		return err
+	}
 
 	// Find early_data extension and handle early data
 	if signaledEarlyData {
