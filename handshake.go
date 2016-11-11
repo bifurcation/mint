@@ -554,7 +554,12 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 				}
 			}
 		}
-		if !foundCert {
+
+		// If there's no match, take the first certificate provided
+		if !foundCert && len(caps.Certificates) > 0 {
+			chain = caps.Certificates[0].Chain
+			privateKey = caps.Certificates[0].PrivateKey
+		} else if len(caps.Certificates) == 0 {
 			return nil, nil, false, fmt.Errorf("No certificate available for the requested name [%s]", *serverName)
 		}
 
