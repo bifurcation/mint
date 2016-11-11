@@ -90,12 +90,8 @@ func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
 	return read, nil
 }
 
+// TODO: File a spec bug to clarify this
 func (ch clientHelloBody) Truncated() ([]byte, error) {
-	chData, err := ch.Marshal()
-	if err != nil {
-		return nil, err
-	}
-
 	if len(ch.extensions) == 0 {
 		return nil, fmt.Errorf("tls.clienthello.truncate: No extensions")
 	}
@@ -104,6 +100,12 @@ func (ch clientHelloBody) Truncated() ([]byte, error) {
 	if pskExt.ExtensionType != extensionTypePreSharedKey {
 		return nil, fmt.Errorf("tls.clienthello.truncate: Last extension is not PSK")
 	}
+
+	chm, err := handshakeMessageFromBody(&ch)
+	if err != nil {
+		return nil, err
+	}
+	chData := chm.Marshal()
 
 	psk := preSharedKeyExtension{
 		handshakeType: handshakeTypeClientHello,

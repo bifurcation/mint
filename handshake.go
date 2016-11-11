@@ -350,8 +350,8 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 
 	// Find pre_shared_key extension and look it up
 	var serverPSK *preSharedKeyExtension
-	var pskSecret []byte
 	var pskSuite cipherSuite
+	usingPSK := false
 	if gotPSK {
 		logf(logTypeHandshake, "[server] Got PSK extension; processing")
 		for _, id := range clientPSK.identities {
@@ -373,14 +373,12 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 
 				binder := h.Context.computeFinishedData(h.Context.binderKey, trunc)
 				if !bytes.Equal(binder, clientPSK.binders[i].Binder) {
-					// XXX: Keep looking if binder check fails; is this correct?
 					logf(logTypeHandshake, "Binder check failed identity %x", key.Identity)
-					continue
+					return nil, nil, false, fmt.Errorf("PSK binder check failed")
 				}
 
 				logf(logTypeHandshake, "Using PSK identity %x", key.Identity)
-				pskSecret = make([]byte, len(key.Key))
-				copy(pskSecret, key.Key)
+				usingPSK = true
 				pskSuite = key.CipherSuite
 
 				serverPSK = &preSharedKeyExtension{
@@ -396,21 +394,21 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 				break
 			}
 
-			if pskSecret != nil {
+			if usingPSK {
 				break
 			}
 		}
 	}
 
 	// If we're not using a PSK mode, then we need to have certain extensions
-	if (pskSecret == nil) && (!gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms) {
+	if usingPSK && (!gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms) {
 		logf(logTypeHandshake, "[server] Insufficient extensions (%v %v %v %v)",
 			gotServerName, gotSupportedGroups, gotSignatureAlgorithms, gotKeyShares)
 		return nil, nil, false, fmt.Errorf("tls.server: Missing extension in ClientHello")
 	}
 
 	// If we're not using a PSK mode, then we can't do early data
-	if (pskSecret == nil) && gotEarlyData {
+	if !usingPSK && gotEarlyData {
 		return nil, nil, false, fmt.Errorf("tls.server: EarlyData with no PSK")
 	}
 
@@ -452,11 +450,11 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	var chosenSuite cipherSuite
 	foundCipherSuite := false
 	for _, suite := range ch.cipherSuites {
-		if (pskSecret != nil) && (suite == pskSuite) {
+		if usingPSK && (suite == pskSuite) {
 			chosenSuite = suite
 			foundCipherSuite = true
 			break
-		} else if pskSecret != nil {
+		} else if usingPSK {
 			continue
 		}
 
@@ -499,15 +497,12 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 		logf(logTypeHandshake, "[server] not sending key share extension; deleting DH secret")
 		dhSecret = nil
 	}
-	if pskSecret != nil {
+	if usingPSK {
 		logf(logTypeHandshake, "[server] sending PSK extension")
 		err = sh.Extensions.Add(serverPSK)
 		if err != nil {
 			return nil, nil, false, err
 		}
-	} else {
-		logf(logTypeHandshake, "[server] not sending PSK extension; deleting PSK secret")
-		pskSecret = nil
 	}
 	logf(logTypeHandshake, "[server] Done creating ServerHello")
 
@@ -545,7 +540,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	transcript := []*handshakeMessage{eem}
 
 	// Authenticate with a certificate if required
-	if pskSecret == nil {
+	if !usingPSK {
 		// Select a certificate
 		var privateKey crypto.Signer
 		var chain []*x509.Certificate

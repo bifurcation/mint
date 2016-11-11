@@ -32,8 +32,8 @@ var (
 
 	// ClientHello truncation test cases
 	chTruncPSKData, _ = hex.DecodeString(pskClientHex)
-	chTruncHex        = "0303" + hex.EncodeToString(helloRandom[:]) + "00" +
-		"0006000100020003" + "0100" + "00330029002f000a00040102030405060708"
+	chTruncHex        = "01000062" + "0303" + hex.EncodeToString(helloRandom[:]) +
+		"00" + "0006000100020003" + "0100" + "00330029002f000a00040102030405060708"
 	chTruncValid = clientHelloBody{
 		random:       helloRandom,
 		cipherSuites: chCipherSuites,
