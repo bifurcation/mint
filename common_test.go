@@ -41,6 +41,12 @@ func assertByteEquals(t *testing.T, a []byte, b []byte) {
 	}
 }
 
+func assertNotByteEquals(t *testing.T, a []byte, b []byte) {
+	if bytes.Equal(a, b) {
+		assert(t, false, fmt.Sprintf("%v == %v", hex.EncodeToString(a), hex.EncodeToString(b)))
+	}
+}
+
 func assertDeepEquals(t *testing.T, a interface{}, b interface{}) {
 	if !reflect.DeepEqual(a, b) {
 		assert(t, false, fmt.Sprintf("%v != %v", a, b))

@@ -808,3 +808,25 @@ func (c *Conn) serverHandshake() error {
 	c.handshake = h
 	return nil
 }
+
+func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
+	if !c.handshakeComplete {
+		return fmt.Errorf("Cannot update keys until after handshake")
+	}
+
+	request := keyUpdateNotRequested
+	if requestUpdate {
+		request = keyUpdateRequested
+	}
+
+	kum, err := c.handshake.CreateKeyUpdate(request)
+	if err != nil {
+		return err
+	}
+
+	err = c.out.WriteRecord(&tlsPlaintext{
+		contentType: recordTypeHandshake,
+		fragment:    kum.Marshal(),
+	})
+	return err
+}

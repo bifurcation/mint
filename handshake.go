@@ -30,11 +30,25 @@ type handshake interface {
 	CryptoContext() *cryptoContext
 	InboundKeys() (aeadFactory, keySet)
 	OutboundKeys() (aeadFactory, keySet)
+	CreateKeyUpdate(keyUpdateRequest) (*handshakeMessage, error)
 	HandleKeyUpdate(*handshakeMessage) (*handshakeMessage, error)
 	HandleNewSessionTicket(*handshakeMessage) (PreSharedKey, error)
 }
 
 ///// Common methods
+
+func createKeyUpdate(client bool, ctx *cryptoContext, requestUpdate keyUpdateRequest) (*handshakeMessage, error) {
+	// Roll the outbound keys
+	err := ctx.updateKeys(client)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a KeyUpdate message
+	return handshakeMessageFromBody(&keyUpdateBody{
+		KeyUpdateRequest: keyUpdateNotRequested,
+	})
+}
 
 func handleKeyUpdate(client bool, ctx *cryptoContext, hm *handshakeMessage) (*handshakeMessage, error) {
 	var ku keyUpdateBody
@@ -57,15 +71,9 @@ func handleKeyUpdate(client bool, ctx *cryptoContext, hm *handshakeMessage) (*ha
 			return nil, err
 		}
 
-		outboundKU := keyUpdateBody{
+		return handshakeMessageFromBody(&keyUpdateBody{
 			KeyUpdateRequest: keyUpdateNotRequested,
-		}
-		// Infallible in practice
-		data, _ := outboundKU.Marshal()
-		outboundMessage = &handshakeMessage{
-			msgType: handshakeTypeKeyUpdate,
-			body:    data,
-		}
+		})
 	}
 
 	return outboundMessage, nil
@@ -100,6 +108,10 @@ func (h *clientHandshake) InboundKeys() (aeadFactory, keySet) {
 
 func (h *clientHandshake) OutboundKeys() (aeadFactory, keySet) {
 	return h.Context.params.cipher, h.Context.clientTrafficKeys
+}
+
+func (h *clientHandshake) CreateKeyUpdate(requestUpdate keyUpdateRequest) (*handshakeMessage, error) {
+	return createKeyUpdate(true, &h.Context, requestUpdate)
 }
 
 func (h *clientHandshake) HandleKeyUpdate(hm *handshakeMessage) (*handshakeMessage, error) {
@@ -378,8 +390,12 @@ func (h *serverHandshake) CryptoContext() *cryptoContext {
 	return &h.Context
 }
 
+func (h *serverHandshake) CreateKeyUpdate(requestUpdate keyUpdateRequest) (*handshakeMessage, error) {
+	return createKeyUpdate(false, &h.Context, requestUpdate)
+}
+
 func (h *serverHandshake) HandleKeyUpdate(hm *handshakeMessage) (*handshakeMessage, error) {
-	return handleKeyUpdate(true, &h.Context, hm)
+	return handleKeyUpdate(false, &h.Context, hm)
 }
 
 func (h *serverHandshake) HandleNewSessionTicket(hm *handshakeMessage) (PreSharedKey, error) {

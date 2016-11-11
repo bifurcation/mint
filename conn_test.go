@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -421,4 +422,68 @@ func Test0xRTTFailure(t *testing.T) {
 	assertNotError(t, err, "Client failed handshake")
 
 	<-done
+}
+
+func TestKeyUpdate(t *testing.T) {
+	cConn, sConn := pipe()
+
+	conf := basicConfig
+	client := Client(cConn, conf)
+	server := Server(sConn, conf)
+
+	zeroBuf := []byte{}
+	done := make(chan bool)
+	go func(t *testing.T) {
+		err := server.Handshake()
+		assertNotError(t, err, "Server failed handshake")
+		done <- true
+
+		// Test server-initiated KeyUpdate
+		err = server.SendKeyUpdate(false)
+		assertNotError(t, err, "Key update send failed")
+		done <- true
+
+		// Null read to trigger key update
+		server.Read(zeroBuf)
+		done <- true
+
+		// Null read to trigger key update and KeyUpdate response
+		server.Read(zeroBuf)
+		fmt.Println("Server Read")
+		done <- true
+	}(t)
+
+	err := client.Handshake()
+	assertNotError(t, err, "Client failed handshake")
+	<-done
+
+	clientContext0 := *client.handshake.CryptoContext()
+	serverContext0 := *server.handshake.CryptoContext()
+	assertContextEquals(t, &clientContext0, &serverContext0)
+
+	// Null read to trigger key update
+	client.Read(zeroBuf)
+	<-done
+
+	clientContext1 := *client.handshake.CryptoContext()
+	serverContext1 := *server.handshake.CryptoContext()
+	assertContextEquals(t, &clientContext1, &serverContext1)
+	assertNotByteEquals(t, clientContext0.serverTrafficKeys.key, clientContext1.serverTrafficKeys.key)
+	assertNotByteEquals(t, clientContext0.serverTrafficKeys.iv, clientContext1.serverTrafficKeys.iv)
+	assertByteEquals(t, clientContext0.clientTrafficKeys.key, clientContext1.clientTrafficKeys.key)
+	assertByteEquals(t, clientContext0.clientTrafficKeys.iv, clientContext1.clientTrafficKeys.iv)
+
+	// Test client-initiated KeyUpdate
+	client.SendKeyUpdate(false)
+	<-done
+
+	clientContext2 := *client.handshake.CryptoContext()
+	serverContext2 := *server.handshake.CryptoContext()
+	assertContextEquals(t, &clientContext2, &serverContext2)
+	assertByteEquals(t, clientContext1.serverTrafficKeys.key, clientContext2.serverTrafficKeys.key)
+	assertByteEquals(t, clientContext1.serverTrafficKeys.iv, clientContext2.serverTrafficKeys.iv)
+	assertNotByteEquals(t, clientContext1.clientTrafficKeys.key, clientContext2.clientTrafficKeys.key)
+	assertNotByteEquals(t, clientContext1.clientTrafficKeys.iv, clientContext2.clientTrafficKeys.iv)
+
+	// TODO: Test keyUpdateRequested, i.e., fix deadlock
 }
