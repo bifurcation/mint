@@ -141,7 +141,11 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 		if err != nil {
 			return nil, err
 		}
-		binder := h.Context.computeFinishedData(h.Context.binderKey, trunc)
+
+		truncHash := h.Context.params.hash.New()
+		truncHash.Write(trunc)
+
+		binder := h.Context.computeFinishedData(h.Context.binderKey, truncHash.Sum(nil))
 
 		// Replace the PSK extension
 		psk.binders[0].Binder = binder
@@ -371,7 +375,10 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 					return nil, nil, false, err
 				}
 
-				binder := h.Context.computeFinishedData(h.Context.binderKey, trunc)
+				truncHash := h.Context.params.hash.New()
+				truncHash.Write(trunc)
+
+				binder := h.Context.computeFinishedData(h.Context.binderKey, truncHash.Sum(nil))
 				if !bytes.Equal(binder, clientPSK.binders[i].Binder) {
 					logf(logTypeHandshake, "Binder check failed identity %x", key.Identity)
 					return nil, nil, false, fmt.Errorf("PSK binder check failed")

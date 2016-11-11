@@ -803,10 +803,8 @@ func (ctx *cryptoContext) preInit(psk PreSharedKey) error {
 		binderLabel = labelResumptionBinder
 	}
 
-	// XXX: Spec says "", but NSS uses []byte{0}.
-	// TODO: File a spec bug
 	h := ctx.params.hash.New()
-	h.Write([]byte{0})
+	h.Write([]byte{})
 	ctx.binderKey = ctx.deriveSecret(ctx.earlySecret, binderLabel, h.Sum(nil))
 	return nil
 }
