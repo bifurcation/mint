@@ -506,6 +506,7 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Send early data
+	fmt.Println("[c] About to write early data")
 	if opts.EarlyData != nil {
 		// Rekey output to early data keys
 		logf(logTypeHandshake, "[client] Rekey -> early...")
@@ -513,6 +514,7 @@ func (c *Conn) clientHandshake() error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("[c] ... done rekey")
 
 		// Send early application data
 		logf(logTypeHandshake, "[client] Sending data...")
@@ -520,6 +522,7 @@ func (c *Conn) clientHandshake() error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("[c] ... done send")
 
 		// Send end_of_earlyData
 		logf(logTypeHandshake, "[client] Sending end_of_early_data...")
@@ -527,7 +530,9 @@ func (c *Conn) clientHandshake() error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("[c] ... done alert")
 	}
+	fmt.Println("[c] Done writing early data")
 
 	// Read and Process ServerHello
 	logf(logTypeHandshake, "[client] Awaiting ServerHello")
@@ -624,6 +629,7 @@ func (c *Conn) serverHandshake() error {
 	}
 	logf(logTypeHandshake, "[server] Read ClientHello")
 
+	// Create the server's first flight
 	caps := capabilities{
 		CipherSuites:     c.config.CipherSuites,
 		Groups:           c.config.Groups,
@@ -637,7 +643,33 @@ func (c *Conn) serverHandshake() error {
 		return err
 	}
 
+	// Write ServerHello and update the crypto context
+	err = hOut.WriteMessage(shm)
+	if err != nil {
+		logf(logTypeHandshake, "[server] Unable to send ServerHello %v", err)
+		return err
+	}
+	logf(logTypeHandshake, "[server] Wrote ServerHello")
+
+	// Rekey outbound to handshake keys
+	err = c.out.Rekey(h.Context.params.cipher, h.Context.serverHandshakeKeys.key, h.Context.serverHandshakeKeys.iv)
+	if err != nil {
+		return err
+	}
+	logf(logTypeHandshake, "[server] Completed rekey")
+	dumpCryptoContext("server", h.Context)
+
+	// Write remainder of server first flight
+	for _, msg := range serverFirstFlight {
+		err := hOut.WriteMessage(msg)
+		if err != nil {
+			logf(logTypeHandshake, "[server] Unable to send handshake message %v", err)
+			return err
+		}
+	}
+
 	// Find early_data extension and handle early data
+	fmt.Println("[s] About to read early data")
 	if signaledEarlyData {
 		logf(logTypeHandshake, "[server] Processing early data")
 
@@ -683,34 +715,12 @@ func (c *Conn) serverHandshake() error {
 
 		logf(logTypeHandshake, "[server] Done reading early data [%d] %x", len(c.readBuffer), c.readBuffer)
 	}
+	fmt.Println("[s] Done reading early data")
 
-	// Write ServerHello and update the crypto context
-	err = hOut.WriteMessage(shm)
-	if err != nil {
-		logf(logTypeHandshake, "[server] Unable to send ServerHello %v", err)
-		return err
-	}
-	logf(logTypeHandshake, "[server] Wrote ServerHello")
-
-	// Rekey to handshake keys
+	// Rekey input to handshake keys
 	err = c.in.Rekey(h.Context.params.cipher, h.Context.clientHandshakeKeys.key, h.Context.clientHandshakeKeys.iv)
 	if err != nil {
 		return err
-	}
-	err = c.out.Rekey(h.Context.params.cipher, h.Context.serverHandshakeKeys.key, h.Context.serverHandshakeKeys.iv)
-	if err != nil {
-		return err
-	}
-	logf(logTypeHandshake, "[server] Completed rekey")
-	dumpCryptoContext("server", h.Context)
-
-	// Write remainder of server first flight
-	for _, msg := range serverFirstFlight {
-		err := hOut.WriteMessage(msg)
-		if err != nil {
-			logf(logTypeHandshake, "[server] Unable to send handshake message %v", err)
-			return err
-		}
 	}
 
 	// Read and process the client's second flight
