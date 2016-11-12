@@ -699,6 +699,7 @@ func (c *Conn) serverHandshake() error {
 
 			switch pt.contentType {
 			case recordTypeAlert:
+				logf(logTypeHandshake, "Alert record");
 				alertType := alert(pt.fragment[1])
 				if alertType == alertEndOfEarlyData {
 					done = true
@@ -707,6 +708,7 @@ func (c *Conn) serverHandshake() error {
 				}
 			case recordTypeApplicationData:
 				// XXX: Should expose early data differently
+				logf(logTypeHandshake, "App data");				
 				c.readBuffer = append(c.readBuffer, pt.fragment...)
 			default:
 				return fmt.Errorf("tls.server: Unexpected content type in early data [%v] %x", pt.contentType, pt.fragment)
