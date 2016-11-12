@@ -125,9 +125,10 @@ func (c *Config) Init(isClient bool) error {
 }
 
 func (c Config) validForServer() bool {
-	return len(c.Certificates) > 0 &&
-		len(c.Certificates[0].Chain) > 0 &&
-		c.Certificates[0].PrivateKey != nil
+	return (len(c.PSKs) > 0) ||
+		(len(c.Certificates) > 0 &&
+			len(c.Certificates[0].Chain) > 0 &&
+			c.Certificates[0].PrivateKey != nil)
 }
 
 func (c Config) validForClient() bool {
