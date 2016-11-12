@@ -624,6 +624,7 @@ func (c *Conn) serverHandshake() error {
 	}
 	logf(logTypeHandshake, "[server] Read ClientHello")
 
+	// Create the server's first flight
 	caps := capabilities{
 		CipherSuites:     c.config.CipherSuites,
 		Groups:           c.config.Groups,
@@ -633,6 +634,34 @@ func (c *Conn) serverHandshake() error {
 		Certificates:     c.config.Certificates,
 	}
 	shm, serverFirstFlight, signaledEarlyData, err := h.HandleClientHello(chm, caps)
+	if err != nil {
+		return err
+	}
+
+	// Write ServerHello and update the crypto context
+	err = hOut.WriteMessage(shm)
+	if err != nil {
+		logf(logTypeHandshake, "[server] Unable to send ServerHello %v", err)
+		return err
+	}
+	logf(logTypeHandshake, "[server] Wrote ServerHello")
+
+	// Rekey outbound to handshake keys
+	err = c.out.Rekey(h.Context.params.cipher, h.Context.serverHandshakeKeys.key, h.Context.serverHandshakeKeys.iv)
+	if err != nil {
+		return err
+	}
+	logf(logTypeHandshake, "[server] Completed rekey")
+	dumpCryptoContext("server", h.Context)
+
+	// Write remainder of server first flight
+	for _, msg := range serverFirstFlight {
+		err := hOut.WriteMessage(msg)
+		if err != nil {
+			logf(logTypeHandshake, "[server] Unable to send handshake message %v", err)
+			return err
+		}
+	}
 
 	// Find early_data extension and handle early data
 	if signaledEarlyData {
@@ -664,6 +693,7 @@ func (c *Conn) serverHandshake() error {
 
 			switch pt.contentType {
 			case recordTypeAlert:
+				logf(logTypeHandshake, "Alert record");
 				alertType := alert(pt.fragment[1])
 				if alertType == alertEndOfEarlyData {
 					done = true
@@ -672,6 +702,7 @@ func (c *Conn) serverHandshake() error {
 				}
 			case recordTypeApplicationData:
 				// XXX: Should expose early data differently
+				logf(logTypeHandshake, "App data");				
 				c.readBuffer = append(c.readBuffer, pt.fragment...)
 			default:
 				return fmt.Errorf("tls.server: Unexpected content type in early data [%v] %x", pt.contentType, pt.fragment)
@@ -681,33 +712,10 @@ func (c *Conn) serverHandshake() error {
 		logf(logTypeHandshake, "[server] Done reading early data [%d] %x", len(c.readBuffer), c.readBuffer)
 	}
 
-	// Write ServerHello and update the crypto context
-	err = hOut.WriteMessage(shm)
-	if err != nil {
-		logf(logTypeHandshake, "[server] Unable to send ServerHello %v", err)
-		return err
-	}
-	logf(logTypeHandshake, "[server] Wrote ServerHello")
-
-	// Rekey to handshake keys
+	// Rekey input to handshake keys
 	err = c.in.Rekey(h.Context.params.cipher, h.Context.clientHandshakeKeys.key, h.Context.clientHandshakeKeys.iv)
 	if err != nil {
 		return err
-	}
-	err = c.out.Rekey(h.Context.params.cipher, h.Context.serverHandshakeKeys.key, h.Context.serverHandshakeKeys.iv)
-	if err != nil {
-		return err
-	}
-	logf(logTypeHandshake, "[server] Completed rekey")
-	dumpCryptoContext("server", h.Context)
-
-	// Write remainder of server first flight
-	for _, msg := range serverFirstFlight {
-		err := hOut.WriteMessage(msg)
-		if err != nil {
-			logf(logTypeHandshake, "[server] Unable to send handshake message %v", err)
-			return err
-		}
 	}
 
 	// Read and process the client's second flight
