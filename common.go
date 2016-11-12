@@ -72,7 +72,6 @@ const (
 type extensionType uint16
 
 const (
-	extensionTypeUnknown             extensionType = 0xffff
 	extensionTypeServerName          extensionType = 0
 	extensionTypeSupportedGroups     extensionType = 10
 	extensionTypeSignatureAlgorithms extensionType = 13
@@ -87,26 +86,22 @@ const (
 )
 
 // enum {...} NamedGroup
-type namedGroup uint16
+type NamedGroup uint16
 
 const (
-	namedGroupUnknown namedGroup = 0
 	// Elliptic Curve Groups.
-	namedGroupP256 namedGroup = 23
-	namedGroupP384 namedGroup = 24
-	namedGroupP521 namedGroup = 25
+	P256 NamedGroup = 23
+	P384 NamedGroup = 24
+	P521 NamedGroup = 25
 	// ECDH functions.
-	namedGroupX25519 namedGroup = 29
-	namedGroupX448   namedGroup = 30
-	// Signature-only curves.
-	namedGroupEd25519 namedGroup = 31
-	namedGroupEd448   namedGroup = 32
+	X25519 NamedGroup = 29
+	X448   NamedGroup = 30
 	// Finite field groups.
-	namedGroupFF2048 namedGroup = 256
-	namedGroupFF3072 namedGroup = 257
-	namedGroupFF4096 namedGroup = 258
-	namedGroupFF6144 namedGroup = 259
-	namedGroupFF8192 namedGroup = 250
+	FFDHE2048 NamedGroup = 256
+	FFDHE3072 NamedGroup = 257
+	FFDHE4096 NamedGroup = 258
+	FFDHE6144 NamedGroup = 259
+	FFDHE8192 NamedGroup = 250
 )
 
 // enum {...} PskKeyExchangeMode;

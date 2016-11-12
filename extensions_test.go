@@ -63,31 +63,31 @@ var (
 	}
 
 	// KeyShare test cases
-	len256           = keyExchangeSizeFromNamedGroup(namedGroupP256)
-	len521           = keyExchangeSizeFromNamedGroup(namedGroupP521)
+	len256           = keyExchangeSizeFromNamedGroup(P256)
+	len521           = keyExchangeSizeFromNamedGroup(P521)
 	p256             = bytes.Repeat([]byte{0}, len256)
 	p521             = bytes.Repeat([]byte{0}, len521)
 	keyShareClientIn = &keyShareExtension{
 		handshakeType: handshakeTypeClientHello,
 		shares: []keyShareEntry{
-			keyShareEntry{Group: namedGroupP256, KeyExchange: p256},
-			keyShareEntry{Group: namedGroupP521, KeyExchange: p521},
+			keyShareEntry{Group: P256, KeyExchange: p256},
+			keyShareEntry{Group: P521, KeyExchange: p521},
 		},
 	}
 	keyShareHelloRetryIn = &keyShareExtension{
 		handshakeType: handshakeTypeHelloRetryRequest,
-		selectedGroup: namedGroupP256,
+		selectedGroup: P256,
 	}
 	keyShareServerIn = &keyShareExtension{
 		handshakeType: handshakeTypeServerHello,
 		shares: []keyShareEntry{
-			keyShareEntry{Group: namedGroupP256, KeyExchange: p256},
+			keyShareEntry{Group: P256, KeyExchange: p256},
 		},
 	}
 	keyShareInvalidIn = &keyShareExtension{
 		handshakeType: handshakeTypeServerHello,
 		shares: []keyShareEntry{
-			keyShareEntry{Group: namedGroupP256, KeyExchange: []byte{0}},
+			keyShareEntry{Group: P256, KeyExchange: []byte{0}},
 		},
 	}
 	keyShareClientHex = "00ce" + "00170041" + hex.EncodeToString(p256) +
@@ -145,7 +145,7 @@ var validExtensionTestCases = map[extensionType]struct {
 	extensionTypeSupportedGroups: {
 		blank: &supportedGroupsExtension{},
 		unmarshaled: &supportedGroupsExtension{
-			Groups: []namedGroup{namedGroupP256, namedGroupP384},
+			Groups: []NamedGroup{P256, P384},
 		},
 		marshaledHex: "000400170018",
 	},

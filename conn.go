@@ -63,14 +63,14 @@ type Config struct {
 
 	// Shared fields
 	CipherSuites     []CipherSuite
-	Groups           []namedGroup
+	Groups           []NamedGroup
 	SignatureSchemes []SignatureScheme
 	NextProtos       []string
 	PSKs             map[string]PreSharedKey
 
 	// Hidden fields (used for caching in convenient form)
 	enabledSuite  map[CipherSuite]bool
-	enabledGroup  map[namedGroup]bool
+	enabledGroup  map[NamedGroup]bool
 	enabledProto  map[string]bool
 	enabledScheme map[SignatureScheme]bool
 	certsByName   map[string]*Certificate
@@ -140,11 +140,11 @@ var (
 		TLS_AES_256_GCM_SHA384,
 	}
 
-	defaultSupportedGroups = []namedGroup{
-		namedGroupP256,
-		namedGroupP384,
-		namedGroupFF2048,
-		namedGroupX25519,
+	defaultSupportedGroups = []NamedGroup{
+		P256,
+		P384,
+		FFDHE2048,
+		X25519,
 	}
 
 	defaultSignatureSchemes = []SignatureScheme{

@@ -16,10 +16,9 @@ import (
 )
 
 var (
-	ecGroups    = []namedGroup{namedGroupP256, namedGroupP384, namedGroupP521}
-	nonECGroups = []namedGroup{namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
-		namedGroupFF6144, namedGroupFF8192, namedGroupX25519}
-	dhGroups = append(ecGroups, nonECGroups...)
+	ecGroups    = []NamedGroup{P256, P384, P521}
+	nonECGroups = []NamedGroup{FFDHE2048, FFDHE3072, FFDHE4096, FFDHE6144, FFDHE8192, X25519}
+	dhGroups    = append(ecGroups, nonECGroups...)
 
 	shortKeyPubHex = "04e9f6076620ddf6a24e4398162057eccd3077892f046b412" +
 		"0ffcb9fa31cdfd385c8727b222f9a6091e442e48f32ba145" +
@@ -75,26 +74,26 @@ func TestNewKeyShare(t *testing.T) {
 	// Test failure case for an elliptic curve key generation failure
 	originalPRNG := prng
 	prng = bytes.NewReader(nil)
-	_, _, err := newKeyShare(namedGroupP256)
+	_, _, err := newKeyShare(P256)
 	assertError(t, err, "Generated an EC key with no entropy")
 	prng = originalPRNG
 
 	// Test failure case for an finite field key generation failure
 	originalPRNG = prng
 	prng = bytes.NewReader(nil)
-	_, _, err = newKeyShare(namedGroupFF2048)
+	_, _, err = newKeyShare(FFDHE2048)
 	assertError(t, err, "Generated a FF key with no entropy")
 	prng = originalPRNG
 
 	// Test failure case for an X25519 key generation failure
 	originalPRNG = prng
 	prng = bytes.NewReader(nil)
-	_, _, err = newKeyShare(namedGroupX25519)
+	_, _, err = newKeyShare(X25519)
 	assertError(t, err, "Generated an X25519 key with no entropy")
 	prng = originalPRNG
 
 	// Test failure case for an unknown group
-	_, _, err = newKeyShare(namedGroupUnknown)
+	_, _, err = newKeyShare(NamedGroup(0))
 	assertError(t, err, "Generated a key for an unsupported group")
 }
 
@@ -119,25 +118,25 @@ func TestKeyAgreement(t *testing.T) {
 	// Test that a short elliptic curve point is properly padded
 	// shortKey* have been chosen to produce a point with an X coordinate that
 	// has a leading zero
-	curveSize := len(curveFromNamedGroup(namedGroupP256).Params().P.Bytes())
-	x, err := keyAgreement(namedGroupP256, shortKeyPub, shortKeyPriv)
+	curveSize := len(curveFromNamedGroup(P256).Params().P.Bytes())
+	x, err := keyAgreement(P256, shortKeyPub, shortKeyPriv)
 	assertNotError(t, err, "Failed to complete short key agreement")
 	assertEquals(t, len(x), curveSize)
 
 	// Test failure case for a too-short public key
-	_, err = keyAgreement(namedGroupP256, shortKeyPub[:5], shortKeyPriv)
+	_, err = keyAgreement(P256, shortKeyPub[:5], shortKeyPriv)
 	assertError(t, err, "Performed key agreement with a truncated public key")
 
 	// Test failure for a too-short ffdh public key
-	_, err = keyAgreement(namedGroupFF2048, shortKeyPub[:5], shortKeyPriv)
+	_, err = keyAgreement(FFDHE2048, shortKeyPub[:5], shortKeyPriv)
 	assertError(t, err, "Performed key agreement with a truncated public key")
 
 	// Test failure for a too-short X25519 public key
-	_, err = keyAgreement(namedGroupX25519, shortKeyPub[:5], shortKeyPriv)
+	_, err = keyAgreement(X25519, shortKeyPub[:5], shortKeyPriv)
 	assertError(t, err, "Performed key agreement with a truncated public key")
 
 	// Test failure case for an unknown group
-	_, err = keyAgreement(namedGroupUnknown, shortKeyPub, shortKeyPriv)
+	_, err = keyAgreement(NamedGroup(0), shortKeyPub, shortKeyPriv)
 	assertError(t, err, "Performed key agreement with an unsupported group")
 }
 
@@ -154,7 +153,7 @@ func TestNewSigningKey(t *testing.T) {
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
 	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
 	pub := privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
-	assertEquals(t, namedGroupP256, namedGroupFromECDSAKey(pub))
+	assertEquals(t, P256, namedGroupFromECDSAKey(pub))
 
 	// Test ECDSA success (P-384)
 	privECDSA, err = newSigningKey(ECDSA_P384_SHA384)
@@ -162,7 +161,7 @@ func TestNewSigningKey(t *testing.T) {
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
 	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
 	pub = privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
-	assertEquals(t, namedGroupP384, namedGroupFromECDSAKey(pub))
+	assertEquals(t, P384, namedGroupFromECDSAKey(pub))
 
 	// Test ECDSA success (P-521)
 	privECDSA, err = newSigningKey(ECDSA_P521_SHA512)
@@ -170,7 +169,7 @@ func TestNewSigningKey(t *testing.T) {
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
 	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
 	pub = privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
-	assertEquals(t, namedGroupP521, namedGroupFromECDSAKey(pub))
+	assertEquals(t, P521, namedGroupFromECDSAKey(pub))
 
 	// Test unsupported algorithm
 	_, err = newSigningKey(Ed25519)
@@ -395,7 +394,7 @@ func TestCryptoContext(t *testing.T) {
 	rand.Reader.Read(serverHelloContextIn.Random[:])
 
 	clientHelloContextIn.extensions.Add(&supportedGroupsExtension{
-		Groups: []namedGroup{namedGroupP256, namedGroupP521},
+		Groups: []NamedGroup{P256, P521},
 	})
 	clientHelloContextIn.extensions.Add(&signatureAlgorithmsExtension{
 		Algorithms: []SignatureScheme{
@@ -406,15 +405,15 @@ func TestCryptoContext(t *testing.T) {
 	clientHelloContextIn.extensions.Add(&keyShareExtension{
 		handshakeType: handshakeTypeClientHello,
 		shares: []keyShareEntry{
-			keyShareEntry{Group: namedGroupP256, KeyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP256))},
-			keyShareEntry{Group: namedGroupP521, KeyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
+			keyShareEntry{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256))},
+			keyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
 		},
 	})
 
 	serverHelloContextIn.Extensions.Add(&keyShareExtension{
 		handshakeType: handshakeTypeServerHello,
 		shares: []keyShareEntry{
-			keyShareEntry{Group: namedGroupP521, KeyExchange: random(keyExchangeSizeFromNamedGroup(namedGroupP521))},
+			keyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
 		},
 	})
 

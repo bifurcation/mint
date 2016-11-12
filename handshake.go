@@ -10,7 +10,7 @@ import (
 type capabilities struct {
 	// For both client and server
 	CipherSuites     []CipherSuite
-	Groups           []namedGroup
+	Groups           []NamedGroup
 	SignatureSchemes []SignatureScheme
 	PSKs             map[string]PreSharedKey
 
@@ -28,7 +28,7 @@ type connectionOptions struct {
 ///// Client-side Handshake methods
 
 type clientHandshake struct {
-	OfferedDH  map[namedGroup][]byte
+	OfferedDH  map[NamedGroup][]byte
 	OfferedPSK PreSharedKey
 
 	PSK     []byte
@@ -42,7 +42,7 @@ type clientHandshake struct {
 
 func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabilities) (*handshakeMessage, error) {
 	// key_shares
-	h.OfferedDH = map[namedGroup][]byte{}
+	h.OfferedDH = map[NamedGroup][]byte{}
 	ks := keyShareExtension{
 		handshakeType: handshakeTypeClientHello,
 		shares:        make([]keyShareEntry, len(caps.Groups)),

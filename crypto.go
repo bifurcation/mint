@@ -82,10 +82,10 @@ var (
 		RSA_PSS_SHA512:    signatureAlgorithmRSA_PSS,
 	}
 
-	curveMap = map[SignatureScheme]namedGroup{
-		ECDSA_P256_SHA256: namedGroupP256,
-		ECDSA_P384_SHA384: namedGroupP384,
-		ECDSA_P521_SHA512: namedGroupP521,
+	curveMap = map[SignatureScheme]NamedGroup{
+		ECDSA_P256_SHA256: P256,
+		ECDSA_P384_SHA384: P384,
+		ECDSA_P521_SHA512: P521,
 	}
 
 	newAESGCM = func(key []byte) (cipher.AEAD, error) {
@@ -126,66 +126,66 @@ var (
 	defaultRSAKeySize = 2048
 )
 
-func curveFromNamedGroup(group namedGroup) (crv elliptic.Curve) {
+func curveFromNamedGroup(group NamedGroup) (crv elliptic.Curve) {
 	switch group {
-	case namedGroupP256:
+	case P256:
 		crv = elliptic.P256()
-	case namedGroupP384:
+	case P384:
 		crv = elliptic.P384()
-	case namedGroupP521:
+	case P521:
 		crv = elliptic.P521()
 	}
 	return
 }
 
-func namedGroupFromECDSAKey(key *ecdsa.PublicKey) (g namedGroup) {
+func namedGroupFromECDSAKey(key *ecdsa.PublicKey) (g NamedGroup) {
 	switch key.Curve.Params().Name {
 	case elliptic.P256().Params().Name:
-		g = namedGroupP256
+		g = P256
 	case elliptic.P384().Params().Name:
-		g = namedGroupP384
+		g = P384
 	case elliptic.P521().Params().Name:
-		g = namedGroupP521
+		g = P521
 	}
 	return
 }
 
-func keyExchangeSizeFromNamedGroup(group namedGroup) (size int) {
+func keyExchangeSizeFromNamedGroup(group NamedGroup) (size int) {
 	size = 0
 	switch group {
-	case namedGroupX25519:
+	case X25519:
 		size = 32
-	case namedGroupP256:
+	case P256:
 		size = 65
-	case namedGroupP384:
+	case P384:
 		size = 97
-	case namedGroupP521:
+	case P521:
 		size = 133
-	case namedGroupFF2048:
+	case FFDHE2048:
 		size = 256
-	case namedGroupFF3072:
+	case FFDHE3072:
 		size = 384
-	case namedGroupFF4096:
+	case FFDHE4096:
 		size = 512
-	case namedGroupFF6144:
+	case FFDHE6144:
 		size = 768
-	case namedGroupFF8192:
+	case FFDHE8192:
 		size = 1024
 	}
 	return
 }
 
-func primeFromNamedGroup(group namedGroup) (p *big.Int) {
+func primeFromNamedGroup(group NamedGroup) (p *big.Int) {
 	switch group {
-	case namedGroupFF2048:
+	case FFDHE2048:
 		p = finiteFieldPrime2048
-	case namedGroupFF3072:
+	case FFDHE3072:
 		p = finiteFieldPrime3072
-	case namedGroupFF4096:
+	case FFDHE4096:
 		p = finiteFieldPrime4096
-	case namedGroupFF6144:
+	case FFDHE6144:
 		p = finiteFieldPrime6144
-	case namedGroupFF8192:
+	case FFDHE8192:
 		p = finiteFieldPrime8192
 	}
 	return
@@ -215,9 +215,9 @@ func ffdheKeyShareFromPrime(p *big.Int) (priv, pub *big.Int, err error) {
 	return
 }
 
-func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
+func newKeyShare(group NamedGroup) (pub []byte, priv []byte, err error) {
 	switch group {
-	case namedGroupP256, namedGroupP384, namedGroupP521:
+	case P256, P384, P521:
 		var x, y *big.Int
 		crv := curveFromNamedGroup(group)
 		priv, x, y, err = elliptic.GenerateKey(crv, prng)
@@ -228,8 +228,7 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 		pub = elliptic.Marshal(crv, x, y)
 		return
 
-	case namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
-		namedGroupFF6144, namedGroupFF8192:
+	case FFDHE2048, FFDHE3072, FFDHE4096, FFDHE6144, FFDHE8192:
 		p := primeFromNamedGroup(group)
 		x, X, err2 := ffdheKeyShareFromPrime(p)
 		if err2 != nil {
@@ -247,7 +246,7 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 
 		return
 
-	case namedGroupX25519:
+	case X25519:
 		var private, public [32]byte
 		_, err = prng.Read(private[:])
 		if err != nil {
@@ -264,9 +263,9 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 	}
 }
 
-func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
+func keyAgreement(group NamedGroup, pub []byte, priv []byte) ([]byte, error) {
 	switch group {
-	case namedGroupP256, namedGroupP384, namedGroupP521:
+	case P256, P384, P521:
 		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
 			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
 		}
@@ -283,8 +282,7 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 
 		return ret, nil
 
-	case namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
-		namedGroupFF6144, namedGroupFF8192:
+	case FFDHE2048, FFDHE3072, FFDHE4096, FFDHE6144, FFDHE8192:
 		numBytes := keyExchangeSizeFromNamedGroup(group)
 		if len(pub) != numBytes {
 			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
@@ -299,7 +297,7 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 
 		return ret, nil
 
-	case namedGroupX25519:
+	case X25519:
 		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
 			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
 		}

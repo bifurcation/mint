@@ -186,7 +186,7 @@ var (
 		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
 		PSKs:         psks,
-		Groups:       []namedGroup{namedGroupFF2048},
+		Groups:       []NamedGroup{FFDHE2048},
 	}
 
 	resumptionConfig = &Config{
@@ -199,14 +199,14 @@ var (
 		ServerName:   serverName,
 		Certificates: certificates,
 		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
-		Groups:       []namedGroup{namedGroupFF2048},
+		Groups:       []NamedGroup{FFDHE2048},
 	}
 
 	x25519Config = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
 		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
-		Groups:       []namedGroup{namedGroupX25519},
+		Groups:       []NamedGroup{X25519},
 	}
 )
 
