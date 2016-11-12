@@ -62,6 +62,9 @@ func main() {
 			log.Fatalf("Error: %v", err)
 		} else {
 			priv, err = helpers.ParsePrivateKeyPEM(keyPEM)
+			if priv == nil || err != nil {
+				log.Fatalf("Error parsing private key: %v", err)
+			}
 		}
 	}
 	if err != nil {
