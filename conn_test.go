@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
@@ -13,8 +14,10 @@ import (
 const pollInterval = 100
 
 type pipeConn struct {
-	r *bytes.Buffer
-	w *bytes.Buffer
+	r     *bytes.Buffer
+	w     *bytes.Buffer
+	rLock *sync.Mutex
+	wLock *sync.Mutex
 }
 
 func pipe() (client *pipeConn, server *pipeConn) {
@@ -25,22 +28,37 @@ func pipe() (client *pipeConn, server *pipeConn) {
 	server.r = c2s
 	client.w = c2s
 
+	c2sLock := new(sync.Mutex)
+	server.rLock = c2sLock
+	client.wLock = c2sLock
+
 	s2c := bytes.NewBuffer(nil)
 	client.r = s2c
 	server.w = s2c
+
+	s2cLock := new(sync.Mutex)
+	client.rLock = s2cLock
+	server.wLock = s2cLock
 	return
 }
 
 func (p *pipeConn) Read(data []byte) (n int, err error) {
+	p.rLock.Lock()
 	n, err = p.r.Read(data)
+	p.rLock.Unlock()
+
 	for err == io.EOF {
 		<-time.After(pollInterval)
+		p.rLock.Lock()
 		n, err = p.r.Read(data)
+		p.rLock.Unlock()
 	}
 	return
 }
 
 func (p *pipeConn) Write(data []byte) (n int, err error) {
+	p.wLock.Lock()
+	defer p.wLock.Unlock()
 	return p.w.Write(data)
 }
 
