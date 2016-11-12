@@ -538,6 +538,13 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 			return nil, nil, false, err
 		}
 	}
+	if usingPSK && gotEarlyData {
+		logf(logTypeHandshake, "[server] sending EDI extension")
+		err = eeList.Add(&earlyDataExtension{})
+		if err != nil {
+			return nil, nil, false, err
+		}
+	}
 	ee := &encryptedExtensionsBody{eeList}
 	eem, err := handshakeMessageFromBody(ee)
 	if err != nil {
