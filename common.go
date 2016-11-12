@@ -36,43 +36,42 @@ const (
 )
 
 // uint8 CipherSuite[2];
-type cipherSuite uint16
+type CipherSuite uint16
 
 const (
-	TLS_AES_128_GCM_SHA256       cipherSuite = 0x1301
-	TLS_AES_256_GCM_SHA384       cipherSuite = 0x1302
-	TLS_CHACHA20_POLY1305_SHA256 cipherSuite = 0x1303
-	TLS_AES_128_CCM_SHA256       cipherSuite = 0x1304
-	TLS_AES_256_CCM_8_SHA256     cipherSuite = 0x1305
+	TLS_AES_128_GCM_SHA256       CipherSuite = 0x1301
+	TLS_AES_256_GCM_SHA384       CipherSuite = 0x1302
+	TLS_CHACHA20_POLY1305_SHA256 CipherSuite = 0x1303
+	TLS_AES_128_CCM_SHA256       CipherSuite = 0x1304
+	TLS_AES_256_CCM_8_SHA256     CipherSuite = 0x1305
 )
 
 // enum {...} SignatureScheme
-type signatureScheme uint16
+type SignatureScheme uint16
 
 const (
 	// RSASSA-PKCS1-v1_5 algorithms
-	signatureSchemeRSA_PKCS1_SHA1   signatureScheme = 0x0201
-	signatureSchemeRSA_PKCS1_SHA256 signatureScheme = 0x0401
-	signatureSchemeRSA_PKCS1_SHA384 signatureScheme = 0x0501
-	signatureSchemeRSA_PKCS1_SHA512 signatureScheme = 0x0601
+	RSA_PKCS1_SHA1   SignatureScheme = 0x0201
+	RSA_PKCS1_SHA256 SignatureScheme = 0x0401
+	RSA_PKCS1_SHA384 SignatureScheme = 0x0501
+	RSA_PKCS1_SHA512 SignatureScheme = 0x0601
 	// ECDSA algorithms
-	signatureSchemeECDSA_P256_SHA256 signatureScheme = 0x0403
-	signatureSchemeECDSA_P384_SHA384 signatureScheme = 0x0503
-	signatureSchemeECDSA_P521_SHA512 signatureScheme = 0x0603
+	ECDSA_P256_SHA256 SignatureScheme = 0x0403
+	ECDSA_P384_SHA384 SignatureScheme = 0x0503
+	ECDSA_P521_SHA512 SignatureScheme = 0x0603
 	// RSASSA-PSS algorithms
-	signatureSchemeRSA_PSS_SHA256 signatureScheme = 0x0804
-	signatureSchemeRSA_PSS_SHA384 signatureScheme = 0x0805
-	signatureSchemeRSA_PSS_SHA512 signatureScheme = 0x0806
+	RSA_PSS_SHA256 SignatureScheme = 0x0804
+	RSA_PSS_SHA384 SignatureScheme = 0x0805
+	RSA_PSS_SHA512 SignatureScheme = 0x0806
 	// EdDSA algorithms
-	signatureSchemeEd25519 signatureScheme = 0x0807
-	signatureSchemeEd448   signatureScheme = 0x0808
+	Ed25519 SignatureScheme = 0x0807
+	Ed448   SignatureScheme = 0x0808
 )
 
 // enum {...} ExtensionType
 type extensionType uint16
 
 const (
-	extensionTypeUnknown             extensionType = 0xffff
 	extensionTypeServerName          extensionType = 0
 	extensionTypeSupportedGroups     extensionType = 10
 	extensionTypeSignatureAlgorithms extensionType = 13
@@ -87,26 +86,22 @@ const (
 )
 
 // enum {...} NamedGroup
-type namedGroup uint16
+type NamedGroup uint16
 
 const (
-	namedGroupUnknown namedGroup = 0
 	// Elliptic Curve Groups.
-	namedGroupP256 namedGroup = 23
-	namedGroupP384 namedGroup = 24
-	namedGroupP521 namedGroup = 25
+	P256 NamedGroup = 23
+	P384 NamedGroup = 24
+	P521 NamedGroup = 25
 	// ECDH functions.
-	namedGroupX25519 namedGroup = 29
-	namedGroupX448   namedGroup = 30
-	// Signature-only curves.
-	namedGroupEd25519 namedGroup = 31
-	namedGroupEd448   namedGroup = 32
+	X25519 NamedGroup = 29
+	X448   NamedGroup = 30
 	// Finite field groups.
-	namedGroupFF2048 namedGroup = 256
-	namedGroupFF3072 namedGroup = 257
-	namedGroupFF4096 namedGroup = 258
-	namedGroupFF6144 namedGroup = 259
-	namedGroupFF8192 namedGroup = 250
+	FFDHE2048 NamedGroup = 256
+	FFDHE3072 NamedGroup = 257
+	FFDHE4096 NamedGroup = 258
+	FFDHE6144 NamedGroup = 259
+	FFDHE8192 NamedGroup = 250
 )
 
 // enum {...} PskKeyExchangeMode;

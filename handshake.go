@@ -9,9 +9,9 @@ import (
 
 type capabilities struct {
 	// For both client and server
-	CipherSuites     []cipherSuite
-	Groups           []namedGroup
-	SignatureSchemes []signatureScheme
+	CipherSuites     []CipherSuite
+	Groups           []NamedGroup
+	SignatureSchemes []SignatureScheme
 	PSKs             map[string]PreSharedKey
 
 	// For server
@@ -28,7 +28,7 @@ type connectionOptions struct {
 ///// Client-side Handshake methods
 
 type clientHandshake struct {
-	OfferedDH  map[namedGroup][]byte
+	OfferedDH  map[NamedGroup][]byte
 	OfferedPSK PreSharedKey
 
 	PSK     []byte
@@ -42,7 +42,7 @@ type clientHandshake struct {
 
 func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabilities) (*handshakeMessage, error) {
 	// key_shares
-	h.OfferedDH = map[namedGroup][]byte{}
+	h.OfferedDH = map[NamedGroup][]byte{}
 	ks := keyShareExtension{
 		handshakeType: handshakeTypeClientHello,
 		shares:        make([]keyShareEntry, len(caps.Groups)),
@@ -106,7 +106,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 			return nil, fmt.Errorf("Unsupported ciphersuite from PSK")
 		}
 
-		compatibleSuites := []cipherSuite{}
+		compatibleSuites := []CipherSuite{}
 		for _, suite := range ch.cipherSuites {
 			if cipherSuiteMap[suite].hash == keyParams.hash {
 				compatibleSuites = append(compatibleSuites, suite)
@@ -354,7 +354,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 
 	// Find pre_shared_key extension and look it up
 	var serverPSK *preSharedKeyExtension
-	var pskSuite cipherSuite
+	var pskSuite CipherSuite
 	usingPSK := false
 	if gotPSK {
 		logf(logTypeHandshake, "[server] Got PSK extension; processing")
@@ -454,7 +454,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 
 	// Pick a ciphersuite.  If we're using a PSK, we just need to verify that the
 	// preset suite is offered
-	var chosenSuite cipherSuite
+	var chosenSuite CipherSuite
 	foundCipherSuite := false
 	for _, suite := range ch.cipherSuites {
 		if usingPSK && (suite == pskSuite) {
@@ -578,7 +578,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 		}
 
 		// Select a signature scheme from among those offered by the client
-		var sigAlg signatureScheme
+		var sigAlg SignatureScheme
 		foundSigAlg := false
 		for _, alg := range signatureAlgorithms.Algorithms {
 

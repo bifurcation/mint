@@ -170,7 +170,7 @@ func (sni *serverNameExtension) Unmarshal(data []byte) (int, error) {
 //     };
 // } KeyShare;
 type keyShareEntry struct {
-	Group       namedGroup
+	Group       NamedGroup
 	KeyExchange []byte `tls:"head=2,min=1"`
 }
 
@@ -180,7 +180,7 @@ func (kse keyShareEntry) sizeValid() bool {
 
 type keyShareExtension struct {
 	handshakeType handshakeType
-	selectedGroup namedGroup
+	selectedGroup NamedGroup
 	shares        []keyShareEntry
 }
 
@@ -188,7 +188,7 @@ type keyShareClientHelloInner struct {
 	ClientShares []keyShareEntry `tls:"head=2,min=0"`
 }
 type keyShareHelloRetryInner struct {
-	SelectedGroup namedGroup
+	SelectedGroup NamedGroup
 }
 type keyShareServerHelloInner struct {
 	ServerShare keyShareEntry
@@ -282,7 +282,7 @@ func (ks *keyShareExtension) Unmarshal(data []byte) (int, error) {
 //     NamedGroup named_group_list<2..2^16-1>;
 // } NamedGroupList;
 type supportedGroupsExtension struct {
-	Groups []namedGroup `tls:"head=2,min=2"`
+	Groups []NamedGroup `tls:"head=2,min=2"`
 }
 
 func (sg supportedGroupsExtension) Type() extensionType {
@@ -301,7 +301,7 @@ func (sg *supportedGroupsExtension) Unmarshal(data []byte) (int, error) {
 //   SignatureScheme supported_signature_algorithms<2..2^16-2>;
 // } SignatureSchemeList
 type signatureAlgorithmsExtension struct {
-	Algorithms []signatureScheme `tls:"head=2,min=2"`
+	Algorithms []SignatureScheme `tls:"head=2,min=2"`
 }
 
 func (sa signatureAlgorithmsExtension) Type() extensionType {

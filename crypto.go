@@ -56,36 +56,36 @@ const (
 )
 
 var (
-	hashMap = map[signatureScheme]crypto.Hash{
-		signatureSchemeRSA_PKCS1_SHA1:    crypto.SHA1,
-		signatureSchemeRSA_PKCS1_SHA256:  crypto.SHA256,
-		signatureSchemeRSA_PKCS1_SHA384:  crypto.SHA384,
-		signatureSchemeRSA_PKCS1_SHA512:  crypto.SHA512,
-		signatureSchemeECDSA_P256_SHA256: crypto.SHA256,
-		signatureSchemeECDSA_P384_SHA384: crypto.SHA384,
-		signatureSchemeECDSA_P521_SHA512: crypto.SHA512,
-		signatureSchemeRSA_PSS_SHA256:    crypto.SHA256,
-		signatureSchemeRSA_PSS_SHA384:    crypto.SHA384,
-		signatureSchemeRSA_PSS_SHA512:    crypto.SHA512,
+	hashMap = map[SignatureScheme]crypto.Hash{
+		RSA_PKCS1_SHA1:    crypto.SHA1,
+		RSA_PKCS1_SHA256:  crypto.SHA256,
+		RSA_PKCS1_SHA384:  crypto.SHA384,
+		RSA_PKCS1_SHA512:  crypto.SHA512,
+		ECDSA_P256_SHA256: crypto.SHA256,
+		ECDSA_P384_SHA384: crypto.SHA384,
+		ECDSA_P521_SHA512: crypto.SHA512,
+		RSA_PSS_SHA256:    crypto.SHA256,
+		RSA_PSS_SHA384:    crypto.SHA384,
+		RSA_PSS_SHA512:    crypto.SHA512,
 	}
 
-	sigMap = map[signatureScheme]signatureAlgorithm{
-		signatureSchemeRSA_PKCS1_SHA1:    signatureAlgorithmRSA_PKCS1,
-		signatureSchemeRSA_PKCS1_SHA256:  signatureAlgorithmRSA_PKCS1,
-		signatureSchemeRSA_PKCS1_SHA384:  signatureAlgorithmRSA_PKCS1,
-		signatureSchemeRSA_PKCS1_SHA512:  signatureAlgorithmRSA_PKCS1,
-		signatureSchemeECDSA_P256_SHA256: signatureAlgorithmECDSA,
-		signatureSchemeECDSA_P384_SHA384: signatureAlgorithmECDSA,
-		signatureSchemeECDSA_P521_SHA512: signatureAlgorithmECDSA,
-		signatureSchemeRSA_PSS_SHA256:    signatureAlgorithmRSA_PSS,
-		signatureSchemeRSA_PSS_SHA384:    signatureAlgorithmRSA_PSS,
-		signatureSchemeRSA_PSS_SHA512:    signatureAlgorithmRSA_PSS,
+	sigMap = map[SignatureScheme]signatureAlgorithm{
+		RSA_PKCS1_SHA1:    signatureAlgorithmRSA_PKCS1,
+		RSA_PKCS1_SHA256:  signatureAlgorithmRSA_PKCS1,
+		RSA_PKCS1_SHA384:  signatureAlgorithmRSA_PKCS1,
+		RSA_PKCS1_SHA512:  signatureAlgorithmRSA_PKCS1,
+		ECDSA_P256_SHA256: signatureAlgorithmECDSA,
+		ECDSA_P384_SHA384: signatureAlgorithmECDSA,
+		ECDSA_P521_SHA512: signatureAlgorithmECDSA,
+		RSA_PSS_SHA256:    signatureAlgorithmRSA_PSS,
+		RSA_PSS_SHA384:    signatureAlgorithmRSA_PSS,
+		RSA_PSS_SHA512:    signatureAlgorithmRSA_PSS,
 	}
 
-	curveMap = map[signatureScheme]namedGroup{
-		signatureSchemeECDSA_P256_SHA256: namedGroupP256,
-		signatureSchemeECDSA_P384_SHA384: namedGroupP384,
-		signatureSchemeECDSA_P521_SHA512: namedGroupP521,
+	curveMap = map[SignatureScheme]NamedGroup{
+		ECDSA_P256_SHA256: P256,
+		ECDSA_P384_SHA384: P384,
+		ECDSA_P521_SHA512: P521,
 	}
 
 	newAESGCM = func(key []byte) (cipher.AEAD, error) {
@@ -98,7 +98,7 @@ var (
 		return cipher.NewGCMWithNonceSize(block, 12)
 	}
 
-	cipherSuiteMap = map[cipherSuite]cipherSuiteParams{
+	cipherSuiteMap = map[CipherSuite]cipherSuiteParams{
 		TLS_AES_128_GCM_SHA256: cipherSuiteParams{
 			cipher: newAESGCM,
 			hash:   crypto.SHA256,
@@ -113,85 +113,85 @@ var (
 		},
 	}
 
-	x509AlgMap = map[signatureScheme]x509.SignatureAlgorithm{
-		signatureSchemeRSA_PKCS1_SHA1:    x509.SHA1WithRSA,
-		signatureSchemeRSA_PKCS1_SHA256:  x509.SHA256WithRSA,
-		signatureSchemeRSA_PKCS1_SHA384:  x509.SHA384WithRSA,
-		signatureSchemeRSA_PKCS1_SHA512:  x509.SHA512WithRSA,
-		signatureSchemeECDSA_P256_SHA256: x509.ECDSAWithSHA256,
-		signatureSchemeECDSA_P384_SHA384: x509.ECDSAWithSHA384,
-		signatureSchemeECDSA_P521_SHA512: x509.ECDSAWithSHA512,
+	x509AlgMap = map[SignatureScheme]x509.SignatureAlgorithm{
+		RSA_PKCS1_SHA1:    x509.SHA1WithRSA,
+		RSA_PKCS1_SHA256:  x509.SHA256WithRSA,
+		RSA_PKCS1_SHA384:  x509.SHA384WithRSA,
+		RSA_PKCS1_SHA512:  x509.SHA512WithRSA,
+		ECDSA_P256_SHA256: x509.ECDSAWithSHA256,
+		ECDSA_P384_SHA384: x509.ECDSAWithSHA384,
+		ECDSA_P521_SHA512: x509.ECDSAWithSHA512,
 	}
 
 	defaultRSAKeySize = 2048
 )
 
-func curveFromNamedGroup(group namedGroup) (crv elliptic.Curve) {
+func curveFromNamedGroup(group NamedGroup) (crv elliptic.Curve) {
 	switch group {
-	case namedGroupP256:
+	case P256:
 		crv = elliptic.P256()
-	case namedGroupP384:
+	case P384:
 		crv = elliptic.P384()
-	case namedGroupP521:
+	case P521:
 		crv = elliptic.P521()
 	}
 	return
 }
 
-func namedGroupFromECDSAKey(key *ecdsa.PublicKey) (g namedGroup) {
+func namedGroupFromECDSAKey(key *ecdsa.PublicKey) (g NamedGroup) {
 	switch key.Curve.Params().Name {
 	case elliptic.P256().Params().Name:
-		g = namedGroupP256
+		g = P256
 	case elliptic.P384().Params().Name:
-		g = namedGroupP384
+		g = P384
 	case elliptic.P521().Params().Name:
-		g = namedGroupP521
+		g = P521
 	}
 	return
 }
 
-func keyExchangeSizeFromNamedGroup(group namedGroup) (size int) {
+func keyExchangeSizeFromNamedGroup(group NamedGroup) (size int) {
 	size = 0
 	switch group {
-	case namedGroupX25519:
+	case X25519:
 		size = 32
-	case namedGroupP256:
+	case P256:
 		size = 65
-	case namedGroupP384:
+	case P384:
 		size = 97
-	case namedGroupP521:
+	case P521:
 		size = 133
-	case namedGroupFF2048:
+	case FFDHE2048:
 		size = 256
-	case namedGroupFF3072:
+	case FFDHE3072:
 		size = 384
-	case namedGroupFF4096:
+	case FFDHE4096:
 		size = 512
-	case namedGroupFF6144:
+	case FFDHE6144:
 		size = 768
-	case namedGroupFF8192:
+	case FFDHE8192:
 		size = 1024
 	}
 	return
 }
 
-func primeFromNamedGroup(group namedGroup) (p *big.Int) {
+func primeFromNamedGroup(group NamedGroup) (p *big.Int) {
 	switch group {
-	case namedGroupFF2048:
+	case FFDHE2048:
 		p = finiteFieldPrime2048
-	case namedGroupFF3072:
+	case FFDHE3072:
 		p = finiteFieldPrime3072
-	case namedGroupFF4096:
+	case FFDHE4096:
 		p = finiteFieldPrime4096
-	case namedGroupFF6144:
+	case FFDHE6144:
 		p = finiteFieldPrime6144
-	case namedGroupFF8192:
+	case FFDHE8192:
 		p = finiteFieldPrime8192
 	}
 	return
 }
 
-func schemeValidForKey(alg signatureScheme, key crypto.Signer) bool {
+func schemeValidForKey(alg SignatureScheme, key crypto.Signer) bool {
 	sigType := sigMap[alg]
 	switch key.(type) {
 	case *rsa.PrivateKey:
@@ -215,9 +215,9 @@ func ffdheKeyShareFromPrime(p *big.Int) (priv, pub *big.Int, err error) {
 	return
 }
 
-func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
+func newKeyShare(group NamedGroup) (pub []byte, priv []byte, err error) {
 	switch group {
-	case namedGroupP256, namedGroupP384, namedGroupP521:
+	case P256, P384, P521:
 		var x, y *big.Int
 		crv := curveFromNamedGroup(group)
 		priv, x, y, err = elliptic.GenerateKey(crv, prng)
@@ -228,8 +228,7 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 		pub = elliptic.Marshal(crv, x, y)
 		return
 
-	case namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
-		namedGroupFF6144, namedGroupFF8192:
+	case FFDHE2048, FFDHE3072, FFDHE4096, FFDHE6144, FFDHE8192:
 		p := primeFromNamedGroup(group)
 		x, X, err2 := ffdheKeyShareFromPrime(p)
 		if err2 != nil {
@@ -247,7 +246,7 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 
 		return
 
-	case namedGroupX25519:
+	case X25519:
 		var private, public [32]byte
 		_, err = prng.Read(private[:])
 		if err != nil {
@@ -264,9 +263,9 @@ func newKeyShare(group namedGroup) (pub []byte, priv []byte, err error) {
 	}
 }
 
-func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
+func keyAgreement(group NamedGroup, pub []byte, priv []byte) ([]byte, error) {
 	switch group {
-	case namedGroupP256, namedGroupP384, namedGroupP521:
+	case P256, P384, P521:
 		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
 			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
 		}
@@ -283,8 +282,7 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 
 		return ret, nil
 
-	case namedGroupFF2048, namedGroupFF3072, namedGroupFF4096,
-		namedGroupFF6144, namedGroupFF8192:
+	case FFDHE2048, FFDHE3072, FFDHE4096, FFDHE6144, FFDHE8192:
 		numBytes := keyExchangeSizeFromNamedGroup(group)
 		if len(pub) != numBytes {
 			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
@@ -299,7 +297,7 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 
 		return ret, nil
 
-	case namedGroupX25519:
+	case X25519:
 		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
 			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
 		}
@@ -316,25 +314,25 @@ func keyAgreement(group namedGroup, pub []byte, priv []byte) ([]byte, error) {
 	}
 }
 
-func newSigningKey(sig signatureScheme) (crypto.Signer, error) {
+func newSigningKey(sig SignatureScheme) (crypto.Signer, error) {
 	switch sig {
-	case signatureSchemeRSA_PKCS1_SHA1, signatureSchemeRSA_PKCS1_SHA256,
-		signatureSchemeRSA_PKCS1_SHA384, signatureSchemeRSA_PKCS1_SHA512,
-		signatureSchemeRSA_PSS_SHA256, signatureSchemeRSA_PSS_SHA384,
-		signatureSchemeRSA_PSS_SHA512:
+	case RSA_PKCS1_SHA1, RSA_PKCS1_SHA256,
+		RSA_PKCS1_SHA384, RSA_PKCS1_SHA512,
+		RSA_PSS_SHA256, RSA_PSS_SHA384,
+		RSA_PSS_SHA512:
 		return rsa.GenerateKey(prng, defaultRSAKeySize)
-	case signatureSchemeECDSA_P256_SHA256:
+	case ECDSA_P256_SHA256:
 		return ecdsa.GenerateKey(elliptic.P256(), prng)
-	case signatureSchemeECDSA_P384_SHA384:
+	case ECDSA_P384_SHA384:
 		return ecdsa.GenerateKey(elliptic.P384(), prng)
-	case signatureSchemeECDSA_P521_SHA512:
+	case ECDSA_P521_SHA512:
 		return ecdsa.GenerateKey(elliptic.P521(), prng)
 	default:
 		return nil, fmt.Errorf("tls.newsigningkey: Unsupported signature algorithm [%04x]", sig)
 	}
 }
 
-func newSelfSigned(name string, alg signatureScheme, priv crypto.Signer) (*x509.Certificate, error) {
+func newSelfSigned(name string, alg SignatureScheme, priv crypto.Signer) (*x509.Certificate, error) {
 	sigAlg, ok := x509AlgMap[alg]
 	if !ok {
 		return nil, fmt.Errorf("tls.selfsigned: Unknown signature algorithm [%04x]", alg)
@@ -381,7 +379,7 @@ func (opts pkcs1Opts) HashFunc() crypto.Hash {
 	return opts.hash
 }
 
-func sign(alg signatureScheme, privateKey crypto.Signer, sigInput []byte) ([]byte, error) {
+func sign(alg SignatureScheme, privateKey crypto.Signer, sigInput []byte) ([]byte, error) {
 	var opts crypto.SignerOpts
 
 	hash := hashMap[alg]
@@ -432,7 +430,7 @@ func sign(alg signatureScheme, privateKey crypto.Signer, sigInput []byte) ([]byt
 	return sig, err
 }
 
-func verify(alg signatureScheme, publicKey crypto.PublicKey, sigInput []byte, sig []byte) error {
+func verify(alg SignatureScheme, publicKey crypto.PublicKey, sigInput []byte, sig []byte) error {
 	hash := hashMap[alg]
 
 	if hash == crypto.SHA1 {
@@ -707,7 +705,7 @@ const (
 
 type cryptoContext struct {
 	state  ctxState
-	suite  cipherSuite
+	suite  CipherSuite
 	params cipherSuiteParams
 	zero   []byte
 
@@ -829,7 +827,7 @@ func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *handshakeMessage) {
 }
 
 // TODO: Merge with UpdateWithServerHello?
-func (ctx *cryptoContext) init(suite cipherSuite, chm *handshakeMessage) error {
+func (ctx *cryptoContext) init(suite CipherSuite, chm *handshakeMessage) error {
 	logf(logTypeCrypto, "Initializing crypto context")
 
 	// Configure based on cipherSuite

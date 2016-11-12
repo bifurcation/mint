@@ -19,7 +19,7 @@ var (
 		0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
 		0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
 		0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37}
-	chCipherSuites = []cipherSuite{0x0001, 0x0002, 0x0003}
+	chCipherSuites = []CipherSuite{0x0001, 0x0002, 0x0003}
 	chValidIn      = clientHelloBody{
 		random:       helloRandom,
 		cipherSuites: chCipherSuites,
@@ -69,13 +69,13 @@ var (
 	shValidIn = serverHelloBody{
 		Version:     supportedVersion,
 		Random:      helloRandom,
-		CipherSuite: cipherSuite(0x0001),
+		CipherSuite: CipherSuite(0x0001),
 		Extensions:  extListValidIn,
 	}
 	shEmptyIn = serverHelloBody{
 		Version:     supportedVersion,
 		Random:      helloRandom,
-		CipherSuite: cipherSuite(0x0001),
+		CipherSuite: CipherSuite(0x0001),
 	}
 	shValidHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListValidHex
 	shEmptyHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + "0000"
@@ -159,7 +159,7 @@ var (
 
 	// CertificateVerify test cases
 	certVerifyValidIn = certificateVerifyBody{
-		Algorithm: signatureSchemeECDSA_P256_SHA256,
+		Algorithm: ECDSA_P256_SHA256,
 		Signature: []byte{0, 0, 0, 0},
 	}
 	certVerifyValidHex    = "0403000400000000"
@@ -209,15 +209,15 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, chValid)
 
 	// Test marshal failure on empty ciphersuites
-	chValidIn.cipherSuites = []cipherSuite{}
+	chValidIn.cipherSuites = []CipherSuite{}
 	out, err = chValidIn.Marshal()
 	assertError(t, err, "Marshaled a ClientHello with no CipherSuites")
 	chValidIn.cipherSuites = chCipherSuites
 
 	// Test marshal failure on too many ciphersuites
-	tooManyCipherSuites := make([]cipherSuite, maxCipherSuites+1)
+	tooManyCipherSuites := make([]CipherSuite, maxCipherSuites+1)
 	for i := range tooManyCipherSuites {
-		tooManyCipherSuites[i] = cipherSuite(0x0001)
+		tooManyCipherSuites[i] = CipherSuite(0x0001)
 	}
 	chValidIn.cipherSuites = tooManyCipherSuites
 	out, err = chValidIn.Marshal()
@@ -478,7 +478,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	transcript := []*handshakeMessage{chMessage, shMessage}
 	nilTranscript := append(transcript, nil)
 
-	privRSA, err := newSigningKey(signatureSchemeRSA_PSS_SHA256)
+	privRSA, err := newSigningKey(RSA_PSS_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
 
 	ctx := cryptoContext{}
@@ -508,7 +508,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Unmarshaled a CertificateVerify with no header")
 
 	// Test successful sign / verify round-trip
-	certVerifyValidIn.Algorithm = signatureSchemeRSA_PSS_SHA256
+	certVerifyValidIn.Algorithm = RSA_PSS_SHA256
 	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
 
@@ -519,13 +519,13 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 
 	// Test sign failure on algorithm
 	originalAlg := certVerifyValidIn.Algorithm
-	certVerifyValidIn.Algorithm = signatureScheme(0)
+	certVerifyValidIn.Algorithm = SignatureScheme(0)
 	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
 	assertError(t, err, "Signed CertificateVerify despite bad algorithm")
 	certVerifyValidIn.Algorithm = originalAlg
 
 	// Test successful verify
-	certVerifyValidIn = certificateVerifyBody{Algorithm: signatureSchemeRSA_PSS_SHA256}
+	certVerifyValidIn = certificateVerifyBody{Algorithm: RSA_PSS_SHA256}
 	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
 	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, ctx)
@@ -533,7 +533,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 
 	// Test verify failure on bad algorithm
 	originalAlg = certVerifyValidIn.Algorithm
-	certVerifyValidIn.Algorithm = signatureScheme(0)
+	certVerifyValidIn.Algorithm = SignatureScheme(0)
 	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, ctx)
 	assertError(t, err, "Verified CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.Algorithm = originalAlg

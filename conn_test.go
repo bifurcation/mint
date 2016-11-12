@@ -170,23 +170,23 @@ var (
 
 	pskConfig = &Config{
 		ServerName:   serverName,
-		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
+		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
 		PSKs:         psks,
 	}
 
 	pskECDHEConfig = &Config{
 		ServerName:   serverName,
-		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
+		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
 		PSKs:         psks,
 	}
 
 	pskDHEConfig = &Config{
 		ServerName:   serverName,
-		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
+		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates: certificates,
 		PSKs:         psks,
-		Groups:       []namedGroup{namedGroupFF2048},
+		Groups:       []NamedGroup{FFDHE2048},
 	}
 
 	resumptionConfig = &Config{
@@ -198,15 +198,15 @@ var (
 	ffdhConfig = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
-		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
-		Groups:       []namedGroup{namedGroupFF2048},
+		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
+		Groups:       []NamedGroup{FFDHE2048},
 	}
 
 	x25519Config = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
-		CipherSuites: []cipherSuite{TLS_AES_128_GCM_SHA256},
-		Groups:       []namedGroup{namedGroupX25519},
+		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
+		Groups:       []NamedGroup{X25519},
 	}
 )
 
