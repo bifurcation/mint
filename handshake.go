@@ -9,7 +9,7 @@ import (
 
 type capabilities struct {
 	// For both client and server
-	CipherSuites     []cipherSuite
+	CipherSuites     []CipherSuite
 	Groups           []namedGroup
 	SignatureSchemes []signatureScheme
 	PSKs             map[string]PreSharedKey
@@ -106,7 +106,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 			return nil, fmt.Errorf("Unsupported ciphersuite from PSK")
 		}
 
-		compatibleSuites := []cipherSuite{}
+		compatibleSuites := []CipherSuite{}
 		for _, suite := range ch.cipherSuites {
 			if cipherSuiteMap[suite].hash == keyParams.hash {
 				compatibleSuites = append(compatibleSuites, suite)
@@ -354,7 +354,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 
 	// Find pre_shared_key extension and look it up
 	var serverPSK *preSharedKeyExtension
-	var pskSuite cipherSuite
+	var pskSuite CipherSuite
 	usingPSK := false
 	if gotPSK {
 		logf(logTypeHandshake, "[server] Got PSK extension; processing")
@@ -454,7 +454,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 
 	// Pick a ciphersuite.  If we're using a PSK, we just need to verify that the
 	// preset suite is offered
-	var chosenSuite cipherSuite
+	var chosenSuite CipherSuite
 	foundCipherSuite := false
 	for _, suite := range ch.cipherSuites {
 		if usingPSK && (suite == pskSuite) {

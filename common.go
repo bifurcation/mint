@@ -36,14 +36,14 @@ const (
 )
 
 // uint8 CipherSuite[2];
-type cipherSuite uint16
+type CipherSuite uint16
 
 const (
-	TLS_AES_128_GCM_SHA256       cipherSuite = 0x1301
-	TLS_AES_256_GCM_SHA384       cipherSuite = 0x1302
-	TLS_CHACHA20_POLY1305_SHA256 cipherSuite = 0x1303
-	TLS_AES_128_CCM_SHA256       cipherSuite = 0x1304
-	TLS_AES_256_CCM_8_SHA256     cipherSuite = 0x1305
+	TLS_AES_128_GCM_SHA256       CipherSuite = 0x1301
+	TLS_AES_256_GCM_SHA384       CipherSuite = 0x1302
+	TLS_CHACHA20_POLY1305_SHA256 CipherSuite = 0x1303
+	TLS_AES_128_CCM_SHA256       CipherSuite = 0x1304
+	TLS_AES_256_CCM_8_SHA256     CipherSuite = 0x1305
 )
 
 // enum {...} SignatureScheme

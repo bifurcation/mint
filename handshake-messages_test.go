@@ -19,7 +19,7 @@ var (
 		0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
 		0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
 		0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37}
-	chCipherSuites = []cipherSuite{0x0001, 0x0002, 0x0003}
+	chCipherSuites = []CipherSuite{0x0001, 0x0002, 0x0003}
 	chValidIn      = clientHelloBody{
 		random:       helloRandom,
 		cipherSuites: chCipherSuites,
@@ -69,13 +69,13 @@ var (
 	shValidIn = serverHelloBody{
 		Version:     supportedVersion,
 		Random:      helloRandom,
-		CipherSuite: cipherSuite(0x0001),
+		CipherSuite: CipherSuite(0x0001),
 		Extensions:  extListValidIn,
 	}
 	shEmptyIn = serverHelloBody{
 		Version:     supportedVersion,
 		Random:      helloRandom,
-		CipherSuite: cipherSuite(0x0001),
+		CipherSuite: CipherSuite(0x0001),
 	}
 	shValidHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListValidHex
 	shEmptyHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + "0000"
@@ -209,15 +209,15 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, chValid)
 
 	// Test marshal failure on empty ciphersuites
-	chValidIn.cipherSuites = []cipherSuite{}
+	chValidIn.cipherSuites = []CipherSuite{}
 	out, err = chValidIn.Marshal()
 	assertError(t, err, "Marshaled a ClientHello with no CipherSuites")
 	chValidIn.cipherSuites = chCipherSuites
 
 	// Test marshal failure on too many ciphersuites
-	tooManyCipherSuites := make([]cipherSuite, maxCipherSuites+1)
+	tooManyCipherSuites := make([]CipherSuite, maxCipherSuites+1)
 	for i := range tooManyCipherSuites {
-		tooManyCipherSuites[i] = cipherSuite(0x0001)
+		tooManyCipherSuites[i] = CipherSuite(0x0001)
 	}
 	chValidIn.cipherSuites = tooManyCipherSuites
 	out, err = chValidIn.Marshal()

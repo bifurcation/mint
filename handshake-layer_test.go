@@ -153,7 +153,7 @@ func TestMessageFromBody(t *testing.T) {
 	assertByteEquals(t, hm.body, chValid)
 
 	// Test conversion failure on marshal failure
-	chValidIn.cipherSuites = []cipherSuite{}
+	chValidIn.cipherSuites = []CipherSuite{}
 	hm, err = handshakeMessageFromBody(&chValidIn)
 	assertError(t, err, "Converted a ClientHello that should not have marshaled")
 	chValidIn.cipherSuites = chCipherSuites
@@ -321,7 +321,7 @@ func TestWriteHandshakeMessageBody(t *testing.T) {
 	assertByteEquals(t, hms[1].body, shValid)
 
 	// Test write failure on marshal failure
-	chValidIn.cipherSuites = []cipherSuite{}
+	chValidIn.cipherSuites = []CipherSuite{}
 	b = bytes.NewBuffer(nil)
 	h = newHandshakeLayer(newRecordLayer(b))
 	_, err = h.WriteMessageBody(&chValidIn)

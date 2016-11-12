@@ -98,7 +98,7 @@ var (
 		return cipher.NewGCMWithNonceSize(block, 12)
 	}
 
-	cipherSuiteMap = map[cipherSuite]cipherSuiteParams{
+	cipherSuiteMap = map[CipherSuite]cipherSuiteParams{
 		TLS_AES_128_GCM_SHA256: cipherSuiteParams{
 			cipher: newAESGCM,
 			hash:   crypto.SHA256,
@@ -707,7 +707,7 @@ const (
 
 type cryptoContext struct {
 	state  ctxState
-	suite  cipherSuite
+	suite  CipherSuite
 	params cipherSuiteParams
 	zero   []byte
 
@@ -829,7 +829,7 @@ func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *handshakeMessage) {
 }
 
 // TODO: Merge with UpdateWithServerHello?
-func (ctx *cryptoContext) init(suite cipherSuite, chm *handshakeMessage) error {
+func (ctx *cryptoContext) init(suite CipherSuite, chm *handshakeMessage) error {
 	logf(logTypeCrypto, "Initializing crypto context")
 
 	// Configure based on cipherSuite

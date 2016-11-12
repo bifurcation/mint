@@ -17,7 +17,7 @@ type Certificate struct {
 }
 
 type PreSharedKey struct {
-	CipherSuite  cipherSuite
+	CipherSuite  CipherSuite
 	IsResumption bool
 	Identity     []byte
 	Key          []byte
@@ -62,14 +62,14 @@ type Config struct {
 	TicketLen          int
 
 	// Shared fields
-	CipherSuites     []cipherSuite
+	CipherSuites     []CipherSuite
 	Groups           []namedGroup
 	SignatureSchemes []signatureScheme
 	NextProtos       []string
 	PSKs             map[string]PreSharedKey
 
 	// Hidden fields (used for caching in convenient form)
-	enabledSuite  map[cipherSuite]bool
+	enabledSuite  map[CipherSuite]bool
 	enabledGroup  map[namedGroup]bool
 	enabledProto  map[string]bool
 	enabledScheme map[signatureScheme]bool
@@ -135,7 +135,7 @@ func (c Config) validForClient() bool {
 }
 
 var (
-	defaultSupportedCipherSuites = []cipherSuite{
+	defaultSupportedCipherSuites = []CipherSuite{
 		TLS_AES_128_GCM_SHA256,
 		TLS_AES_256_GCM_SHA384,
 	}
@@ -161,7 +161,7 @@ var (
 
 type ConnectionState struct {
 	HandshakeComplete bool                // TLS handshake is complete
-	CipherSuite       cipherSuite         // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
+	CipherSuite       CipherSuite         // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
 	PeerCertificates  []*x509.Certificate // certificate chain presented by remote peer
 }
 
@@ -174,7 +174,7 @@ type Conn struct {
 	isClient bool
 
 	earlyData        []byte
-	earlyCipherSuite cipherSuite
+	earlyCipherSuite CipherSuite
 
 	handshakeMutex    sync.Mutex
 	handshakeErr      error
@@ -693,7 +693,7 @@ func (c *Conn) serverHandshake() error {
 
 			switch pt.contentType {
 			case recordTypeAlert:
-				logf(logTypeHandshake, "Alert record");
+				logf(logTypeHandshake, "Alert record")
 				alertType := alert(pt.fragment[1])
 				if alertType == alertEndOfEarlyData {
 					done = true
@@ -702,7 +702,7 @@ func (c *Conn) serverHandshake() error {
 				}
 			case recordTypeApplicationData:
 				// XXX: Should expose early data differently
-				logf(logTypeHandshake, "App data");				
+				logf(logTypeHandshake, "App data")
 				c.readBuffer = append(c.readBuffer, pt.fragment...)
 			default:
 				return fmt.Errorf("tls.server: Unexpected content type in early data [%v] %x", pt.contentType, pt.fragment)

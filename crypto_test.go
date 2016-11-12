@@ -360,7 +360,7 @@ func random(n int) []byte {
 
 var (
 	clientHelloContextIn = &clientHelloBody{
-		cipherSuites: []cipherSuite{
+		cipherSuites: []CipherSuite{
 			TLS_AES_128_GCM_SHA256,
 		},
 	}

@@ -40,7 +40,7 @@ type clientHelloBody struct {
 	// Omitted: legacySessionID
 	// Omitted: legacyCompressionMethods
 	random       [32]byte
-	cipherSuites []cipherSuite
+	cipherSuites []CipherSuite
 	extensions   extensionList
 }
 
@@ -48,7 +48,7 @@ type clientHelloBodyInner struct {
 	LegacyVersion            uint16
 	Random                   [32]byte
 	LegacySessionID          []byte        `tls:"head=1,max=32"`
-	CipherSuites             []cipherSuite `tls:"head=2,min=2"`
+	CipherSuites             []CipherSuite `tls:"head=2,min=2"`
 	LegacyCompressionMethods []byte        `tls:"head=1,min=1"`
 	Extensions               []extension   `tls:"head=2"`
 }
@@ -135,7 +135,7 @@ func (ch clientHelloBody) Truncated() ([]byte, error) {
 type serverHelloBody struct {
 	Version     uint16
 	Random      [32]byte
-	CipherSuite cipherSuite
+	CipherSuite CipherSuite
 	Extensions  extensionList `tls:"head=2"`
 }
 
