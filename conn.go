@@ -506,7 +506,6 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Send early data
-	fmt.Println("[c] About to write early data")
 	if opts.EarlyData != nil {
 		// Rekey output to early data keys
 		logf(logTypeHandshake, "[client] Rekey -> early...")
@@ -514,7 +513,6 @@ func (c *Conn) clientHandshake() error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("[c] ... done rekey")
 
 		// Send early application data
 		logf(logTypeHandshake, "[client] Sending data...")
@@ -522,7 +520,6 @@ func (c *Conn) clientHandshake() error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("[c] ... done send")
 
 		// Send end_of_earlyData
 		logf(logTypeHandshake, "[client] Sending end_of_early_data...")
@@ -530,9 +527,7 @@ func (c *Conn) clientHandshake() error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("[c] ... done alert")
 	}
-	fmt.Println("[c] Done writing early data")
 
 	// Read and Process ServerHello
 	logf(logTypeHandshake, "[client] Awaiting ServerHello")
@@ -669,7 +664,6 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Find early_data extension and handle early data
-	fmt.Println("[s] About to read early data")
 	if signaledEarlyData {
 		logf(logTypeHandshake, "[server] Processing early data")
 
@@ -715,7 +709,6 @@ func (c *Conn) serverHandshake() error {
 
 		logf(logTypeHandshake, "[server] Done reading early data [%d] %x", len(c.readBuffer), c.readBuffer)
 	}
-	fmt.Println("[s] Done reading early data")
 
 	// Rekey input to handshake keys
 	err = c.in.Rekey(h.Context.params.cipher, h.Context.clientHandshakeKeys.key, h.Context.clientHandshakeKeys.iv)
