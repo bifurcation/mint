@@ -326,7 +326,7 @@ func (c *certificateBody) Unmarshal(data []byte) (int, error) {
 //     opaque signature<0..2^16-1>;
 // } CertificateVerify;
 type certificateVerifyBody struct {
-	Algorithm signatureScheme
+	Algorithm SignatureScheme
 	Signature []byte `tls:"head=2"`
 }
 

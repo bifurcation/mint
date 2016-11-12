@@ -301,7 +301,7 @@ func (sg *supportedGroupsExtension) Unmarshal(data []byte) (int, error) {
 //   SignatureScheme supported_signature_algorithms<2..2^16-2>;
 // } SignatureSchemeList
 type signatureAlgorithmsExtension struct {
-	Algorithms []signatureScheme `tls:"head=2,min=2"`
+	Algorithms []SignatureScheme `tls:"head=2,min=2"`
 }
 
 func (sa signatureAlgorithmsExtension) Type() extensionType {

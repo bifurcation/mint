@@ -64,7 +64,7 @@ type Config struct {
 	// Shared fields
 	CipherSuites     []CipherSuite
 	Groups           []namedGroup
-	SignatureSchemes []signatureScheme
+	SignatureSchemes []SignatureScheme
 	NextProtos       []string
 	PSKs             map[string]PreSharedKey
 
@@ -72,7 +72,7 @@ type Config struct {
 	enabledSuite  map[CipherSuite]bool
 	enabledGroup  map[namedGroup]bool
 	enabledProto  map[string]bool
-	enabledScheme map[signatureScheme]bool
+	enabledScheme map[SignatureScheme]bool
 	certsByName   map[string]*Certificate
 
 	// The same config object can be shared among different connections, so it
@@ -103,12 +103,12 @@ func (c *Config) Init(isClient bool) error {
 
 	// If there is no certificate, generate one
 	if !isClient && len(c.Certificates) == 0 {
-		priv, err := newSigningKey(signatureSchemeRSA_PSS_SHA256)
+		priv, err := newSigningKey(RSA_PSS_SHA256)
 		if err != nil {
 			return err
 		}
 
-		cert, err := newSelfSigned(c.ServerName, signatureSchemeRSA_PKCS1_SHA256, priv)
+		cert, err := newSelfSigned(c.ServerName, RSA_PKCS1_SHA256, priv)
 		if err != nil {
 			return err
 		}
@@ -147,13 +147,13 @@ var (
 		namedGroupX25519,
 	}
 
-	defaultSignatureSchemes = []signatureScheme{
-		signatureSchemeRSA_PSS_SHA256,
-		signatureSchemeRSA_PSS_SHA384,
-		signatureSchemeRSA_PSS_SHA512,
-		signatureSchemeECDSA_P256_SHA256,
-		signatureSchemeECDSA_P384_SHA384,
-		signatureSchemeECDSA_P521_SHA512,
+	defaultSignatureSchemes = []SignatureScheme{
+		RSA_PSS_SHA256,
+		RSA_PSS_SHA384,
+		RSA_PSS_SHA512,
+		ECDSA_P256_SHA256,
+		ECDSA_P384_SHA384,
+		ECDSA_P521_SHA512,
 	}
 
 	defaultTicketLen = 16

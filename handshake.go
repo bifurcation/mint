@@ -11,7 +11,7 @@ type capabilities struct {
 	// For both client and server
 	CipherSuites     []CipherSuite
 	Groups           []namedGroup
-	SignatureSchemes []signatureScheme
+	SignatureSchemes []SignatureScheme
 	PSKs             map[string]PreSharedKey
 
 	// For server
@@ -578,7 +578,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 		}
 
 		// Select a signature scheme from among those offered by the client
-		var sigAlg signatureScheme
+		var sigAlg SignatureScheme
 		foundSigAlg := false
 		for _, alg := range signatureAlgorithms.Algorithms {
 

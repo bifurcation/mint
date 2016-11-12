@@ -47,25 +47,25 @@ const (
 )
 
 // enum {...} SignatureScheme
-type signatureScheme uint16
+type SignatureScheme uint16
 
 const (
 	// RSASSA-PKCS1-v1_5 algorithms
-	signatureSchemeRSA_PKCS1_SHA1   signatureScheme = 0x0201
-	signatureSchemeRSA_PKCS1_SHA256 signatureScheme = 0x0401
-	signatureSchemeRSA_PKCS1_SHA384 signatureScheme = 0x0501
-	signatureSchemeRSA_PKCS1_SHA512 signatureScheme = 0x0601
+	RSA_PKCS1_SHA1   SignatureScheme = 0x0201
+	RSA_PKCS1_SHA256 SignatureScheme = 0x0401
+	RSA_PKCS1_SHA384 SignatureScheme = 0x0501
+	RSA_PKCS1_SHA512 SignatureScheme = 0x0601
 	// ECDSA algorithms
-	signatureSchemeECDSA_P256_SHA256 signatureScheme = 0x0403
-	signatureSchemeECDSA_P384_SHA384 signatureScheme = 0x0503
-	signatureSchemeECDSA_P521_SHA512 signatureScheme = 0x0603
+	ECDSA_P256_SHA256 SignatureScheme = 0x0403
+	ECDSA_P384_SHA384 SignatureScheme = 0x0503
+	ECDSA_P521_SHA512 SignatureScheme = 0x0603
 	// RSASSA-PSS algorithms
-	signatureSchemeRSA_PSS_SHA256 signatureScheme = 0x0804
-	signatureSchemeRSA_PSS_SHA384 signatureScheme = 0x0805
-	signatureSchemeRSA_PSS_SHA512 signatureScheme = 0x0806
+	RSA_PSS_SHA256 SignatureScheme = 0x0804
+	RSA_PSS_SHA384 SignatureScheme = 0x0805
+	RSA_PSS_SHA512 SignatureScheme = 0x0806
 	// EdDSA algorithms
-	signatureSchemeEd25519 signatureScheme = 0x0807
-	signatureSchemeEd448   signatureScheme = 0x0808
+	Ed25519 SignatureScheme = 0x0807
+	Ed448   SignatureScheme = 0x0808
 )
 
 // enum {...} ExtensionType

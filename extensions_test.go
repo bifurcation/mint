@@ -154,9 +154,9 @@ var validExtensionTestCases = map[extensionType]struct {
 	extensionTypeSignatureAlgorithms: {
 		blank: &signatureAlgorithmsExtension{},
 		unmarshaled: &signatureAlgorithmsExtension{
-			Algorithms: []signatureScheme{
-				signatureSchemeRSA_PSS_SHA256,
-				signatureSchemeECDSA_P256_SHA256,
+			Algorithms: []SignatureScheme{
+				RSA_PSS_SHA256,
+				ECDSA_P256_SHA256,
 			},
 		},
 		marshaledHex: "000408040403",
