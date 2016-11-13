@@ -14,6 +14,12 @@ const (
 	maxFragmentLen    = 1 << 14 // max number of bytes in a record
 )
 
+type decryptError string
+
+func (err decryptError) Error() string {
+	return string(err)
+}
+
 // struct {
 //     ContentType type;
 //     ProtocolVersion record_version = { 3, 1 };    /* TLS v1.x */
@@ -105,7 +111,7 @@ func (r *recordLayer) encrypt(pt *tlsPlaintext, padLen int) *tlsPlaintext {
 
 func (r *recordLayer) decrypt(pt *tlsPlaintext) (*tlsPlaintext, int, error) {
 	if len(pt.fragment) < r.cipher.Overhead() {
-		return nil, 0, fmt.Errorf("tls.record.decrypt: Record too short")
+		return nil, 0, decryptError("tls.record.decrypt: Record too short")
 	}
 
 	decryptLen := len(pt.fragment) - r.cipher.Overhead()
@@ -117,7 +123,7 @@ func (r *recordLayer) decrypt(pt *tlsPlaintext) (*tlsPlaintext, int, error) {
 	// Decrypt
 	_, err := r.cipher.Open(out.fragment[:0], r.nonce, pt.fragment, nil)
 	if err != nil {
-		return nil, 0, fmt.Errorf("tls.record.decrypt: AEAD decrypt failed")
+		return nil, 0, decryptError("tls.record.decrypt: AEAD decrypt failed")
 	}
 
 	// Find the padding boundary
