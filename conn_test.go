@@ -48,11 +48,9 @@ func (p *pipeConn) Read(data []byte) (n int, err error) {
 	n, err = p.r.Read(data)
 	p.rLock.Unlock()
 
-	for err == io.EOF {
-		<-time.After(pollInterval)
-		p.rLock.Lock()
-		n, err = p.r.Read(data)
-		p.rLock.Unlock()
+	// Suppress bytes.Buffer's EOF on an empty buffer
+	if err == io.EOF {
+		err = nil
 	}
 	return
 }
@@ -432,38 +430,42 @@ func TestKeyUpdate(t *testing.T) {
 	server := Server(sConn, conf)
 
 	zeroBuf := []byte{}
-	done := make(chan bool)
+	c2s := make(chan bool)
+	s2c := make(chan bool)
 	go func(t *testing.T) {
 		err := server.Handshake()
 		assertNotError(t, err, "Server failed handshake")
-		done <- true
+		s2c <- true
 
 		// Test server-initiated KeyUpdate
+		<-c2s
 		err = server.SendKeyUpdate(false)
 		assertNotError(t, err, "Key update send failed")
-		done <- true
+		s2c <- true
 
 		// Null read to trigger key update
+		<-c2s
 		server.Read(zeroBuf)
-		done <- true
+		s2c <- true
 
 		// Null read to trigger key update and KeyUpdate response
+		<-c2s
 		server.Read(zeroBuf)
-		fmt.Println("Server Read")
-		done <- true
+		s2c <- true
 	}(t)
 
 	err := client.Handshake()
 	assertNotError(t, err, "Client failed handshake")
-	<-done
+	<-s2c
 
 	clientContext0 := *client.handshake.CryptoContext()
 	serverContext0 := *server.handshake.CryptoContext()
 	assertContextEquals(t, &clientContext0, &serverContext0)
 
 	// Null read to trigger key update
+	c2s <- true
+	<-s2c
 	client.Read(zeroBuf)
-	<-done
 
 	clientContext1 := *client.handshake.CryptoContext()
 	serverContext1 := *server.handshake.CryptoContext()
@@ -475,7 +477,8 @@ func TestKeyUpdate(t *testing.T) {
 
 	// Test client-initiated KeyUpdate
 	client.SendKeyUpdate(false)
-	<-done
+	c2s <- true
+	<-s2c
 
 	clientContext2 := *client.handshake.CryptoContext()
 	serverContext2 := *server.handshake.CryptoContext()
@@ -485,5 +488,18 @@ func TestKeyUpdate(t *testing.T) {
 	assertNotByteEquals(t, clientContext1.clientTrafficKeys.key, clientContext2.clientTrafficKeys.key)
 	assertNotByteEquals(t, clientContext1.clientTrafficKeys.iv, clientContext2.clientTrafficKeys.iv)
 
-	// TODO: Test keyUpdateRequested, i.e., fix deadlock
+	// Test client-initiated with keyUpdateRequested
+	client.SendKeyUpdate(true)
+	c2s <- true
+	<-s2c
+	fmt.Println("!!!")
+	client.Read(zeroBuf)
+
+	clientContext3 := *client.handshake.CryptoContext()
+	serverContext3 := *server.handshake.CryptoContext()
+	assertContextEquals(t, &clientContext3, &serverContext3)
+	assertNotByteEquals(t, clientContext2.serverTrafficKeys.key, clientContext3.serverTrafficKeys.key)
+	assertNotByteEquals(t, clientContext2.serverTrafficKeys.iv, clientContext3.serverTrafficKeys.iv)
+	assertNotByteEquals(t, clientContext2.clientTrafficKeys.key, clientContext3.clientTrafficKeys.key)
+	assertNotByteEquals(t, clientContext2.clientTrafficKeys.iv, clientContext3.clientTrafficKeys.iv)
 }
