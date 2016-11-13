@@ -252,18 +252,18 @@ func (c *Conn) extendBuffer(n int) error {
 					}
 
 					if outboundUpdate != nil {
-						// Rekey outbound
-						cipher, keys := c.handshake.OutboundKeys()
-						err = c.out.Rekey(cipher, keys.key, keys.iv)
-						if err != nil {
-							return err
-						}
-
 						// Send KeyUpdate
 						err = c.out.WriteRecord(&tlsPlaintext{
 							contentType: recordTypeHandshake,
 							fragment:    outboundUpdate.Marshal(),
 						})
+						if err != nil {
+							return err
+						}
+
+						// Rekey outbound
+						cipher, keys := c.handshake.OutboundKeys()
+						err = c.out.Rekey(cipher, keys.key, keys.iv)
 						if err != nil {
 							return err
 						}

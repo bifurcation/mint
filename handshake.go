@@ -46,7 +46,7 @@ func createKeyUpdate(client bool, ctx *cryptoContext, requestUpdate keyUpdateReq
 
 	// Return a KeyUpdate message
 	return handshakeMessageFromBody(&keyUpdateBody{
-		KeyUpdateRequest: keyUpdateNotRequested,
+		KeyUpdateRequest: requestUpdate,
 	})
 }
 
