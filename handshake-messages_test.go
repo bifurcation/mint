@@ -185,6 +185,12 @@ var (
 	ticketExtensionsTooBigIn = newSessionTicketBody{
 		Extensions: extListSingleTooLongIn,
 	}
+
+	// KeyUpdate test cases
+	keyUpdateValidHex = "01"
+	keyUpdateValidIn  = keyUpdateBody{
+		KeyUpdateRequest: keyUpdateRequested,
+	}
 )
 
 func TestHandshakeMessageTypes(t *testing.T) {
@@ -584,4 +590,23 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 
 	_, err = tkt.Unmarshal(ticketValid[:20])
 	assertError(t, err, "Unmarshaled a NewSessionTicket with incomplete extensions")
+}
+
+func TestKeyUpdateMarshalUnmarshal(t *testing.T) {
+	keyUpdateValid, _ := hex.DecodeString(keyUpdateValidHex)
+
+	// Test correctness of handshake type
+	assertEquals(t, (keyUpdateBody{}).Type(), handshakeTypeKeyUpdate)
+
+	// Test successful marshal
+	out, err := keyUpdateValidIn.Marshal()
+	assertNotError(t, err, "Failed to marshal a valid KeyUpdate")
+	assertByteEquals(t, out, keyUpdateValid)
+
+	// Test successful unmarshal
+	var ku keyUpdateBody
+	read, err := ku.Unmarshal(keyUpdateValid)
+	assertNotError(t, err, "Failed to unmarshal a valid KeyUpdate")
+	assertEquals(t, read, len(keyUpdateValid))
+	assertDeepEquals(t, ku, keyUpdateValidIn)
 }

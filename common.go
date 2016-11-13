@@ -119,3 +119,13 @@ type marshaler interface {
 type unmarshaler interface {
 	Unmarshal([]byte) (int, error)
 }
+
+// enum {
+//     update_not_requested(0), update_requested(1), (255)
+// } KeyUpdateRequest;
+type keyUpdateRequest uint8
+
+const (
+	keyUpdateNotRequested keyUpdateRequest = 0
+	keyUpdateRequested    keyUpdateRequest = 1
+)

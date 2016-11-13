@@ -1008,18 +1008,21 @@ func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*handshakeMessage)
 	return nil
 }
 
-func (ctx *cryptoContext) updateKeys() error {
-	logf(logTypeCrypto, "Updating crypto context new keys")
+func (ctx *cryptoContext) updateKeys(client bool) error {
+	logf(logTypeCrypto, "Updating crypto context new keys client=[%v]", client)
 
 	if ctx.state != ctxStateClientSecondFlight {
 		return fmt.Errorf("cryptoContext.UpdateKeys called with invalid state %v", ctx.state)
 	}
 
-	ctx.clientTrafficSecret = hkdfExpandLabel(ctx.params.hash, ctx.clientTrafficSecret,
-		labelClientApplicationTrafficSecret, []byte{}, ctx.params.hash.Size())
-	ctx.serverTrafficSecret = hkdfExpandLabel(ctx.params.hash, ctx.serverTrafficSecret,
-		labelServerApplicationTrafficSecret, []byte{}, ctx.params.hash.Size())
-	ctx.clientTrafficKeys = ctx.makeTrafficKeys(ctx.clientTrafficSecret)
-	ctx.serverTrafficKeys = ctx.makeTrafficKeys(ctx.serverTrafficSecret)
+	if client {
+		ctx.clientTrafficSecret = hkdfExpandLabel(ctx.params.hash, ctx.clientTrafficSecret,
+			labelClientApplicationTrafficSecret, []byte{}, ctx.params.hash.Size())
+		ctx.clientTrafficKeys = ctx.makeTrafficKeys(ctx.clientTrafficSecret)
+	} else {
+		ctx.serverTrafficSecret = hkdfExpandLabel(ctx.params.hash, ctx.serverTrafficSecret,
+			labelServerApplicationTrafficSecret, []byte{}, ctx.params.hash.Size())
+		ctx.serverTrafficKeys = ctx.makeTrafficKeys(ctx.serverTrafficSecret)
+	}
 	return nil
 }

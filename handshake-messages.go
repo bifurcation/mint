@@ -426,3 +426,26 @@ func (tkt newSessionTicketBody) Marshal() ([]byte, error) {
 func (tkt *newSessionTicketBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, tkt)
 }
+
+// enum {
+//     update_not_requested(0), update_requested(1), (255)
+// } KeyUpdateRequest;
+//
+// struct {
+//     KeyUpdateRequest request_update;
+// } KeyUpdate;
+type keyUpdateBody struct {
+	KeyUpdateRequest keyUpdateRequest
+}
+
+func (ku keyUpdateBody) Type() handshakeType {
+	return handshakeTypeKeyUpdate
+}
+
+func (ku keyUpdateBody) Marshal() ([]byte, error) {
+	return syntax.Marshal(ku)
+}
+
+func (ku *keyUpdateBody) Unmarshal(data []byte) (int, error) {
+	return syntax.Unmarshal(data, ku)
+}

@@ -47,11 +47,9 @@ func (p *pipeConn) Read(data []byte) (n int, err error) {
 	n, err = p.r.Read(data)
 	p.rLock.Unlock()
 
-	for err == io.EOF {
-		<-time.After(pollInterval)
-		p.rLock.Lock()
-		n, err = p.r.Read(data)
-		p.rLock.Unlock()
+	// Suppress bytes.Buffer's EOF on an empty buffer
+	if err == io.EOF {
+		err = nil
 	}
 	return
 }
@@ -210,7 +208,7 @@ var (
 	}
 )
 
-func assertContextEquals(t *testing.T, c cryptoContext, s cryptoContext) {
+func assertContextEquals(t *testing.T, c *cryptoContext, s *cryptoContext) {
 	assertEquals(t, c.suite, s.suite)
 	// XXX: Figure out a way to compare ciphers?
 	assertEquals(t, c.params.hash, s.params.hash)
@@ -279,7 +277,7 @@ func TestBasicFlows(t *testing.T) {
 
 		<-done
 
-		assertContextEquals(t, client.context, server.context)
+		assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
 	}
 }
 
@@ -302,7 +300,7 @@ func TestPSKFlows(t *testing.T) {
 
 		<-done
 
-		assertContextEquals(t, client.context, server.context)
+		assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
 	}
 }
 
@@ -328,7 +326,7 @@ func TestResumption(t *testing.T) {
 	client1.Read(nil)
 	<-done
 
-	assertContextEquals(t, client1.context, server1.context)
+	assertContextEquals(t, client1.handshake.CryptoContext(), server1.handshake.CryptoContext())
 	assertEquals(t, len(clientConfig.PSKs), 1)
 	assertEquals(t, len(serverConfig.PSKs), 1)
 
@@ -359,9 +357,9 @@ func TestResumption(t *testing.T) {
 	client2.Read(nil)
 	<-done
 
-	assertContextEquals(t, client2.context, server2.context)
+	assertContextEquals(t, client2.handshake.CryptoContext(), server2.handshake.CryptoContext())
 
-	// TODO re-enable assertByteEquals(t, client2.context.SS, client1.context.resumptionSecret)
+	// TODO re-enable assertByteEquals(t, client2.handshake.CryptoContext().SS, client1.handshake.CryptoContext().resumptionSecret)
 }
 
 func Test0xRTT(t *testing.T) {
@@ -385,7 +383,7 @@ func Test0xRTT(t *testing.T) {
 
 	<-done
 
-	assertContextEquals(t, client.context, server.context)
+	assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
 	assertByteEquals(t, client.earlyData, server.readBuffer)
 }
 
@@ -421,4 +419,85 @@ func Test0xRTTFailure(t *testing.T) {
 	assertNotError(t, err, "Client failed handshake")
 
 	<-done
+}
+
+func TestKeyUpdate(t *testing.T) {
+	cConn, sConn := pipe()
+
+	conf := basicConfig
+	client := Client(cConn, conf)
+	server := Server(sConn, conf)
+
+	zeroBuf := []byte{}
+	c2s := make(chan bool)
+	s2c := make(chan bool)
+	go func(t *testing.T) {
+		err := server.Handshake()
+		assertNotError(t, err, "Server failed handshake")
+		s2c <- true
+
+		// Test server-initiated KeyUpdate
+		<-c2s
+		err = server.SendKeyUpdate(false)
+		assertNotError(t, err, "Key update send failed")
+		s2c <- true
+
+		// Null read to trigger key update
+		<-c2s
+		server.Read(zeroBuf)
+		s2c <- true
+
+		// Null read to trigger key update and KeyUpdate response
+		<-c2s
+		server.Read(zeroBuf)
+		s2c <- true
+	}(t)
+
+	err := client.Handshake()
+	assertNotError(t, err, "Client failed handshake")
+	<-s2c
+
+	clientContext0 := *client.handshake.CryptoContext()
+	serverContext0 := *server.handshake.CryptoContext()
+	assertContextEquals(t, &clientContext0, &serverContext0)
+
+	// Null read to trigger key update
+	c2s <- true
+	<-s2c
+	client.Read(zeroBuf)
+
+	clientContext1 := *client.handshake.CryptoContext()
+	serverContext1 := *server.handshake.CryptoContext()
+	assertContextEquals(t, &clientContext1, &serverContext1)
+	assertNotByteEquals(t, clientContext0.serverTrafficKeys.key, clientContext1.serverTrafficKeys.key)
+	assertNotByteEquals(t, clientContext0.serverTrafficKeys.iv, clientContext1.serverTrafficKeys.iv)
+	assertByteEquals(t, clientContext0.clientTrafficKeys.key, clientContext1.clientTrafficKeys.key)
+	assertByteEquals(t, clientContext0.clientTrafficKeys.iv, clientContext1.clientTrafficKeys.iv)
+
+	// Test client-initiated KeyUpdate
+	client.SendKeyUpdate(false)
+	c2s <- true
+	<-s2c
+
+	clientContext2 := *client.handshake.CryptoContext()
+	serverContext2 := *server.handshake.CryptoContext()
+	assertContextEquals(t, &clientContext2, &serverContext2)
+	assertByteEquals(t, clientContext1.serverTrafficKeys.key, clientContext2.serverTrafficKeys.key)
+	assertByteEquals(t, clientContext1.serverTrafficKeys.iv, clientContext2.serverTrafficKeys.iv)
+	assertNotByteEquals(t, clientContext1.clientTrafficKeys.key, clientContext2.clientTrafficKeys.key)
+	assertNotByteEquals(t, clientContext1.clientTrafficKeys.iv, clientContext2.clientTrafficKeys.iv)
+
+	// Test client-initiated with keyUpdateRequested
+	client.SendKeyUpdate(true)
+	c2s <- true
+	<-s2c
+	client.Read(zeroBuf)
+
+	clientContext3 := *client.handshake.CryptoContext()
+	serverContext3 := *server.handshake.CryptoContext()
+	assertContextEquals(t, &clientContext3, &serverContext3)
+	assertNotByteEquals(t, clientContext2.serverTrafficKeys.key, clientContext3.serverTrafficKeys.key)
+	assertNotByteEquals(t, clientContext2.serverTrafficKeys.iv, clientContext3.serverTrafficKeys.iv)
+	assertNotByteEquals(t, clientContext2.clientTrafficKeys.key, clientContext3.clientTrafficKeys.key)
+	assertNotByteEquals(t, clientContext2.clientTrafficKeys.iv, clientContext3.clientTrafficKeys.iv)
 }
