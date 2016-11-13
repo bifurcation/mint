@@ -190,7 +190,7 @@ func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 		h.PSK = h.OfferedPSK.Key
 		logf(logTypeHandshake, "[client] got PSK extension")
 	} else {
-		// If the server rejected out PSK, then we have to re-start without it
+		// If the server rejected our PSK, then we have to re-start without it
 		h.Context = cryptoContext{}
 	}
 
