@@ -364,14 +364,12 @@ func TestResumption(t *testing.T) {
 	// TODO re-enable assertByteEquals(t, client2.context.SS, client1.context.resumptionSecret)
 }
 
-/*
 func Test0xRTT(t *testing.T) {
 	conf := pskConfig
 	cConn, sConn := pipe()
 
 	client := Client(cConn, conf)
 	client.earlyData = []byte("hello 0xRTT world!")
-	client.earlyCipherSuite = TLS_AES_128_GCM_SHA256
 
 	server := Server(sConn, conf)
 
@@ -390,4 +388,37 @@ func Test0xRTT(t *testing.T) {
 	assertContextEquals(t, client.context, server.context)
 	assertByteEquals(t, client.earlyData, server.readBuffer)
 }
-*/
+
+func Test0xRTTFailure(t *testing.T) {
+	// Client thinks it has a PSK
+	clientConfig := &Config{
+		ServerName:   serverName,
+		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
+		PSKs:         psks,
+	}
+
+	// Server doesn't
+	serverConfig := &Config{
+		ServerName:   serverName,
+		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
+	}
+
+	cConn, sConn := pipe()
+
+	client := Client(cConn, clientConfig)
+	client.earlyData = []byte("hello 0xRTT world!")
+
+	server := Server(sConn, serverConfig)
+
+	done := make(chan bool)
+	go func(t *testing.T) {
+		err := server.Handshake()
+		assertNotError(t, err, "Server failed handshake")
+		done <- true
+	}(t)
+
+	err := client.Handshake()
+	assertNotError(t, err, "Client failed handshake")
+
+	<-done
+}

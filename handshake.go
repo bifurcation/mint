@@ -189,6 +189,9 @@ func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 	if foundPSK && (serverPSK.selectedIdentity == 0) {
 		h.PSK = h.OfferedPSK.Key
 		logf(logTypeHandshake, "[client] got PSK extension")
+	} else {
+		// If the server rejected out PSK, then we have to re-start without it
+		h.Context = cryptoContext{}
 	}
 
 	var dhSecret []byte
@@ -414,10 +417,8 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 		return nil, nil, false, fmt.Errorf("tls.server: Missing extension in ClientHello")
 	}
 
-	// If we're not using a PSK mode, then we can't do early data
-	if !usingPSK && gotEarlyData {
-		return nil, nil, false, fmt.Errorf("tls.server: EarlyData with no PSK")
-	}
+	// Reject early data if we haven't found the PSK
+	acceptEarlyData := gotEarlyData && usingPSK
 
 	// Find key_share extension and do key agreement
 	var serverKeyShare *keyShareExtension
@@ -545,7 +546,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 			return nil, nil, false, err
 		}
 	}
-	if usingPSK && gotEarlyData {
+	if acceptEarlyData {
 		logf(logTypeHandshake, "[server] sending EDI extension")
 		err = eeList.Add(&earlyDataExtension{})
 		if err != nil {
@@ -663,7 +664,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 
 	transcript = append(transcript, fm)
 
-	return shm, transcript, gotEarlyData, nil
+	return shm, transcript, acceptEarlyData, nil
 }
 
 func (h *serverHandshake) HandleClientSecondFlight(transcript []*handshakeMessage, finishedMessage *handshakeMessage) error {

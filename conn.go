@@ -174,8 +174,7 @@ type Conn struct {
 	conn     net.Conn
 	isClient bool
 
-	earlyData        []byte
-	earlyCipherSuite CipherSuite
+	earlyData []byte
 
 	handshakeMutex    sync.Mutex
 	handshakeErr      error
@@ -634,7 +633,7 @@ func (c *Conn) serverHandshake() error {
 		NextProtos:       c.config.NextProtos,
 		Certificates:     c.config.Certificates,
 	}
-	shm, serverFirstFlight, signaledEarlyData, err := h.HandleClientHello(chm, caps)
+	shm, serverFirstFlight, acceptEarlyData, err := h.HandleClientHello(chm, caps)
 	if err != nil {
 		return err
 	}
@@ -664,8 +663,8 @@ func (c *Conn) serverHandshake() error {
 		}
 	}
 
-	// Find early_data extension and handle early data
-	if signaledEarlyData {
+	// Handle early data that the client sends
+	if acceptEarlyData {
 		logf(logTypeHandshake, "[server] Processing early data")
 
 		// Compute early handshake / traffic keys from pskSecret
@@ -717,6 +716,37 @@ func (c *Conn) serverHandshake() error {
 	err = c.in.Rekey(h.Context.params.cipher, h.Context.clientHandshakeKeys.key, h.Context.clientHandshakeKeys.iv)
 	if err != nil {
 		return err
+	}
+
+	// Even if we reject early data, the client might still send it.  We need
+	// to read past any records that don't decrypt until we hit the next
+	// handshake message.
+	if !acceptEarlyData {
+		logf(logTypeHandshake, "[server] Rejecting early data; reading past it")
+		for {
+			pt, err := c.in.ReadRecord()
+
+			// Ignore decrypt errors...
+			if _, ok := err.(decryptError); ok {
+				continue
+			}
+
+			// ... but fail on other errors
+			if err != nil {
+				return err
+			}
+
+			// If it's not a handshake message, fail
+			if pt.contentType != recordTypeHandshake {
+				return fmt.Errorf("[server] Got a non-handshake message encrypted with handshake key")
+			}
+
+			// If it's a handshake message, add it to the handshake layer's buffer
+			// and quit reading ahead
+			hIn.buffer = append(hIn.buffer, pt.fragment...)
+			break
+
+		}
 	}
 
 	// Read and process the client's second flight
