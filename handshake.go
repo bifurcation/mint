@@ -452,6 +452,13 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 		}
 	}
 
+	// At this point, we either need a PSK or DH (or both) to proceed
+	// TODO: Send a HelloRetryRequest here
+	if !usingPSK && (dhSecret == nil) {
+		logf(logTypeHandshake, "[server] Can't proceed without either PSK or DH")
+		return nil, nil, false, fmt.Errorf("[server] Can't proceed without either PSK or DH")
+	}
+
 	// Pick a ciphersuite.  If we're using a PSK, we just need to verify that the
 	// preset suite is offered
 	var chosenSuite CipherSuite

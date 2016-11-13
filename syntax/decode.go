@@ -174,7 +174,7 @@ func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) in
 		panic(err)
 	}
 	if uint(n) != length {
-		panic(fmt.Errorf("Available data less than declared length"))
+		panic(fmt.Errorf("Available data less than declared length [%04x < %04x]", n, length))
 	}
 
 	elemBuf := &decodeState{}
