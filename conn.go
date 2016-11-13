@@ -819,14 +819,23 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 		request = keyUpdateRequested
 	}
 
+	// Create the key update and update the keys internally
 	kum, err := c.handshake.CreateKeyUpdate(request)
 	if err != nil {
 		return err
 	}
 
+	// Send key update
 	err = c.out.WriteRecord(&tlsPlaintext{
 		contentType: recordTypeHandshake,
 		fragment:    kum.Marshal(),
 	})
+	if err != nil {
+		return err
+	}
+
+	// Rekey outbound
+	cipher, keys := c.handshake.OutboundKeys()
+	err = c.out.Rekey(cipher, keys.key, keys.iv)
 	return err
 }

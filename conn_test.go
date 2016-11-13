@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -492,7 +491,6 @@ func TestKeyUpdate(t *testing.T) {
 	client.SendKeyUpdate(true)
 	c2s <- true
 	<-s2c
-	fmt.Println("!!!")
 	client.Read(zeroBuf)
 
 	clientContext3 := *client.handshake.CryptoContext()
