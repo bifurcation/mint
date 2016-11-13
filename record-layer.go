@@ -104,7 +104,7 @@ func (r *recordLayer) encrypt(pt *tlsPlaintext, padLen int) *tlsPlaintext {
 }
 
 func (r *recordLayer) decrypt(pt *tlsPlaintext) (*tlsPlaintext, int, error) {
-	if len(pt.Fragment) < r.cipher.Overhead() {
+	if len(pt.fragment) < r.cipher.Overhead() {
 		return nil, 0, fmt.Errorf("tls.record.decrypt: Record too short")
 	}
 
