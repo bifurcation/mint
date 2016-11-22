@@ -203,7 +203,7 @@ var validExtensionTestCases = map[extensionType]struct {
 	extensionTypePSKKeyExchangeModes: {
 		blank: &pskKeyExchangeModesExtension{},
 		unmarshaled: &pskKeyExchangeModesExtension{
-			KEModes: []pskKeyExchangeMode{
+			KEModes: []PSKKeyExchangeMode{
 				pskModeKE,
 				pskModeDHEKE,
 			},

@@ -167,9 +167,10 @@ var (
 	}
 
 	pskConfig = &Config{
-		ServerName:   serverName,
-		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
-		PSKs:         psks,
+		ServerName:     serverName,
+		CipherSuites:   []CipherSuite{TLS_AES_128_GCM_SHA256},
+		PSKs:           psks,
+		AllowEarlyData: true,
 	}
 
 	pskECDHEConfig = &Config{

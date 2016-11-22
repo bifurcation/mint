@@ -105,11 +105,11 @@ const (
 )
 
 // enum {...} PskKeyExchangeMode;
-type pskKeyExchangeMode uint8
+type PSKKeyExchangeMode uint8
 
 const (
-	pskModeKE    pskKeyExchangeMode = 0
-	pskModeDHEKE pskKeyExchangeMode = 1
+	pskModeKE    PSKKeyExchangeMode = 0
+	pskModeDHEKE PSKKeyExchangeMode = 1
 )
 
 type marshaler interface {
