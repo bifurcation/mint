@@ -34,7 +34,7 @@ type connectionParameters struct {
 
 	CipherSuite CipherSuite
 	ServerName  string
-	ALPN        string
+	NextProto   string
 }
 
 type handshake interface {
@@ -178,6 +178,8 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 	sa := signatureAlgorithmsExtension{Algorithms: caps.SignatureSchemes}
 	kem := pskKeyExchangeModesExtension{KEModes: caps.PSKModes}
 
+	h.Params.ServerName = opts.ServerName
+
 	// Application Layer Protocol Negotiation
 	var alpn *alpnExtension
 	if (opts.NextProtos != nil) && (len(opts.NextProtos) > 0) {
@@ -296,12 +298,16 @@ func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 
 	// Do PSK or key agreement depending on extensions
 	serverPSK := preSharedKeyExtension{handshakeType: handshakeTypeServerHello}
-	foundPSK := sh.Extensions.Find(&serverPSK)
 	serverKeyShare := keyShareExtension{handshakeType: handshakeTypeServerHello}
+	serverEarlyData := earlyDataExtension{}
+
+	foundPSK := sh.Extensions.Find(&serverPSK)
 	foundKeyShare := sh.Extensions.Find(&serverKeyShare)
+	h.Params.UsingEarlyData = sh.Extensions.Find(&serverEarlyData)
 
 	if foundPSK && (serverPSK.selectedIdentity == 0) {
 		h.PSK = h.OfferedPSK.Key
+		h.Params.UsingPSK = true
 		logf(logTypeHandshake, "[client] got PSK extension")
 	} else {
 		// If the server rejected our PSK, then we have to re-start without it
@@ -316,6 +322,7 @@ func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 			return fmt.Errorf("Server key share for unknown group")
 		}
 
+		h.Params.UsingDH = true
 		dhSecret, _ = keyAgreement(sks.Group, sks.KeyExchange, priv)
 		logf(logTypeHandshake, "[client] got key share extension")
 	}
@@ -332,27 +339,44 @@ func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 }
 
 func (h *clientHandshake) HandleServerFirstFlight(transcript []*handshakeMessage, finishedMessage *handshakeMessage) error {
-	// Verify the server's certificate if we're not using a PSK for authentication
+	// Extract messages from sequence
 	var err error
-	if h.PSK == nil {
-		var cert *certificateBody
-		var certVerify *certificateVerifyBody
-		var certVerifyIndex int
-		for i, msg := range transcript {
-			switch msg.msgType {
-			case handshakeTypeCertificate:
-				cert = new(certificateBody)
-				_, err = cert.Unmarshal(msg.body)
-			case handshakeTypeCertificateVerify:
-				certVerifyIndex = i
-				certVerify = new(certificateVerifyBody)
-				_, err = certVerify.Unmarshal(msg.body)
-			}
-
-			if err != nil {
-				return err
-			}
+	var ee *encryptedExtensionsBody
+	var cert *certificateBody
+	var certVerify *certificateVerifyBody
+	var certVerifyIndex int
+	for i, msg := range transcript {
+		switch msg.msgType {
+		case handshakeTypeEncryptedExtensions:
+			ee = new(encryptedExtensionsBody)
+			_, err = ee.Unmarshal(msg.body)
+		case handshakeTypeCertificate:
+			cert = new(certificateBody)
+			_, err = cert.Unmarshal(msg.body)
+		case handshakeTypeCertificateVerify:
+			certVerifyIndex = i
+			certVerify = new(certificateVerifyBody)
+			_, err = certVerify.Unmarshal(msg.body)
 		}
+
+		if err != nil {
+			return err
+		}
+	}
+
+	// Read data from EncryptedExtensions
+	serverALPN := alpnExtension{}
+	serverEarlyData := earlyDataExtension{}
+
+	gotALPN := ee.Extensions.Find(&serverALPN)
+	h.Params.UsingEarlyData = ee.Extensions.Find(&serverEarlyData)
+
+	if gotALPN && len(serverALPN.protocols) > 0 {
+		h.Params.NextProto = serverALPN.protocols[0]
+	}
+
+	// Verify the server's certificate if we're not using a PSK for authentication
+	if h.PSK == nil {
 
 		if cert == nil || certVerify == nil {
 			return fmt.Errorf("tls.client: No server auth data provided")
@@ -461,6 +485,10 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	ch.extensions.Find(clientALPN)
 	ch.extensions.Find(clientPSKModes)
 
+	if gotServerName {
+		h.Params.ServerName = string(*serverName)
+	}
+
 	// If the client didn't send supportedVersions or doesn't support 1.3,
 	// then we're done here.
 	if !gotSupportedVersions {
@@ -537,7 +565,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	}
 
 	// Select a next protocol
-	chosenALPN, err := alpnNegotiation(psk, clientALPN.protocols, caps.NextProtos)
+	h.Params.NextProto, err = alpnNegotiation(psk, clientALPN.protocols, caps.NextProtos)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -591,9 +619,9 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 
 	// Send an EncryptedExtensions message (even if it's empty)
 	eeList := extensionList{}
-	if chosenALPN != "" {
+	if h.Params.NextProto != "" {
 		logf(logTypeHandshake, "[server] sending ALPN extension")
-		err = eeList.Add(&alpnExtension{protocols: []string{chosenALPN}})
+		err = eeList.Add(&alpnExtension{protocols: []string{h.Params.NextProto}})
 		if err != nil {
 			return nil, nil, err
 		}
