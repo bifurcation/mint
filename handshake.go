@@ -495,7 +495,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 		logf(logTypeHandshake, "[server] Client did not send supported_versions")
 		return nil, nil, fmt.Errorf("tls.server: Client did not send supported_versions")
 	}
-	versionOK := versionNegotiation(supportedVersions.Versions, []uint16{supportedVersion})
+	versionOK, _ := versionNegotiation(supportedVersions.Versions, []uint16{supportedVersion})
 	if !versionOK {
 		logf(logTypeHandshake, "[server] Client does not support the same version")
 		return nil, nil, fmt.Errorf("tls.server: Client does not support the same version")

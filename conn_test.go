@@ -365,8 +365,6 @@ func TestResumption(t *testing.T) {
 
 	assertDeepEquals(t, client2.handshake.ConnectionParams(), server2.handshake.ConnectionParams())
 	assertContextEquals(t, client2.handshake.CryptoContext(), server2.handshake.CryptoContext())
-
-	// TODO re-enable assertByteEquals(t, client2.handshake.CryptoContext().SS, client1.handshake.CryptoContext().resumptionSecret)
 }
 
 func Test0xRTT(t *testing.T) {

@@ -108,8 +108,8 @@ const (
 type PSKKeyExchangeMode uint8
 
 const (
-	pskModeKE    PSKKeyExchangeMode = 0
-	pskModeDHEKE PSKKeyExchangeMode = 1
+	PSKModeKE    PSKKeyExchangeMode = 0
+	PSKModeDHEKE PSKKeyExchangeMode = 1
 )
 
 type marshaler interface {

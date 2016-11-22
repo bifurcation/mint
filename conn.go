@@ -166,8 +166,8 @@ var (
 	defaultTicketLen = 16
 
 	defaultPSKModes = []PSKKeyExchangeMode{
-		pskModeKE,
-		pskModeDHEKE,
+		PSKModeKE,
+		PSKModeDHEKE,
 	}
 )
 
