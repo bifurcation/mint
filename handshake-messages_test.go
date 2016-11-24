@@ -20,10 +20,10 @@ var (
 		0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
 		0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37}
 	chCipherSuites = []CipherSuite{0x0001, 0x0002, 0x0003}
-	chValidIn      = clientHelloBody{
-		random:       helloRandom,
-		cipherSuites: chCipherSuites,
-		extensions:   extListValidIn,
+	chValidIn      = ClientHelloBody{
+		Random:       helloRandom,
+		CipherSuites: chCipherSuites,
+		Extensions:   extListValidIn,
 	}
 	chValidHex = "0303" + hex.EncodeToString(helloRandom[:]) + "00" +
 		"0006000100020003" + "0100" + extListValidHex
@@ -34,45 +34,45 @@ var (
 	chTruncPSKData, _ = hex.DecodeString(pskClientHex)
 	chTruncHex        = "01000062" + "0303" + hex.EncodeToString(helloRandom[:]) +
 		"00" + "0006000100020003" + "0100" + "00330029002f000a00040102030405060708"
-	chTruncValid = clientHelloBody{
-		random:       helloRandom,
-		cipherSuites: chCipherSuites,
-		extensions: []Extension{
+	chTruncValid = ClientHelloBody{
+		Random:       helloRandom,
+		CipherSuites: chCipherSuites,
+		Extensions: []Extension{
 			Extension{
 				ExtensionType: ExtensionTypePreSharedKey,
 				ExtensionData: chTruncPSKData,
 			},
 		},
 	}
-	chTruncInvalid = clientHelloBody{}
-	chTruncNoExt   = clientHelloBody{
-		random:       helloRandom,
-		cipherSuites: chCipherSuites,
-		extensions:   []Extension{},
+	chTruncInvalid = ClientHelloBody{}
+	chTruncNoExt   = ClientHelloBody{
+		Random:       helloRandom,
+		CipherSuites: chCipherSuites,
+		Extensions:   []Extension{},
 	}
-	chTruncNoPSK = clientHelloBody{
-		random:       helloRandom,
-		cipherSuites: chCipherSuites,
-		extensions: []Extension{
+	chTruncNoPSK = ClientHelloBody{
+		Random:       helloRandom,
+		CipherSuites: chCipherSuites,
+		Extensions: []Extension{
 			Extension{ExtensionType: ExtensionTypeEarlyData},
 		},
 	}
-	chTruncBadPSK = clientHelloBody{
-		random:       helloRandom,
-		cipherSuites: chCipherSuites,
-		extensions: []Extension{
+	chTruncBadPSK = ClientHelloBody{
+		Random:       helloRandom,
+		CipherSuites: chCipherSuites,
+		Extensions: []Extension{
 			Extension{ExtensionType: ExtensionTypePreSharedKey},
 		},
 	}
 
 	// ServerHello test cases
-	shValidIn = serverHelloBody{
+	shValidIn = ServerHelloBody{
 		Version:     supportedVersion,
 		Random:      helloRandom,
 		CipherSuite: CipherSuite(0x0001),
 		Extensions:  extListValidIn,
 	}
-	shEmptyIn = serverHelloBody{
+	shEmptyIn = ServerHelloBody{
 		Version:     supportedVersion,
 		Random:      helloRandom,
 		CipherSuite: CipherSuite(0x0001),
@@ -82,14 +82,14 @@ var (
 	shOverflowHex = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListOverflowOuterHex
 
 	// Finished test cases
-	finValidIn = finishedBody{
-		verifyDataLen: len(helloRandom),
-		verifyData:    helloRandom[:],
+	finValidIn = FinishedBody{
+		VerifyDataLen: len(helloRandom),
+		VerifyData:    helloRandom[:],
 	}
 	finValidHex = hex.EncodeToString(helloRandom[:])
 
 	// EncryptedExtensions test cases
-	encExtValidIn  = encryptedExtensionsBody{extListValidIn}
+	encExtValidIn  = EncryptedExtensionsBody{extListValidIn}
 	encExtValidHex = extListValidHex
 
 	// Certificate test cases
@@ -129,25 +129,25 @@ var (
 	cert1, _      = x509.ParseCertificate(cert1Bytes)
 	cert2, _      = x509.ParseCertificate(cert2Bytes)
 
-	certValidIn = certificateBody{
-		certificateRequestContext: []byte{0, 0, 0, 0},
-		certificateList: []certificateEntry{
-			certificateEntry{
-				certData:   cert1,
-				extensions: extListValidIn,
+	certValidIn = CertificateBody{
+		CertificateRequestContext: []byte{0, 0, 0, 0},
+		CertificateList: []CertificateEntry{
+			CertificateEntry{
+				CertData:   cert1,
+				Extensions: extListValidIn,
 			},
-			certificateEntry{
-				certData:   cert2,
-				extensions: extListValidIn,
+			CertificateEntry{
+				CertData:   cert2,
+				Extensions: extListValidIn,
 			},
 		},
 	}
-	certOverflowIn = certificateBody{
-		certificateRequestContext: []byte{0, 0, 0, 0},
-		certificateList: []certificateEntry{
-			certificateEntry{
-				certData:   cert1,
-				extensions: extListSingleTooLongIn,
+	certOverflowIn = CertificateBody{
+		CertificateRequestContext: []byte{0, 0, 0, 0},
+		CertificateList: []CertificateEntry{
+			CertificateEntry{
+				CertData:   cert1,
+				Extensions: extListSingleTooLongIn,
 			},
 		},
 	}
@@ -158,7 +158,7 @@ var (
 	certTooShortHex = "000000023081"
 
 	// CertificateVerify test cases
-	certVerifyValidIn = certificateVerifyBody{
+	certVerifyValidIn = CertificateVerifyBody{
 		Algorithm: ECDSA_P256_SHA256,
 		Signature: []byte{0, 0, 0, 0},
 	}
@@ -167,7 +167,7 @@ var (
 
 	// NewSessionTicket test cases
 	ticketValidHex = "00010203" + "04050607" + "000408090a0b" + "0006eeff00021122"
-	ticketValidIn  = newSessionTicketBody{
+	ticketValidIn  = NewSessionTicketBody{
 		TicketLifetime: 0x00010203,
 		TicketAgeAdd:   0x04050607,
 		Ticket:         []byte{0x08, 0x09, 0x0a, 0x0b},
@@ -178,28 +178,28 @@ var (
 			},
 		},
 	}
-	ticketTooBigIn = newSessionTicketBody{
+	ticketTooBigIn = NewSessionTicketBody{
 		TicketLifetime: 0x00010203,
 		Ticket:         make([]byte, maxTicketLen+1),
 	}
-	ticketExtensionsTooBigIn = newSessionTicketBody{
+	ticketExtensionsTooBigIn = NewSessionTicketBody{
 		Extensions: extListSingleTooLongIn,
 	}
 
 	// KeyUpdate test cases
 	keyUpdateValidHex = "01"
-	keyUpdateValidIn  = keyUpdateBody{
+	keyUpdateValidIn  = KeyUpdateBody{
 		KeyUpdateRequest: KeyUpdateRequested,
 	}
 )
 
 func TestHandshakeMessageTypes(t *testing.T) {
-	assertEquals(t, clientHelloBody{}.Type(), HandshakeTypeClientHello)
-	assertEquals(t, serverHelloBody{}.Type(), HandshakeTypeServerHello)
-	assertEquals(t, finishedBody{}.Type(), HandshakeTypeFinished)
-	assertEquals(t, encryptedExtensionsBody{}.Type(), HandshakeTypeEncryptedExtensions)
-	assertEquals(t, certificateBody{}.Type(), HandshakeTypeCertificate)
-	assertEquals(t, certificateVerifyBody{}.Type(), HandshakeTypeCertificateVerify)
+	assertEquals(t, ClientHelloBody{}.Type(), HandshakeTypeClientHello)
+	assertEquals(t, ServerHelloBody{}.Type(), HandshakeTypeServerHello)
+	assertEquals(t, FinishedBody{}.Type(), HandshakeTypeFinished)
+	assertEquals(t, EncryptedExtensionsBody{}.Type(), HandshakeTypeEncryptedExtensions)
+	assertEquals(t, CertificateBody{}.Type(), HandshakeTypeCertificate)
+	assertEquals(t, CertificateVerifyBody{}.Type(), HandshakeTypeCertificateVerify)
 }
 
 func TestClientHelloMarshalUnmarshal(t *testing.T) {
@@ -207,7 +207,7 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	chOverflow, _ := hex.DecodeString(chOverflowHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (clientHelloBody{}).Type(), HandshakeTypeClientHello)
+	assertEquals(t, (ClientHelloBody{}).Type(), HandshakeTypeClientHello)
 
 	// Test successful marshal
 	out, err := chValidIn.Marshal()
@@ -215,29 +215,29 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, chValid)
 
 	// Test marshal failure on empty ciphersuites
-	chValidIn.cipherSuites = []CipherSuite{}
+	chValidIn.CipherSuites = []CipherSuite{}
 	out, err = chValidIn.Marshal()
 	assertError(t, err, "Marshaled a ClientHello with no CipherSuites")
-	chValidIn.cipherSuites = chCipherSuites
+	chValidIn.CipherSuites = chCipherSuites
 
 	// Test marshal failure on too many ciphersuites
 	tooManyCipherSuites := make([]CipherSuite, maxCipherSuites+1)
 	for i := range tooManyCipherSuites {
 		tooManyCipherSuites[i] = CipherSuite(0x0001)
 	}
-	chValidIn.cipherSuites = tooManyCipherSuites
+	chValidIn.CipherSuites = tooManyCipherSuites
 	out, err = chValidIn.Marshal()
 	assertError(t, err, "Marshaled a ClientHello with too many CipherSuites")
-	chValidIn.cipherSuites = chCipherSuites
+	chValidIn.CipherSuites = chCipherSuites
 
 	// Test marshal failure on extension list marshal failure
-	chValidIn.extensions = extListTooLongIn
+	chValidIn.Extensions = extListTooLongIn
 	out, err = chValidIn.Marshal()
 	assertError(t, err, "Marshaled a ClientHello with bad extensions")
-	chValidIn.extensions = extListValidIn
+	chValidIn.Extensions = extListValidIn
 
 	// Test successful unmarshal
-	var ch clientHelloBody
+	var ch ClientHelloBody
 	read, err := ch.Unmarshal(chValid)
 	assertNotError(t, err, "Failed to unmarshal a valid ClientHello")
 	assertEquals(t, read, len(chValid))
@@ -315,7 +315,7 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 	shOverflow, _ := hex.DecodeString(shOverflowHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (serverHelloBody{}).Type(), HandshakeTypeServerHello)
+	assertEquals(t, (ServerHelloBody{}).Type(), HandshakeTypeServerHello)
 
 	// Test successful marshal
 	out, err := shValidIn.Marshal()
@@ -334,7 +334,7 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 	shValidIn.Extensions = extListValidIn
 
 	// Test successful unmarshal
-	var sh serverHelloBody
+	var sh ServerHelloBody
 	read, err := sh.Unmarshal(shValid)
 	assertNotError(t, err, "Failed to unmarshal a valid ServerHello")
 	assertEquals(t, read, len(shValid))
@@ -361,7 +361,7 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 	finValid, _ := hex.DecodeString(finValidHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (finishedBody{}).Type(), HandshakeTypeFinished)
+	assertEquals(t, (FinishedBody{}).Type(), HandshakeTypeFinished)
 
 	// Test successful marshal
 	out, err := finValidIn.Marshal()
@@ -369,24 +369,24 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, finValid)
 
 	// Test marshal failure on incorrect data length
-	finValidIn.verifyDataLen--
+	finValidIn.VerifyDataLen--
 	out, err = finValidIn.Marshal()
 	assertError(t, err, "Marshaled a Finished with the wrong data length")
-	finValidIn.verifyDataLen++
+	finValidIn.VerifyDataLen++
 
 	// Test successful unmarshal
-	var fin finishedBody
-	fin.verifyDataLen = len(finValid)
+	var fin FinishedBody
+	fin.VerifyDataLen = len(finValid)
 	read, err := fin.Unmarshal(finValid)
 	assertNotError(t, err, "Failed to unmarshal a valid Finished")
 	assertEquals(t, read, len(finValid))
 	assertDeepEquals(t, fin, finValidIn)
 
 	// Test unmarshal failure on insufficient data
-	fin.verifyDataLen++
+	fin.VerifyDataLen++
 	_, err = fin.Unmarshal(finValid)
 	assertError(t, err, "Unmarshaled a Finished with too little data")
-	fin.verifyDataLen--
+	fin.VerifyDataLen--
 }
 
 // This one is a little brief because it is just an extensionList
@@ -394,7 +394,7 @@ func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 	encExtValid, _ := hex.DecodeString(encExtValidHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (encryptedExtensionsBody{}).Type(), HandshakeTypeEncryptedExtensions)
+	assertEquals(t, (EncryptedExtensionsBody{}).Type(), HandshakeTypeEncryptedExtensions)
 
 	// Test successful marshal
 	out, err := encExtValidIn.Marshal()
@@ -402,7 +402,7 @@ func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, encExtValid)
 
 	// Test successful unmarshal
-	var ee encryptedExtensionsBody
+	var ee EncryptedExtensionsBody
 	read, err := ee.Unmarshal(encExtValid)
 	assertNotError(t, err, "Failed to unmarshal a valid EncryptedExtensions")
 	assertEquals(t, read, len(encExtValid))
@@ -415,7 +415,7 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	certTooShort, _ := hex.DecodeString(certTooShortHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (certificateBody{}).Type(), HandshakeTypeCertificate)
+	assertEquals(t, (CertificateBody{}).Type(), HandshakeTypeCertificate)
 
 	// Test successful marshal
 	out, err := certValidIn.Marshal()
@@ -423,11 +423,11 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, certValid)
 
 	// Test marshal failure on context too long
-	originalContext := certValidIn.certificateRequestContext
-	certValidIn.certificateRequestContext = bytes.Repeat([]byte{0}, maxCertRequestContextLen+1)
+	originalContext := certValidIn.CertificateRequestContext
+	certValidIn.CertificateRequestContext = bytes.Repeat([]byte{0}, maxCertRequestContextLen+1)
 	out, err = certValidIn.Marshal()
 	assertError(t, err, "Marshaled a Certificate with a too-long context")
-	certValidIn.certificateRequestContext = originalContext
+	certValidIn.CertificateRequestContext = originalContext
 
 	// Test marshal failure on no raw certa
 	originalRaw := cert1.Raw
@@ -441,7 +441,7 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Marshaled a Certificate with an too-long extension list")
 
 	// Test successful unmarshal
-	cert := certificateBody{}
+	cert := CertificateBody{}
 	read, err := cert.Unmarshal(certValid)
 	assertNotError(t, err, "Failed to unmarshal valid Certificate")
 	assertEquals(t, read, len(certValid))
@@ -491,7 +491,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	ctx.init(certVerifyCipherSuite, chMessage)
 
 	// Test correctness of handshake type
-	assertEquals(t, (certificateVerifyBody{}).Type(), HandshakeTypeCertificateVerify)
+	assertEquals(t, (CertificateVerifyBody{}).Type(), HandshakeTypeCertificateVerify)
 
 	// Test successful marshal
 	out, err := certVerifyValidIn.Marshal()
@@ -499,7 +499,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, certVerifyValid)
 
 	// Test successful unmarshal
-	var cv certificateVerifyBody
+	var cv CertificateVerifyBody
 	read, err := cv.Unmarshal(certVerifyValid)
 	assertNotError(t, err, "Failed to unmarshal a valid CertificateVerify")
 	assertEquals(t, read, len(certVerifyValid))
@@ -521,7 +521,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	// Test sign failure on handshake marshal failure
 	err = certVerifyValidIn.Sign(privRSA, nilTranscript, ctx)
 	assertError(t, err, "Signed CertificateVerify despite nil message")
-	chValidIn.extensions = extListValidIn
+	chValidIn.Extensions = extListValidIn
 
 	// Test sign failure on algorithm
 	originalAlg := certVerifyValidIn.Algorithm
@@ -531,7 +531,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	certVerifyValidIn.Algorithm = originalAlg
 
 	// Test successful verify
-	certVerifyValidIn = certificateVerifyBody{Algorithm: RSA_PSS_SHA256}
+	certVerifyValidIn = CertificateVerifyBody{Algorithm: RSA_PSS_SHA256}
 	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
 	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, ctx)
@@ -553,10 +553,10 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 	ticketValid, _ := hex.DecodeString(ticketValidHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (newSessionTicketBody{}).Type(), HandshakeTypeNewSessionTicket)
+	assertEquals(t, (NewSessionTicketBody{}).Type(), HandshakeTypeNewSessionTicket)
 
 	// Test creation of a new random ticket
-	tkt, err := newSessionTicket(16)
+	tkt, err := NewSessionTicket(16)
 	tkt.TicketLifetime = uint32(3)
 	assertNotError(t, err, "Failed to create session ticket")
 	assertEquals(t, tkt.TicketLifetime, uint32(3))
@@ -596,7 +596,7 @@ func TestKeyUpdateMarshalUnmarshal(t *testing.T) {
 	keyUpdateValid, _ := hex.DecodeString(keyUpdateValidHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (keyUpdateBody{}).Type(), HandshakeTypeKeyUpdate)
+	assertEquals(t, (KeyUpdateBody{}).Type(), HandshakeTypeKeyUpdate)
 
 	// Test successful marshal
 	out, err := keyUpdateValidIn.Marshal()
@@ -604,7 +604,7 @@ func TestKeyUpdateMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, keyUpdateValid)
 
 	// Test successful unmarshal
-	var ku keyUpdateBody
+	var ku KeyUpdateBody
 	read, err := ku.Unmarshal(keyUpdateValid)
 	assertNotError(t, err, "Failed to unmarshal a valid KeyUpdate")
 	assertEquals(t, read, len(keyUpdateValid))

@@ -48,25 +48,25 @@ func (hm handshakeMessage) Marshal() []byte {
 	return data
 }
 
-func (hm handshakeMessage) toBody() (handshakeMessageBody, error) {
+func (hm handshakeMessage) toBody() (HandshakeMessageBody, error) {
 	logf(logTypeHandshake, "handshakeMessage.toBody [%d] [%x]", hm.msgType, hm.body)
 
-	var body handshakeMessageBody
+	var body HandshakeMessageBody
 	switch hm.msgType {
 	case HandshakeTypeClientHello:
-		body = new(clientHelloBody)
+		body = new(ClientHelloBody)
 	case HandshakeTypeServerHello:
-		body = new(serverHelloBody)
+		body = new(ServerHelloBody)
 	case HandshakeTypeEncryptedExtensions:
-		body = new(encryptedExtensionsBody)
+		body = new(EncryptedExtensionsBody)
 	case HandshakeTypeCertificate:
-		body = new(certificateBody)
+		body = new(CertificateBody)
 	case HandshakeTypeCertificateVerify:
-		body = new(certificateVerifyBody)
+		body = new(CertificateVerifyBody)
 	case HandshakeTypeFinished:
-		body = new(finishedBody)
+		body = new(FinishedBody)
 	case HandshakeTypeNewSessionTicket:
-		body = new(newSessionTicketBody)
+		body = new(NewSessionTicketBody)
 	default:
 		return body, fmt.Errorf("tls.handshakemessage: Unsupported body type")
 	}
@@ -79,7 +79,7 @@ func (hm handshakeMessage) toBody() (handshakeMessageBody, error) {
 	return body, nil
 }
 
-func handshakeMessageFromBody(body handshakeMessageBody) (*handshakeMessage, error) {
+func handshakeMessageFromBody(body HandshakeMessageBody) (*handshakeMessage, error) {
 	data, err := body.Marshal()
 	if err != nil {
 		return nil, err
@@ -173,7 +173,7 @@ func (h *handshakeLayer) ReadMessage() (*handshakeMessage, error) {
 	return hm, nil
 }
 
-func (h *handshakeLayer) ReadMessageBody(body handshakeMessageBody) (*handshakeMessage, error) {
+func (h *handshakeLayer) ReadMessageBody(body HandshakeMessageBody) (*handshakeMessage, error) {
 	hm, err := h.ReadMessage()
 	if err != nil {
 		return nil, err
@@ -241,8 +241,8 @@ func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 	return nil
 }
 
-func (h *handshakeLayer) WriteMessageBody(body handshakeMessageBody) (*handshakeMessage, error) {
-	hms, err := h.WriteMessageBodies([]handshakeMessageBody{body})
+func (h *handshakeLayer) WriteMessageBody(body HandshakeMessageBody) (*handshakeMessage, error) {
+	hms, err := h.WriteMessageBodies([]HandshakeMessageBody{body})
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +252,7 @@ func (h *handshakeLayer) WriteMessageBody(body handshakeMessageBody) (*handshake
 	return hms[0], nil
 }
 
-func (h *handshakeLayer) WriteMessageBodies(bodies []handshakeMessageBody) ([]*handshakeMessage, error) {
+func (h *handshakeLayer) WriteMessageBodies(bodies []HandshakeMessageBody) ([]*handshakeMessage, error) {
 	hms := make([]*handshakeMessage, len(bodies))
 	for i, body := range bodies {
 		hm, err := handshakeMessageFromBody(body)

@@ -164,10 +164,10 @@ func TestMessageFromBody(t *testing.T) {
 	assertByteEquals(t, hm.body, chValid)
 
 	// Test conversion failure on marshal failure
-	chValidIn.cipherSuites = []CipherSuite{}
+	chValidIn.CipherSuites = []CipherSuite{}
 	hm, err = handshakeMessageFromBody(&chValidIn)
 	assertError(t, err, "Converted a ClientHello that should not have marshaled")
-	chValidIn.cipherSuites = chCipherSuites
+	chValidIn.CipherSuites = chCipherSuites
 }
 
 func TestReadHandshakeMessage(t *testing.T) {
@@ -227,12 +227,12 @@ func TestReadHandshakeMessageBody(t *testing.T) {
 	finished, _ := hex.DecodeString(finishedHex)
 
 	// Test successful read
-	fin := finishedBody{verifyDataLen: 2}
+	fin := FinishedBody{VerifyDataLen: 2}
 	b := bytes.NewBuffer(finished)
 	h := newHandshakeLayer(newRecordLayer(b))
 	hm, err := h.ReadMessageBody(&fin)
 	assertNotError(t, err, "Failed to read a valid finished body")
-	assertByteEquals(t, fin.verifyData, []byte{0, 0})
+	assertByteEquals(t, fin.VerifyData, []byte{0, 0})
 	assertEquals(t, hm.msgType, HandshakeTypeFinished)
 	assertByteEquals(t, hm.body, []byte{0, 0})
 
@@ -243,21 +243,21 @@ func TestReadHandshakeMessageBody(t *testing.T) {
 	assertError(t, err, "Read message body despite unmarshal failure")
 
 	// Test read failure on wrong body type
-	ch := clientHelloBody{}
+	ch := ClientHelloBody{}
 	b = bytes.NewBuffer(finished)
 	h = newHandshakeLayer(newRecordLayer(b))
 	_, err = h.ReadMessageBody(&ch)
 	assertError(t, err, "Read message body with the wrong type")
 
 	// Test read failure on unmarshal failure
-	fin.verifyDataLen = 3
+	fin.VerifyDataLen = 3
 	b = bytes.NewBuffer(finished)
 	h = newHandshakeLayer(newRecordLayer(b))
 	_, err = h.ReadMessageBody(&fin)
 	assertError(t, err, "Read message body despite unmarshal failure")
 
 	// Test read failure on left-over data
-	fin.verifyDataLen = 1
+	fin.VerifyDataLen = 1
 	b = bytes.NewBuffer(finished)
 	h = newHandshakeLayer(newRecordLayer(b))
 	_, err = h.ReadMessageBody(&fin)
@@ -322,7 +322,7 @@ func TestWriteHandshakeMessageBody(t *testing.T) {
 	// Test succesful write of multiple messages
 	b = bytes.NewBuffer(nil)
 	h = newHandshakeLayer(newRecordLayer(b))
-	hms, err := h.WriteMessageBodies([]handshakeMessageBody{&chValidIn, &shValidIn})
+	hms, err := h.WriteMessageBodies([]HandshakeMessageBody{&chValidIn, &shValidIn})
 	assertNotError(t, err, "Failed to write valid short message")
 	assertByteEquals(t, b.Bytes(), chshValidMessage)
 	assertEquals(t, len(hms), 2)
@@ -332,10 +332,10 @@ func TestWriteHandshakeMessageBody(t *testing.T) {
 	assertByteEquals(t, hms[1].body, shValid)
 
 	// Test write failure on marshal failure
-	chValidIn.cipherSuites = []CipherSuite{}
+	chValidIn.CipherSuites = []CipherSuite{}
 	b = bytes.NewBuffer(nil)
 	h = newHandshakeLayer(newRecordLayer(b))
 	_, err = h.WriteMessageBody(&chValidIn)
 	assertError(t, err, "Wrote a message body despite a marshal failure")
-	chValidIn.cipherSuites = chCipherSuites
+	chValidIn.CipherSuites = chCipherSuites
 }

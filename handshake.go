@@ -58,13 +58,13 @@ func createKeyUpdate(client bool, ctx *cryptoContext, requestUpdate KeyUpdateReq
 	}
 
 	// Return a KeyUpdate message
-	return handshakeMessageFromBody(&keyUpdateBody{
+	return handshakeMessageFromBody(&KeyUpdateBody{
 		KeyUpdateRequest: requestUpdate,
 	})
 }
 
 func handleKeyUpdate(client bool, ctx *cryptoContext, hm *handshakeMessage) (*handshakeMessage, error) {
-	var ku keyUpdateBody
+	var ku KeyUpdateBody
 	_, err := ku.Unmarshal(hm.body)
 	if err != nil {
 		return nil, err
@@ -84,7 +84,7 @@ func handleKeyUpdate(client bool, ctx *cryptoContext, hm *handshakeMessage) (*ha
 			return nil, err
 		}
 
-		return handshakeMessageFromBody(&keyUpdateBody{
+		return handshakeMessageFromBody(&KeyUpdateBody{
 			KeyUpdateRequest: KeyUpdateNotRequested,
 		})
 	}
@@ -102,7 +102,7 @@ type clientHandshake struct {
 	Context cryptoContext
 	Params  connectionParameters
 
-	AuthCertificate func(chain []certificateEntry) error
+	AuthCertificate func(chain []CertificateEntry) error
 
 	clientHello *handshakeMessage
 	serverHello *handshakeMessage
@@ -137,7 +137,7 @@ func (h *clientHandshake) HandleKeyUpdate(hm *handshakeMessage) (*handshakeMessa
 }
 
 func (h *clientHandshake) HandleNewSessionTicket(hm *handshakeMessage) (PreSharedKey, error) {
-	var tkt newSessionTicketBody
+	var tkt NewSessionTicketBody
 	_, err := tkt.Unmarshal(hm.body)
 	if err != nil {
 		return PreSharedKey{}, err
@@ -187,15 +187,15 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 	}
 
 	// Construct base ClientHello
-	ch := &clientHelloBody{
-		cipherSuites: caps.CipherSuites,
+	ch := &ClientHelloBody{
+		CipherSuites: caps.CipherSuites,
 	}
-	_, err := prng.Read(ch.random[:])
+	_, err := prng.Read(ch.Random[:])
 	if err != nil {
 		return nil, err
 	}
 	for _, ext := range []ExtensionBody{&sv, &sni, &ks, &sg, &sa, &kem} {
-		err := ch.extensions.Add(ext)
+		err := ch.Extensions.Add(ext)
 		if err != nil {
 			return nil, err
 		}
@@ -203,7 +203,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 	if alpn != nil {
 		// XXX: This can't be folded into the above because Go interface-typed
 		// values are never reported as nil
-		err := ch.extensions.Add(alpn)
+		err := ch.Extensions.Add(alpn)
 		if err != nil {
 			return nil, err
 		}
@@ -223,17 +223,17 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 		}
 
 		compatibleSuites := []CipherSuite{}
-		for _, suite := range ch.cipherSuites {
+		for _, suite := range ch.CipherSuites {
 			if cipherSuiteMap[suite].hash == keyParams.hash {
 				compatibleSuites = append(compatibleSuites, suite)
 			}
 		}
-		ch.cipherSuites = compatibleSuites
+		ch.CipherSuites = compatibleSuites
 
 		// Signal early data if we're going to do it
 		if opts.EarlyData != nil {
 			ed = &EarlyDataExtension{}
-			ch.extensions.Add(ed)
+			ch.Extensions.Add(ed)
 		}
 
 		// Add the shim PSK extension to the ClientHello
@@ -247,7 +247,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 				PSKBinderEntry{Binder: bytes.Repeat([]byte{0x00}, keyParams.hash.Size())},
 			},
 		}
-		ch.extensions.Add(psk)
+		ch.Extensions.Add(psk)
 
 		// Pre-Initialize the crypto context and compute the binder value
 		h.Context.preInit(key)
@@ -265,7 +265,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 
 		// Replace the PSK extension
 		psk.Binders[0].Binder = binder
-		ch.extensions.Add(psk)
+		ch.Extensions.Add(psk)
 
 		h.clientHello, err = handshakeMessageFromBody(ch)
 		if err != nil {
@@ -285,7 +285,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 
 func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 	// Unmarshal the ServerHello
-	sh := &serverHelloBody{}
+	sh := &ServerHelloBody{}
 	_, err := sh.Unmarshal(shm.body)
 	if err != nil {
 		return err
@@ -341,21 +341,21 @@ func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 func (h *clientHandshake) HandleServerFirstFlight(transcript []*handshakeMessage, finishedMessage *handshakeMessage) error {
 	// Extract messages from sequence
 	var err error
-	var ee *encryptedExtensionsBody
-	var cert *certificateBody
-	var certVerify *certificateVerifyBody
+	var ee *EncryptedExtensionsBody
+	var cert *CertificateBody
+	var certVerify *CertificateVerifyBody
 	var certVerifyIndex int
 	for i, msg := range transcript {
 		switch msg.msgType {
 		case HandshakeTypeEncryptedExtensions:
-			ee = new(encryptedExtensionsBody)
+			ee = new(EncryptedExtensionsBody)
 			_, err = ee.Unmarshal(msg.body)
 		case HandshakeTypeCertificate:
-			cert = new(certificateBody)
+			cert = new(CertificateBody)
 			_, err = cert.Unmarshal(msg.body)
 		case HandshakeTypeCertificateVerify:
 			certVerifyIndex = i
-			certVerify = new(certificateVerifyBody)
+			certVerify = new(CertificateVerifyBody)
 			_, err = certVerify.Unmarshal(msg.body)
 		}
 
@@ -390,13 +390,13 @@ func (h *clientHandshake) HandleServerFirstFlight(transcript []*handshakeMessage
 		}
 		logf(logTypeHandshake, "===")
 
-		serverPublicKey := cert.certificateList[0].certData.PublicKey
+		serverPublicKey := cert.CertificateList[0].CertData.PublicKey
 		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify, h.Context); err != nil {
 			return err
 		}
 
 		if h.AuthCertificate != nil {
-			err = h.AuthCertificate(cert.certificateList)
+			err = h.AuthCertificate(cert.CertificateList)
 			if err != nil {
 				return err
 			}
@@ -406,13 +406,13 @@ func (h *clientHandshake) HandleServerFirstFlight(transcript []*handshakeMessage
 	h.Context.updateWithServerFirstFlight(transcript)
 
 	// Verify server finished
-	sfin := new(finishedBody)
-	sfin.verifyDataLen = h.Context.serverFinished.verifyDataLen
+	sfin := new(FinishedBody)
+	sfin.VerifyDataLen = h.Context.serverFinished.VerifyDataLen
 	_, err = sfin.Unmarshal(finishedMessage.body)
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(sfin.verifyData, h.Context.serverFinished.verifyData) {
+	if !bytes.Equal(sfin.VerifyData, h.Context.serverFinished.VerifyData) {
 		return fmt.Errorf("tls.client: Server's Finished failed to verify")
 	}
 
@@ -459,7 +459,7 @@ func (h *serverHandshake) OutboundKeys() (aeadFactory, keySet) {
 }
 
 func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabilities) (*handshakeMessage, []*handshakeMessage, error) {
-	ch := &clientHelloBody{}
+	ch := &ClientHelloBody{}
 	_, err := ch.Unmarshal(chm.body)
 	if err != nil {
 		return nil, nil, err
@@ -475,15 +475,15 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	clientALPN := new(ALPNExtension)
 	clientPSKModes := new(PSKKeyExchangeModesExtension)
 
-	gotSupportedVersions := ch.extensions.Find(supportedVersions)
-	gotServerName := ch.extensions.Find(serverName)
-	gotSupportedGroups := ch.extensions.Find(supportedGroups)
-	gotSignatureAlgorithms := ch.extensions.Find(signatureAlgorithms)
-	gotEarlyData := ch.extensions.Find(clientEarlyData)
-	ch.extensions.Find(clientKeyShares)
-	ch.extensions.Find(clientPSK)
-	ch.extensions.Find(clientALPN)
-	ch.extensions.Find(clientPSKModes)
+	gotSupportedVersions := ch.Extensions.Find(supportedVersions)
+	gotServerName := ch.Extensions.Find(serverName)
+	gotSupportedGroups := ch.Extensions.Find(supportedGroups)
+	gotSignatureAlgorithms := ch.Extensions.Find(signatureAlgorithms)
+	gotEarlyData := ch.Extensions.Find(clientEarlyData)
+	ch.Extensions.Find(clientKeyShares)
+	ch.Extensions.Find(clientPSK)
+	ch.Extensions.Find(clientALPN)
+	ch.Extensions.Find(clientPSKModes)
 
 	if gotServerName {
 		h.Params.ServerName = string(*serverName)
@@ -559,7 +559,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	}
 
 	// Select a ciphersuite
-	chosenSuite, err := cipherSuiteNegotiation(psk, ch.cipherSuites, caps.CipherSuites)
+	chosenSuite, err := cipherSuiteNegotiation(psk, ch.CipherSuites, caps.CipherSuites)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -571,7 +571,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	}
 
 	// Create the ServerHello
-	sh := &serverHelloBody{
+	sh := &ServerHelloBody{
 		Version:     supportedVersion,
 		CipherSuite: chosenSuite,
 	}
@@ -633,7 +633,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 			return nil, nil, err
 		}
 	}
-	ee := &encryptedExtensionsBody{eeList}
+	ee := &EncryptedExtensionsBody{eeList}
 	eem, err := handshakeMessageFromBody(ee)
 	if err != nil {
 		return nil, nil, err
@@ -644,18 +644,18 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	// Authenticate with a certificate if required
 	if !h.Params.UsingPSK {
 		// Create and send Certificate, CertificateVerify
-		certificate := &certificateBody{
-			certificateList: make([]certificateEntry, len(cert.Chain)),
+		certificate := &CertificateBody{
+			CertificateList: make([]CertificateEntry, len(cert.Chain)),
 		}
 		for i, entry := range cert.Chain {
-			certificate.certificateList[i] = certificateEntry{certData: entry}
+			certificate.CertificateList[i] = CertificateEntry{CertData: entry}
 		}
 		certm, err := handshakeMessageFromBody(certificate)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		certificateVerify := &certificateVerifyBody{Algorithm: certScheme}
+		certificateVerify := &CertificateVerifyBody{Algorithm: certScheme}
 		logf(logTypeHandshake, "Creating CertVerify: %04x %v", certScheme, h.Context.params.hash)
 		err = certificateVerify.Sign(cert.PrivateKey, []*handshakeMessage{chm, shm, eem, certm}, h.Context)
 		if err != nil {
@@ -693,13 +693,13 @@ func (h *serverHandshake) HandleClientSecondFlight(transcript []*handshakeMessag
 	}
 
 	// Read and verify client Finished
-	cfin := new(finishedBody)
-	cfin.verifyDataLen = h.Context.clientFinished.verifyDataLen
+	cfin := new(FinishedBody)
+	cfin.VerifyDataLen = h.Context.clientFinished.VerifyDataLen
 	_, err = cfin.Unmarshal(finishedMessage.body)
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(cfin.verifyData, h.Context.clientFinished.verifyData) {
+	if !bytes.Equal(cfin.VerifyData, h.Context.clientFinished.VerifyData) {
 		return fmt.Errorf("tls.server: Client's Finished failed to verify")
 	}
 
@@ -709,7 +709,7 @@ func (h *serverHandshake) HandleClientSecondFlight(transcript []*handshakeMessag
 func (h *serverHandshake) CreateNewSessionTicket(length int, lifetime uint32) (PreSharedKey, *handshakeMessage, error) {
 	// TODO: Check that we're in the right state for this
 
-	tkt, err := newSessionTicket(length)
+	tkt, err := NewSessionTicket(length)
 	if err != nil {
 		return PreSharedKey{}, nil, err
 	}

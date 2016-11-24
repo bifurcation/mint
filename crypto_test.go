@@ -358,25 +358,25 @@ func random(n int) []byte {
 }
 
 var (
-	clientHelloContextIn = &clientHelloBody{
-		cipherSuites: []CipherSuite{
+	clientHelloContextIn = &ClientHelloBody{
+		CipherSuites: []CipherSuite{
 			TLS_AES_128_GCM_SHA256,
 		},
 	}
 
-	serverHelloContextIn = &serverHelloBody{
+	serverHelloContextIn = &ServerHelloBody{
 		CipherSuite: TLS_AES_128_GCM_SHA256,
 	}
 
-	certificateContextIn = &certificateBody{
-		certificateRequestContext: []byte{},
-		certificateList: []certificateEntry{
-			{certData: cert1},
-			{certData: cert2},
+	certificateContextIn = &CertificateBody{
+		CertificateRequestContext: []byte{},
+		CertificateList: []CertificateEntry{
+			{CertData: cert1},
+			{CertData: cert2},
 		},
 	}
 
-	certificateVerifyContextIn = &certificateVerifyBody{
+	certificateVerifyContextIn = &CertificateVerifyBody{
 		Algorithm: RSA_PSS_SHA256,
 		Signature: random(64),
 	}
@@ -390,19 +390,19 @@ func keySetEmpty(k keySet) bool {
 }
 
 func TestCryptoContext(t *testing.T) {
-	rand.Reader.Read(clientHelloContextIn.random[:])
+	rand.Reader.Read(clientHelloContextIn.Random[:])
 	rand.Reader.Read(serverHelloContextIn.Random[:])
 
-	clientHelloContextIn.extensions.Add(&SupportedGroupsExtension{
+	clientHelloContextIn.Extensions.Add(&SupportedGroupsExtension{
 		Groups: []NamedGroup{P256, P521},
 	})
-	clientHelloContextIn.extensions.Add(&SignatureAlgorithmsExtension{
+	clientHelloContextIn.Extensions.Add(&SignatureAlgorithmsExtension{
 		Algorithms: []SignatureScheme{
 			RSA_PSS_SHA256,
 			ECDSA_P256_SHA256,
 		},
 	})
-	clientHelloContextIn.extensions.Add(&KeyShareExtension{
+	clientHelloContextIn.Extensions.Add(&KeyShareExtension{
 		HandshakeType: HandshakeTypeClientHello,
 		Shares: []KeyShareEntry{
 			KeyShareEntry{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256))},
@@ -431,7 +431,7 @@ func TestCryptoContext(t *testing.T) {
 	assertNotError(t, err, "Failed to generate key pair")
 	cert, err := newSelfSigned("example.com", alg, priv)
 	assertNotError(t, err, "Failed to sign certificate")
-	certificateContextIn.certificateList[0].certData = cert
+	certificateContextIn.CertificateList[0].CertData = cert
 
 	// BEGIN TESTS
 

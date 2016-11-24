@@ -54,7 +54,7 @@ type Config struct {
 
 	// Client fields
 	ServerName      string
-	AuthCertificate func(chain []certificateEntry) error // TODO(#20) -> Both
+	AuthCertificate func(chain []CertificateEntry) error // TODO(#20) -> Both
 
 	// Server fields
 	Certificates       []*Certificate
@@ -192,7 +192,7 @@ type Conn struct {
 	handshakeErr      error
 	handshakeComplete bool
 
-	certificateList []certificateEntry
+	certificateList []CertificateEntry
 
 	readBuffer        []byte
 	in, out           *recordLayer
@@ -632,7 +632,7 @@ func (c *Conn) serverHandshake() error {
 	hOut := newHandshakeLayer(c.out)
 
 	// Read ClientHello and extract extensions
-	ch := new(clientHelloBody)
+	ch := new(ClientHelloBody)
 	chm, err := hIn.ReadMessageBody(ch)
 	if err != nil {
 		logf(logTypeHandshake, "Unable to read ClientHello: %v", err)

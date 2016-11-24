@@ -8,12 +8,12 @@ import (
 
 var structs = []interface{}{
 	// Handshake messages
-	&clientHelloBody{},
-	&serverHelloBody{},
-	&finishedBody{verifyDataLen: 32},
-	&encryptedExtensionsBody{},
-	&certificateBody{},
-	&certificateVerifyBody{},
+	&ClientHelloBody{},
+	&ServerHelloBody{},
+	&FinishedBody{VerifyDataLen: 32},
+	&EncryptedExtensionsBody{},
+	&CertificateBody{},
+	&CertificateVerifyBody{},
 
 	// Extensions
 	&Extension{},

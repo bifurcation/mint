@@ -741,7 +741,7 @@ type cryptoContext struct {
 
 	// updateWithServerFirstFlight(...)
 	serverFinishedData  []byte
-	serverFinished      *finishedBody
+	serverFinished      *FinishedBody
 	clientTrafficSecret []byte
 	serverTrafficSecret []byte
 	clientTrafficKeys   keySet
@@ -750,7 +750,7 @@ type cryptoContext struct {
 
 	// updateWithClientSecondFlight(...)
 	clientFinishedData []byte
-	clientFinished     *finishedBody
+	clientFinished     *FinishedBody
 	resumptionSecret   []byte
 }
 
@@ -932,9 +932,9 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) 
 	ctx.serverFinishedData = ctx.computeFinishedData(ctx.serverHandshakeTrafficSecret, ctx.h3)
 	logf(logTypeCrypto, "server finished data: [%d] %x", len(ctx.serverFinishedData), ctx.serverFinishedData)
 
-	ctx.serverFinished = &finishedBody{
-		verifyDataLen: ctx.params.hash.Size(),
-		verifyData:    ctx.serverFinishedData,
+	ctx.serverFinished = &FinishedBody{
+		VerifyDataLen: ctx.params.hash.Size(),
+		VerifyData:    ctx.serverFinishedData,
 	}
 
 	// Update the handshake hash with the Finished message
@@ -989,9 +989,9 @@ func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*handshakeMessage)
 	ctx.clientFinishedData = ctx.computeFinishedData(ctx.clientHandshakeTrafficSecret, ctx.h5)
 	logf(logTypeCrypto, "client Finished data: [%d] %x", len(ctx.clientFinishedData), ctx.clientFinishedData)
 
-	ctx.clientFinished = &finishedBody{
-		verifyDataLen: ctx.params.hash.Size(),
-		verifyData:    ctx.clientFinishedData,
+	ctx.clientFinished = &FinishedBody{
+		VerifyDataLen: ctx.params.hash.Size(),
+		VerifyData:    ctx.clientFinishedData,
 	}
 
 	// Update the handshake hash
