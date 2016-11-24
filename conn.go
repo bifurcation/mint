@@ -366,16 +366,16 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 	// Send full-size fragments
 	var start int
 	sent := 0
-	for start = 0; len(buffer)-start >= maxFragmentLen; start += maxFragmentLen {
+	for start = 0; len(buffer)-start >= maxPlainFragmentLen; start += maxPlainFragmentLen {
 		err := c.out.WriteRecord(&tlsPlaintext{
 			contentType: recordTypeApplicationData,
-			fragment:    buffer[start : start+maxFragmentLen],
+			fragment:    buffer[start : start+maxPlainFragmentLen],
 		})
 
 		if err != nil {
 			return sent, err
 		}
-		sent += maxFragmentLen
+		sent += maxPlainFragmentLen
 	}
 
 	// Send a final partial fragment if necessary

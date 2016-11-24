@@ -153,6 +153,55 @@ func TestConnReadNonzeroAndEOF(t *testing.T) {
 	t.Error(err)
 }
 
+func TestConnReadLong(t *testing.T) {
+	ln := newLocalListener(t)
+	defer ln.Close()
+
+	srvCh := make(chan *Conn, 1)
+	var serr error
+	go func() {
+		sconn, err := ln.Accept()
+		if err != nil {
+			serr = err
+			srvCh <- nil
+			return
+		}
+		serverConfig := Config{ServerName: "example.com"}
+		srv := Server(sconn, &serverConfig)
+		if err := srv.Handshake(); err != nil {
+			fmt.Printf("handshake: %v", err)
+			serr = fmt.Errorf("handshake: %v", err)
+			srvCh <- nil
+			return
+		}
+		srvCh <- srv
+	}()
+
+	clientConfig := Config{}
+	conn, err := Dial("tcp", ln.Addr().String(), &clientConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	srv := <-srvCh
+	if srv == nil {
+		t.Errorf("srv == nil: %s", serr)
+	}
+
+	buf := make([]byte, 1<<30)
+	message := make([]byte, 1<<30)
+
+	var i uint
+
+	i = 16
+	srv.Write(message[0 : 1<<i])
+	n, err := conn.Read(buf)
+	if n != 1<<i || err != nil {
+		t.Errorf("Read = %d, expected %d failed, error: %v", n, 1<<i, err)
+	}
+}
+
 func testConnReadNonzeroAndEOF(t *testing.T, delay time.Duration) error {
 	ln := newLocalListener(t)
 	defer ln.Close()
