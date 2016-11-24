@@ -16,18 +16,18 @@ var structs = []interface{}{
 	&certificateVerifyBody{},
 
 	// Extensions
-	&extension{},
-	&extensionList{},
-	new(serverNameExtension),
-	&alpnExtension{},
-	&keyShareExtension{HandshakeType: HandshakeTypeClientHello},
-	&keyShareExtension{HandshakeType: HandshakeTypeHelloRetryRequest},
-	&keyShareExtension{HandshakeType: HandshakeTypeServerHello},
-	&supportedGroupsExtension{},
-	&signatureAlgorithmsExtension{},
-	&preSharedKeyExtension{HandshakeType: HandshakeTypeClientHello},
-	&preSharedKeyExtension{HandshakeType: HandshakeTypeServerHello},
-	&supportedVersionsExtension{},
+	&Extension{},
+	&ExtensionList{},
+	new(ServerNameExtension),
+	&ALPNExtension{},
+	&KeyShareExtension{HandshakeType: HandshakeTypeClientHello},
+	&KeyShareExtension{HandshakeType: HandshakeTypeHelloRetryRequest},
+	&KeyShareExtension{HandshakeType: HandshakeTypeServerHello},
+	&SupportedGroupsExtension{},
+	&SignatureAlgorithmsExtension{},
+	&PreSharedKeyExtension{HandshakeType: HandshakeTypeClientHello},
+	&PreSharedKeyExtension{HandshakeType: HandshakeTypeServerHello},
+	&SupportedVersionsExtension{},
 }
 
 var validHex = []string{
@@ -42,16 +42,16 @@ var validHex = []string{
 	// Extensions
 	extValidHex,
 	extListValidHex,
-	validExtensionTestCases[extensionTypeServerName].marshaledHex,
-	validExtensionTestCases[extensionTypeALPN].marshaledHex,
+	validExtensionTestCases[ExtensionTypeServerName].marshaledHex,
+	validExtensionTestCases[ExtensionTypeALPN].marshaledHex,
 	keyShareClientHex,
 	keyShareHelloRetryHex,
 	keyShareServerHex,
-	validExtensionTestCases[extensionTypeSupportedGroups].marshaledHex,
-	validExtensionTestCases[extensionTypeSignatureAlgorithms].marshaledHex,
+	validExtensionTestCases[ExtensionTypeSupportedGroups].marshaledHex,
+	validExtensionTestCases[ExtensionTypeSignatureAlgorithms].marshaledHex,
 	pskClientHex,
 	pskServerHex,
-	validExtensionTestCases[extensionTypeSupportedVersions].marshaledHex,
+	validExtensionTestCases[ExtensionTypeSupportedVersions].marshaledHex,
 }
 
 func randomBytes(n int, rand *rand.Rand) []byte {

@@ -37,9 +37,9 @@ var (
 	chTruncValid = clientHelloBody{
 		random:       helloRandom,
 		cipherSuites: chCipherSuites,
-		extensions: []extension{
-			extension{
-				ExtensionType: extensionTypePreSharedKey,
+		extensions: []Extension{
+			Extension{
+				ExtensionType: ExtensionTypePreSharedKey,
 				ExtensionData: chTruncPSKData,
 			},
 		},
@@ -48,20 +48,20 @@ var (
 	chTruncNoExt   = clientHelloBody{
 		random:       helloRandom,
 		cipherSuites: chCipherSuites,
-		extensions:   []extension{},
+		extensions:   []Extension{},
 	}
 	chTruncNoPSK = clientHelloBody{
 		random:       helloRandom,
 		cipherSuites: chCipherSuites,
-		extensions: []extension{
-			extension{ExtensionType: extensionTypeEarlyData},
+		extensions: []Extension{
+			Extension{ExtensionType: ExtensionTypeEarlyData},
 		},
 	}
 	chTruncBadPSK = clientHelloBody{
 		random:       helloRandom,
 		cipherSuites: chCipherSuites,
-		extensions: []extension{
-			extension{ExtensionType: extensionTypePreSharedKey},
+		extensions: []Extension{
+			Extension{ExtensionType: ExtensionTypePreSharedKey},
 		},
 	}
 
@@ -171,8 +171,8 @@ var (
 		TicketLifetime: 0x00010203,
 		TicketAgeAdd:   0x04050607,
 		Ticket:         []byte{0x08, 0x09, 0x0a, 0x0b},
-		Extensions: []extension{
-			extension{
+		Extensions: []Extension{
+			Extension{
 				ExtensionType: 0xeeff,
 				ExtensionData: []byte{0x11, 0x22},
 			},

@@ -41,7 +41,7 @@ type clientHelloBody struct {
 	// Omitted: legacyCompressionMethods
 	random       [32]byte
 	cipherSuites []CipherSuite
-	extensions   extensionList
+	extensions   ExtensionList
 }
 
 type clientHelloBodyInner struct {
@@ -50,7 +50,7 @@ type clientHelloBodyInner struct {
 	LegacySessionID          []byte        `tls:"head=1,max=32"`
 	CipherSuites             []CipherSuite `tls:"head=2,min=2"`
 	LegacyCompressionMethods []byte        `tls:"head=1,min=1"`
-	Extensions               []extension   `tls:"head=2"`
+	Extensions               []Extension   `tls:"head=2"`
 }
 
 func (ch clientHelloBody) Type() HandshakeType {
@@ -97,7 +97,7 @@ func (ch clientHelloBody) Truncated() ([]byte, error) {
 	}
 
 	pskExt := ch.extensions[len(ch.extensions)-1]
-	if pskExt.ExtensionType != extensionTypePreSharedKey {
+	if pskExt.ExtensionType != ExtensionTypePreSharedKey {
 		return nil, fmt.Errorf("tls.clienthello.truncate: Last extension is not PSK")
 	}
 
@@ -107,7 +107,7 @@ func (ch clientHelloBody) Truncated() ([]byte, error) {
 	}
 	chData := chm.Marshal()
 
-	psk := preSharedKeyExtension{
+	psk := PreSharedKeyExtension{
 		HandshakeType: HandshakeTypeClientHello,
 	}
 	_, err = psk.Unmarshal(pskExt.ExtensionData)
@@ -117,8 +117,8 @@ func (ch clientHelloBody) Truncated() ([]byte, error) {
 
 	// Marshal just the binders so that we know how much to truncate
 	binders := struct {
-		Binders []pskBinderEntry `tls:"head=2,min=33"`
-	}{Binders: psk.binders}
+		Binders []PSKBinderEntry `tls:"head=2,min=33"`
+	}{Binders: psk.Binders}
 	binderData, _ := syntax.Marshal(binders)
 	binderLen := len(binderData)
 
@@ -136,7 +136,7 @@ type serverHelloBody struct {
 	Version     uint16
 	Random      [32]byte
 	CipherSuite CipherSuite
-	Extensions  extensionList `tls:"head=2"`
+	Extensions  ExtensionList `tls:"head=2"`
 }
 
 func (sh serverHelloBody) Type() HandshakeType {
@@ -197,9 +197,9 @@ func (fin *finishedBody) Unmarshal(data []byte) (int, error) {
 //     Extension extensions<0..2^16-1>;
 // } EncryptedExtensions;
 //
-// Marshal() and Unmarshal() are handled by extensionList
+// Marshal() and Unmarshal() are handled by ExtensionList
 type encryptedExtensionsBody struct {
-	Extensions extensionList `tls:"head=2"`
+	Extensions ExtensionList `tls:"head=2"`
 }
 
 func (ee encryptedExtensionsBody) Type() HandshakeType {
@@ -227,7 +227,7 @@ func (ee *encryptedExtensionsBody) Unmarshal(data []byte) (int, error) {
 // } Certificate;
 type certificateEntry struct {
 	certData   *x509.Certificate
-	extensions extensionList
+	extensions ExtensionList
 }
 
 type certificateBody struct {
@@ -306,7 +306,7 @@ func (c *certificateBody) Unmarshal(data []byte) (int, error) {
 			return 0, fmt.Errorf("tls:certificate: Certificate failed to parse: %v", err)
 		}
 
-		var ext extensionList
+		var ext ExtensionList
 		read, err := ext.Unmarshal(data[start+3+certLen:])
 		if err != nil {
 			return 0, err
@@ -404,7 +404,7 @@ type newSessionTicketBody struct {
 	TicketLifetime uint32
 	TicketAgeAdd   uint32
 	Ticket         []byte        `tls:"head=2,min=1"`
-	Extensions     extensionList `tls:"head=2"`
+	Extensions     ExtensionList `tls:"head=2"`
 }
 
 func newSessionTicket(ticketLen int) (*newSessionTicketBody, error) {

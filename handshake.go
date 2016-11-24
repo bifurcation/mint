@@ -156,9 +156,9 @@ func (h *clientHandshake) HandleNewSessionTicket(hm *handshakeMessage) (PreShare
 func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabilities) (*handshakeMessage, error) {
 	// key_shares
 	h.OfferedDH = map[NamedGroup][]byte{}
-	ks := keyShareExtension{
+	ks := KeyShareExtension{
 		HandshakeType: HandshakeTypeClientHello,
-		shares:        make([]keyShareEntry, len(caps.Groups)),
+		Shares:        make([]KeyShareEntry, len(caps.Groups)),
 	}
 	for i, group := range caps.Groups {
 		pub, priv, err := newKeyShare(group)
@@ -166,24 +166,24 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 			return nil, err
 		}
 
-		ks.shares[i].Group = group
-		ks.shares[i].KeyExchange = pub
+		ks.Shares[i].Group = group
+		ks.Shares[i].KeyExchange = pub
 		h.OfferedDH[group] = priv
 	}
 
 	// supported_versions, supported_groups, signature_algorithms, server_name
-	sv := supportedVersionsExtension{Versions: []uint16{supportedVersion}}
-	sni := serverNameExtension(opts.ServerName)
-	sg := supportedGroupsExtension{Groups: caps.Groups}
-	sa := signatureAlgorithmsExtension{Algorithms: caps.SignatureSchemes}
-	kem := pskKeyExchangeModesExtension{KEModes: caps.PSKModes}
+	sv := SupportedVersionsExtension{Versions: []uint16{supportedVersion}}
+	sni := ServerNameExtension(opts.ServerName)
+	sg := SupportedGroupsExtension{Groups: caps.Groups}
+	sa := SignatureAlgorithmsExtension{Algorithms: caps.SignatureSchemes}
+	kem := PSKKeyExchangeModesExtension{KEModes: caps.PSKModes}
 
 	h.Params.ServerName = opts.ServerName
 
 	// Application Layer Protocol Negotiation
-	var alpn *alpnExtension
+	var alpn *ALPNExtension
 	if (opts.NextProtos != nil) && (len(opts.NextProtos) > 0) {
-		alpn = &alpnExtension{protocols: opts.NextProtos}
+		alpn = &ALPNExtension{Protocols: opts.NextProtos}
 	}
 
 	// Construct base ClientHello
@@ -194,7 +194,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 	if err != nil {
 		return nil, err
 	}
-	for _, ext := range []extensionBody{&sv, &sni, &ks, &sg, &sa, &kem} {
+	for _, ext := range []ExtensionBody{&sv, &sni, &ks, &sg, &sa, &kem} {
 		err := ch.extensions.Add(ext)
 		if err != nil {
 			return nil, err
@@ -211,8 +211,8 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 
 	// Handle PSK and EarlyData just before transmitting, so that we can
 	// calculate the PSK binder value
-	var psk *preSharedKeyExtension
-	var ed *earlyDataExtension
+	var psk *PreSharedKeyExtension
+	var ed *EarlyDataExtension
 	if key, ok := caps.PSKs[opts.ServerName]; ok {
 		h.OfferedPSK = key
 
@@ -232,19 +232,19 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 
 		// Signal early data if we're going to do it
 		if opts.EarlyData != nil {
-			ed = &earlyDataExtension{}
+			ed = &EarlyDataExtension{}
 			ch.extensions.Add(ed)
 		}
 
 		// Add the shim PSK extension to the ClientHello
-		psk = &preSharedKeyExtension{
+		psk = &PreSharedKeyExtension{
 			HandshakeType: HandshakeTypeClientHello,
-			identities: []pskIdentity{
-				pskIdentity{Identity: key.Identity},
+			Identities: []PSKIdentity{
+				PSKIdentity{Identity: key.Identity},
 			},
-			binders: []pskBinderEntry{
+			Binders: []PSKBinderEntry{
 				// Note: Stub to get the length fields right
-				pskBinderEntry{Binder: bytes.Repeat([]byte{0x00}, keyParams.hash.Size())},
+				PSKBinderEntry{Binder: bytes.Repeat([]byte{0x00}, keyParams.hash.Size())},
 			},
 		}
 		ch.extensions.Add(psk)
@@ -264,7 +264,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 		binder := h.Context.computeFinishedData(h.Context.binderKey, truncHash.Sum(nil))
 
 		// Replace the PSK extension
-		psk.binders[0].Binder = binder
+		psk.Binders[0].Binder = binder
 		ch.extensions.Add(psk)
 
 		h.clientHello, err = handshakeMessageFromBody(ch)
@@ -297,15 +297,15 @@ func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 	}
 
 	// Do PSK or key agreement depending on extensions
-	serverPSK := preSharedKeyExtension{HandshakeType: HandshakeTypeServerHello}
-	serverKeyShare := keyShareExtension{HandshakeType: HandshakeTypeServerHello}
-	serverEarlyData := earlyDataExtension{}
+	serverPSK := PreSharedKeyExtension{HandshakeType: HandshakeTypeServerHello}
+	serverKeyShare := KeyShareExtension{HandshakeType: HandshakeTypeServerHello}
+	serverEarlyData := EarlyDataExtension{}
 
 	foundPSK := sh.Extensions.Find(&serverPSK)
 	foundKeyShare := sh.Extensions.Find(&serverKeyShare)
 	h.Params.UsingEarlyData = sh.Extensions.Find(&serverEarlyData)
 
-	if foundPSK && (serverPSK.selectedIdentity == 0) {
+	if foundPSK && (serverPSK.SelectedIdentity == 0) {
 		h.PSK = h.OfferedPSK.Key
 		h.Params.UsingPSK = true
 		logf(logTypeHandshake, "[client] got PSK extension")
@@ -316,7 +316,7 @@ func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 
 	var dhSecret []byte
 	if foundKeyShare {
-		sks := serverKeyShare.shares[0]
+		sks := serverKeyShare.Shares[0]
 		priv, ok := h.OfferedDH[sks.Group]
 		if !ok {
 			return fmt.Errorf("Server key share for unknown group")
@@ -365,14 +365,14 @@ func (h *clientHandshake) HandleServerFirstFlight(transcript []*handshakeMessage
 	}
 
 	// Read data from EncryptedExtensions
-	serverALPN := alpnExtension{}
-	serverEarlyData := earlyDataExtension{}
+	serverALPN := ALPNExtension{}
+	serverEarlyData := EarlyDataExtension{}
 
 	gotALPN := ee.Extensions.Find(&serverALPN)
 	h.Params.UsingEarlyData = ee.Extensions.Find(&serverEarlyData)
 
-	if gotALPN && len(serverALPN.protocols) > 0 {
-		h.Params.NextProto = serverALPN.protocols[0]
+	if gotALPN && len(serverALPN.Protocols) > 0 {
+		h.Params.NextProto = serverALPN.Protocols[0]
 	}
 
 	// Verify the server's certificate if we're not using a PSK for authentication
@@ -465,15 +465,15 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 		return nil, nil, err
 	}
 
-	supportedVersions := new(supportedVersionsExtension)
-	serverName := new(serverNameExtension)
-	supportedGroups := new(supportedGroupsExtension)
-	signatureAlgorithms := new(signatureAlgorithmsExtension)
-	clientKeyShares := &keyShareExtension{HandshakeType: HandshakeTypeClientHello}
-	clientPSK := &preSharedKeyExtension{HandshakeType: HandshakeTypeClientHello}
-	clientEarlyData := &earlyDataExtension{}
-	clientALPN := new(alpnExtension)
-	clientPSKModes := new(pskKeyExchangeModesExtension)
+	supportedVersions := new(SupportedVersionsExtension)
+	serverName := new(ServerNameExtension)
+	supportedGroups := new(SupportedGroupsExtension)
+	signatureAlgorithms := new(SignatureAlgorithmsExtension)
+	clientKeyShares := &KeyShareExtension{HandshakeType: HandshakeTypeClientHello}
+	clientPSK := &PreSharedKeyExtension{HandshakeType: HandshakeTypeClientHello}
+	clientEarlyData := &EarlyDataExtension{}
+	clientALPN := new(ALPNExtension)
+	clientPSKModes := new(PSKKeyExchangeModesExtension)
 
 	gotSupportedVersions := ch.extensions.Find(supportedVersions)
 	gotServerName := ch.extensions.Find(serverName)
@@ -502,19 +502,19 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	}
 
 	// Figure out if we can do DH
-	canDoDH, dhGroup, dhPub, dhSecret := dhNegotiation(clientKeyShares.shares, caps.Groups)
+	canDoDH, dhGroup, dhPub, dhSecret := dhNegotiation(clientKeyShares.Shares, caps.Groups)
 
 	// Figure out if we can do PSK
 	canDoPSK := false
 	var selectedPSK int
 	var psk *PreSharedKey
 	var ctx cryptoContext
-	if len(clientPSK.identities) > 0 {
+	if len(clientPSK.Identities) > 0 {
 		chTrunc, err := ch.Truncated()
 		if err != nil {
 			return nil, nil, err
 		}
-		canDoPSK, selectedPSK, psk, ctx, err = pskNegotiation(clientPSK.identities, clientPSK.binders, chTrunc, caps.PSKs)
+		canDoPSK, selectedPSK, psk, ctx, err = pskNegotiation(clientPSK.Identities, clientPSK.Binders, chTrunc, caps.PSKs)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -565,7 +565,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	}
 
 	// Select a next protocol
-	h.Params.NextProto, err = alpnNegotiation(psk, clientALPN.protocols, caps.NextProtos)
+	h.Params.NextProto, err = alpnNegotiation(psk, clientALPN.Protocols, caps.NextProtos)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -581,9 +581,9 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	}
 	if h.Params.UsingDH {
 		logf(logTypeHandshake, "[server] sending DH extension")
-		err = sh.Extensions.Add(&keyShareExtension{
+		err = sh.Extensions.Add(&KeyShareExtension{
 			HandshakeType: HandshakeTypeServerHello,
-			shares:        []keyShareEntry{keyShareEntry{Group: dhGroup, KeyExchange: dhPub}},
+			Shares:        []KeyShareEntry{KeyShareEntry{Group: dhGroup, KeyExchange: dhPub}},
 		})
 		if err != nil {
 			return nil, nil, err
@@ -591,9 +591,9 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	}
 	if h.Params.UsingPSK {
 		logf(logTypeHandshake, "[server] sending PSK extension")
-		err = sh.Extensions.Add(&preSharedKeyExtension{
+		err = sh.Extensions.Add(&PreSharedKeyExtension{
 			HandshakeType:    HandshakeTypeServerHello,
-			selectedIdentity: uint16(selectedPSK),
+			SelectedIdentity: uint16(selectedPSK),
 		})
 		if err != nil {
 			return nil, nil, err
@@ -618,17 +618,17 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	}
 
 	// Send an EncryptedExtensions message (even if it's empty)
-	eeList := extensionList{}
+	eeList := ExtensionList{}
 	if h.Params.NextProto != "" {
 		logf(logTypeHandshake, "[server] sending ALPN extension")
-		err = eeList.Add(&alpnExtension{protocols: []string{h.Params.NextProto}})
+		err = eeList.Add(&ALPNExtension{Protocols: []string{h.Params.NextProto}})
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 	if h.Params.UsingEarlyData {
 		logf(logTypeHandshake, "[server] sending EDI extension")
-		err = eeList.Add(&earlyDataExtension{})
+		err = eeList.Add(&EarlyDataExtension{})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -716,7 +716,7 @@ func (h *serverHandshake) CreateNewSessionTicket(length int, lifetime uint32) (P
 
 	tkt.TicketLifetime = lifetime
 
-	err = tkt.Extensions.Add(&ticketEarlyDataInfoExtension{1 << 24})
+	err = tkt.Extensions.Add(&TicketEarlyDataInfoExtension{1 << 24})
 	if err != nil {
 		return PreSharedKey{}, nil, err
 	}

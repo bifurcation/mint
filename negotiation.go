@@ -20,7 +20,7 @@ func versionNegotiation(offered, supported []uint16) (bool, uint16) {
 	return false, 0
 }
 
-func dhNegotiation(keyShares []keyShareEntry, groups []NamedGroup) (bool, NamedGroup, []byte, []byte) {
+func dhNegotiation(keyShares []KeyShareEntry, groups []NamedGroup) (bool, NamedGroup, []byte, []byte) {
 	for _, share := range keyShares {
 		for _, group := range groups {
 			if group != share.Group {
@@ -46,7 +46,7 @@ func dhNegotiation(keyShares []keyShareEntry, groups []NamedGroup) (bool, NamedG
 	return false, 0, nil, nil
 }
 
-func pskNegotiation(identities []pskIdentity, binders []pskBinderEntry, chTrunc []byte, psks map[string]PreSharedKey) (bool, int, *PreSharedKey, cryptoContext, error) {
+func pskNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, chTrunc []byte, psks map[string]PreSharedKey) (bool, int, *PreSharedKey, cryptoContext, error) {
 	logf(logTypeNegotiation, "Negotiating PSK offered=[%d] supported=[%d]", len(identities), len(psks))
 	for i, id := range identities {
 		for _, key := range psks {

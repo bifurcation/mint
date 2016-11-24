@@ -393,27 +393,27 @@ func TestCryptoContext(t *testing.T) {
 	rand.Reader.Read(clientHelloContextIn.random[:])
 	rand.Reader.Read(serverHelloContextIn.Random[:])
 
-	clientHelloContextIn.extensions.Add(&supportedGroupsExtension{
+	clientHelloContextIn.extensions.Add(&SupportedGroupsExtension{
 		Groups: []NamedGroup{P256, P521},
 	})
-	clientHelloContextIn.extensions.Add(&signatureAlgorithmsExtension{
+	clientHelloContextIn.extensions.Add(&SignatureAlgorithmsExtension{
 		Algorithms: []SignatureScheme{
 			RSA_PSS_SHA256,
 			ECDSA_P256_SHA256,
 		},
 	})
-	clientHelloContextIn.extensions.Add(&keyShareExtension{
+	clientHelloContextIn.extensions.Add(&KeyShareExtension{
 		HandshakeType: HandshakeTypeClientHello,
-		shares: []keyShareEntry{
-			keyShareEntry{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256))},
-			keyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
+		Shares: []KeyShareEntry{
+			KeyShareEntry{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256))},
+			KeyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
 		},
 	})
 
-	serverHelloContextIn.Extensions.Add(&keyShareExtension{
+	serverHelloContextIn.Extensions.Add(&KeyShareExtension{
 		HandshakeType: HandshakeTypeServerHello,
-		shares: []keyShareEntry{
-			keyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
+		Shares: []KeyShareEntry{
+			KeyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
 		},
 	})
 

@@ -18,11 +18,11 @@ func TestVersionNegotiation(t *testing.T) {
 }
 
 func TestDHNegotiation(t *testing.T) {
-	keyShares := []keyShareEntry{
+	keyShares := []KeyShareEntry{
 		{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256))},
 		{Group: X25519, KeyExchange: random(keyExchangeSizeFromNamedGroup(X25519))},
 	}
-	badKeyShares := []keyShareEntry{
+	badKeyShares := []KeyShareEntry{
 		{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256) - 2)},
 		{Group: X25519, KeyExchange: random(keyExchangeSizeFromNamedGroup(X25519))},
 	}
@@ -59,15 +59,15 @@ func TestPSKNegotiation(t *testing.T) {
 	chTrunc, _ := hex.DecodeString("0001020304050607")
 	binderValue, _ := hex.DecodeString("9c4bfad67420fbc3f03809744929f9f3d21030fd15e886881bbe21b7ca28ee16")
 
-	identities := []pskIdentity{
+	identities := []PSKIdentity{
 		{Identity: []byte{0, 1, 2, 3}},
 		{Identity: []byte{4, 5, 6, 7}},
 	}
-	binders := []pskBinderEntry{
+	binders := []PSKBinderEntry{
 		{Binder: binderValue},
 		{Binder: binderValue},
 	}
-	badBinders := []pskBinderEntry{
+	badBinders := []PSKBinderEntry{
 		{Binder: []byte{}},
 		{Binder: []byte{}},
 	}

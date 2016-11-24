@@ -69,20 +69,20 @@ const (
 )
 
 // enum {...} ExtensionType
-type extensionType uint16
+type ExtensionType uint16
 
 const (
-	extensionTypeServerName          extensionType = 0
-	extensionTypeSupportedGroups     extensionType = 10
-	extensionTypeSignatureAlgorithms extensionType = 13
-	extensionTypeALPN                extensionType = 16
-	extensionTypeKeyShare            extensionType = 40
-	extensionTypePreSharedKey        extensionType = 41
-	extensionTypeEarlyData           extensionType = 42
-	extensionTypeSupportedVersions   extensionType = 43
-	extensionTypeCookie              extensionType = 44
-	extensionTypePSKKeyExchangeModes extensionType = 45
-	extensionTypeTicketEarlyDataInfo extensionType = 46
+	ExtensionTypeServerName          ExtensionType = 0
+	ExtensionTypeSupportedGroups     ExtensionType = 10
+	ExtensionTypeSignatureAlgorithms ExtensionType = 13
+	ExtensionTypeALPN                ExtensionType = 16
+	ExtensionTypeKeyShare            ExtensionType = 40
+	ExtensionTypePreSharedKey        ExtensionType = 41
+	ExtensionTypeEarlyData           ExtensionType = 42
+	ExtensionTypeSupportedVersions   ExtensionType = 43
+	ExtensionTypeCookie              ExtensionType = 44
+	ExtensionTypePSKKeyExchangeModes ExtensionType = 45
+	ExtensionTypeTicketEarlyDataInfo ExtensionType = 46
 )
 
 // enum {...} NamedGroup
