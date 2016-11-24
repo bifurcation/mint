@@ -172,27 +172,6 @@ func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 	return hm, nil
 }
 
-func (h *HandshakeLayer) ReadMessageBody(body HandshakeMessageBody) (*HandshakeMessage, error) {
-	hm, err := h.ReadMessage()
-	if err != nil {
-		return nil, err
-	}
-
-	if hm.msgType != body.Type() {
-		return nil, fmt.Errorf("tls.handshakelayer: Unexpected message type %v != %v", hm.msgType, body.Type())
-	}
-
-	read, err := body.Unmarshal(hm.body)
-	if err != nil {
-		return nil, err
-	}
-
-	if read < len(hm.body) {
-		return nil, fmt.Errorf("tls.handshakelayer: Extra data in message (%d)", len(hm.body)-read)
-	}
-	return hm, nil
-}
-
 func (h *HandshakeLayer) WriteMessage(hm *HandshakeMessage) error {
 	return h.WriteMessages([]*HandshakeMessage{hm})
 }
@@ -238,28 +217,4 @@ func (h *HandshakeLayer) WriteMessages(hms []*HandshakeMessage) error {
 		}
 	}
 	return nil
-}
-
-func (h *HandshakeLayer) WriteMessageBody(body HandshakeMessageBody) (*HandshakeMessage, error) {
-	hms, err := h.WriteMessageBodies([]HandshakeMessageBody{body})
-	if err != nil {
-		return nil, err
-	}
-
-	// When it succeeds, WriteMessageBodies always returns as many messages as
-	// bodies were provided in the input array
-	return hms[0], nil
-}
-
-func (h *HandshakeLayer) WriteMessageBodies(bodies []HandshakeMessageBody) ([]*HandshakeMessage, error) {
-	hms := make([]*HandshakeMessage, len(bodies))
-	for i, body := range bodies {
-		hm, err := HandshakeMessageFromBody(body)
-		if err != nil {
-			return nil, err
-		}
-		hms[i] = hm
-	}
-
-	return hms, h.WriteMessages(hms)
 }

@@ -605,7 +605,12 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Send client Finished
-	_, err = hOut.WriteMessageBody(h.Context.clientFinished)
+	fm, err := HandshakeMessageFromBody(h.Context.clientFinished)
+	if err != nil {
+		return err
+	}
+
+	err = hOut.WriteMessage(fm)
 	if err != nil {
 		return err
 	}
@@ -632,8 +637,7 @@ func (c *Conn) serverHandshake() error {
 	hOut := NewHandshakeLayer(c.out)
 
 	// Read ClientHello and extract extensions
-	ch := new(ClientHelloBody)
-	chm, err := hIn.ReadMessageBody(ch)
+	chm, err := hIn.ReadMessage()
 	if err != nil {
 		logf(logTypeHandshake, "Unable to read ClientHello: %v", err)
 		return err
