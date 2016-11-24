@@ -109,47 +109,47 @@ func TestMessageToBody(t *testing.T) {
 
 	// Test successful marshal of ClientHello
 	hm := HandshakeMessage{HandshakeTypeClientHello, chValid}
-	_, err := hm.toBody()
+	_, err := hm.ToBody()
 	assertNotError(t, err, "Failed to convert ClientHello body")
 
 	// Test successful marshal of ServerHello
 	hm = HandshakeMessage{HandshakeTypeServerHello, shValid}
-	_, err = hm.toBody()
+	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert ServerHello body")
 
 	// Test successful marshal of EncryptedExtensions
 	hm = HandshakeMessage{HandshakeTypeEncryptedExtensions, encExtValid}
-	_, err = hm.toBody()
+	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert EncryptedExtensions body")
 
 	// Test successful marshal of Certificate
 	hm = HandshakeMessage{HandshakeTypeCertificate, certValid}
-	_, err = hm.toBody()
+	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert Certificate body")
 
 	// Test successful marshal of CertificateVerify
 	hm = HandshakeMessage{HandshakeTypeCertificateVerify, certVerifyValid}
-	_, err = hm.toBody()
+	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert CertificateVerify body")
 
 	// Test successful marshal of Finished
 	hm = HandshakeMessage{HandshakeTypeFinished, finValid}
-	_, err = hm.toBody()
+	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert Finished body")
 
 	// Test successful marshal of NewSessionTicket
 	hm = HandshakeMessage{HandshakeTypeNewSessionTicket, ticketValid}
-	_, err = hm.toBody()
+	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert NewSessionTicket body")
 
 	// Test failure on unsupported body type
 	hm = HandshakeMessage{HandshakeTypeHelloRetryRequest, []byte{}}
-	_, err = hm.toBody()
+	_, err = hm.ToBody()
 	assertError(t, err, "Converted an unsupported message")
 
 	// Test failure on marshal failure
 	hm = HandshakeMessage{HandshakeTypeClientHello, []byte{}}
-	_, err = hm.toBody()
+	_, err = hm.ToBody()
 	assertError(t, err, "Converted an empty message")
 
 }

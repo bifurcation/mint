@@ -48,7 +48,7 @@ func (hm HandshakeMessage) Marshal() []byte {
 	return data
 }
 
-func (hm HandshakeMessage) toBody() (HandshakeMessageBody, error) {
+func (hm HandshakeMessage) ToBody() (HandshakeMessageBody, error) {
 	logf(logTypeHandshake, "HandshakeMessage.toBody [%d] [%x]", hm.msgType, hm.body)
 
 	var body HandshakeMessageBody

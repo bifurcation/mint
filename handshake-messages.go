@@ -342,7 +342,7 @@ func (cv *CertificateVerifyBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, cv)
 }
 
-func (cv *CertificateVerifyBody) computeContext(ctx cryptoContext, transcript []*HandshakeMessage) (hashed []byte, err error) {
+func (cv *CertificateVerifyBody) ComputeContext(ctx cryptoContext, transcript []*HandshakeMessage) (hashed []byte, err error) {
 	h := ctx.params.hash.New()
 	handshakeContext := []byte{}
 	for _, msg := range transcript {
@@ -362,7 +362,7 @@ func (cv *CertificateVerifyBody) computeContext(ctx cryptoContext, transcript []
 	return
 }
 
-func (cv *CertificateVerifyBody) encodeSignatureInput(data []byte) []byte {
+func (cv *CertificateVerifyBody) EncodeSignatureInput(data []byte) []byte {
 	const context = "TLS 1.3, server CertificateVerify"
 	sigInput := bytes.Repeat([]byte{0x20}, 64)
 	sigInput = append(sigInput, []byte(context)...)
@@ -372,24 +372,24 @@ func (cv *CertificateVerifyBody) encodeSignatureInput(data []byte) []byte {
 }
 
 func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*HandshakeMessage, ctx cryptoContext) error {
-	hashedWithContext, err := cv.computeContext(ctx, transcript)
+	hashedWithContext, err := cv.ComputeContext(ctx, transcript)
 	if err != nil {
 		return err
 	}
 
-	sigInput := cv.encodeSignatureInput(hashedWithContext)
+	sigInput := cv.EncodeSignatureInput(hashedWithContext)
 	cv.Signature, err = sign(cv.Algorithm, privateKey, sigInput)
 	logf(logTypeHandshake, "Signed: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return err
 }
 
 func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*HandshakeMessage, ctx cryptoContext) error {
-	hashedWithContext, err := cv.computeContext(ctx, transcript)
+	hashedWithContext, err := cv.ComputeContext(ctx, transcript)
 	if err != nil {
 		return err
 	}
 
-	sigInput := cv.encodeSignatureInput(hashedWithContext)
+	sigInput := cv.EncodeSignatureInput(hashedWithContext)
 	logf(logTypeHandshake, "About to verify: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return verify(cv.Algorithm, publicKey, sigInput, cv.Signature)
 }

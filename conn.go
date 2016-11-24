@@ -130,14 +130,14 @@ func (c *Config) Init(isClient bool) error {
 	return nil
 }
 
-func (c Config) validForServer() bool {
+func (c Config) ValidForServer() bool {
 	return (len(c.PSKs) > 0) ||
 		(len(c.Certificates) > 0 &&
 			len(c.Certificates[0].Chain) > 0 &&
 			c.Certificates[0].PrivateKey != nil)
 }
 
-func (c Config) validForClient() bool {
+func (c Config) ValidForClient() bool {
 	return len(c.ServerName) > 0
 }
 
