@@ -358,31 +358,30 @@ func random(n int) []byte {
 }
 
 var (
-	clientHelloContextIn = &clientHelloBody{
-		cipherSuites: []CipherSuite{
+	clientHelloContextIn = &ClientHelloBody{
+		CipherSuites: []CipherSuite{
 			TLS_AES_128_GCM_SHA256,
 		},
 	}
 
-	serverHelloContextIn = &serverHelloBody{
+	serverHelloContextIn = &ServerHelloBody{
 		CipherSuite: TLS_AES_128_GCM_SHA256,
 	}
 
-	certificateContextIn = &certificateBody{
-		certificateRequestContext: []byte{},
-		certificateList: []certificateEntry{
-			{certData: cert1},
-			{certData: cert2},
+	certificateContextIn = &CertificateBody{
+		CertificateRequestContext: []byte{},
+		CertificateList: []CertificateEntry{
+			{CertData: cert1},
+			{CertData: cert2},
 		},
 	}
 
-	certificateVerifyContextIn = &certificateVerifyBody{
+	certificateVerifyContextIn = &CertificateVerifyBody{
 		Algorithm: RSA_PSS_SHA256,
 		Signature: random(64),
 	}
 
-	dhSecretIn  = random(32)
-	pskSecretIn = random(32)
+	dhSecretIn = random(32)
 )
 
 func keySetEmpty(k keySet) bool {
@@ -390,40 +389,40 @@ func keySetEmpty(k keySet) bool {
 }
 
 func TestCryptoContext(t *testing.T) {
-	rand.Reader.Read(clientHelloContextIn.random[:])
+	rand.Reader.Read(clientHelloContextIn.Random[:])
 	rand.Reader.Read(serverHelloContextIn.Random[:])
 
-	clientHelloContextIn.extensions.Add(&supportedGroupsExtension{
+	clientHelloContextIn.Extensions.Add(&SupportedGroupsExtension{
 		Groups: []NamedGroup{P256, P521},
 	})
-	clientHelloContextIn.extensions.Add(&signatureAlgorithmsExtension{
+	clientHelloContextIn.Extensions.Add(&SignatureAlgorithmsExtension{
 		Algorithms: []SignatureScheme{
 			RSA_PSS_SHA256,
 			ECDSA_P256_SHA256,
 		},
 	})
-	clientHelloContextIn.extensions.Add(&keyShareExtension{
-		handshakeType: handshakeTypeClientHello,
-		shares: []keyShareEntry{
-			keyShareEntry{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256))},
-			keyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
+	clientHelloContextIn.Extensions.Add(&KeyShareExtension{
+		HandshakeType: HandshakeTypeClientHello,
+		Shares: []KeyShareEntry{
+			{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256))},
+			{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
 		},
 	})
 
-	serverHelloContextIn.Extensions.Add(&keyShareExtension{
-		handshakeType: handshakeTypeServerHello,
-		shares: []keyShareEntry{
-			keyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
+	serverHelloContextIn.Extensions.Add(&KeyShareExtension{
+		HandshakeType: HandshakeTypeServerHello,
+		Shares: []KeyShareEntry{
+			{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
 		},
 	})
 
-	chm, err := handshakeMessageFromBody(clientHelloContextIn)
+	chm, err := HandshakeMessageFromBody(clientHelloContextIn)
 	assertNotError(t, err, "Error in prep [0]")
-	shm, err := handshakeMessageFromBody(serverHelloContextIn)
+	shm, err := HandshakeMessageFromBody(serverHelloContextIn)
 	assertNotError(t, err, "Error in prep [1]")
-	cm, err := handshakeMessageFromBody(certificateContextIn)
+	cm, err := HandshakeMessageFromBody(certificateContextIn)
 	assertNotError(t, err, "Error in prep [2]")
-	cvm, err := handshakeMessageFromBody(certificateVerifyContextIn)
+	cvm, err := HandshakeMessageFromBody(certificateVerifyContextIn)
 	assertNotError(t, err, "Error in prep [3]")
 
 	alg := ECDSA_P256_SHA256
@@ -431,7 +430,7 @@ func TestCryptoContext(t *testing.T) {
 	assertNotError(t, err, "Failed to generate key pair")
 	cert, err := newSelfSigned("example.com", alg, priv)
 	assertNotError(t, err, "Failed to sign certificate")
-	certificateContextIn.certificateList[0].certData = cert
+	certificateContextIn.CertificateList[0].CertData = cert
 
 	// BEGIN TESTS
 
@@ -486,7 +485,7 @@ func TestCryptoContext(t *testing.T) {
 	ctx = cryptoContext{}
 	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm)
 	_ = ctx.updateWithServerHello(shm, nil)
-	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
+	err = ctx.updateWithServerFirstFlight([]*HandshakeMessage{cm, cvm})
 	assertNotError(t, err, "Failed to update context")
 	assertNotNil(t, ctx.h3, "Failed to set handshake hash (3)")
 	assertNotNil(t, ctx.h4, "Failed to set handshake hash (4)")
@@ -503,8 +502,8 @@ func TestCryptoContext(t *testing.T) {
 	ctx = cryptoContext{}
 	_ = ctx.init(TLS_AES_128_GCM_SHA256, chm)
 	_ = ctx.updateWithServerHello(shm, dhSecretIn)
-	_ = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
-	err = ctx.updateWithClientSecondFlight([]*handshakeMessage{cm})
+	_ = ctx.updateWithServerFirstFlight([]*HandshakeMessage{cm, cvm})
+	err = ctx.updateWithClientSecondFlight([]*HandshakeMessage{cm})
 	assertNotError(t, err, "Failed to update context")
 	assertNotNil(t, ctx.h5, "Failed to set handshake hash (5)")
 	assertNotNil(t, ctx.h6, "Failed to set handshake hash (6)")
@@ -548,17 +547,17 @@ func TestCryptoContext(t *testing.T) {
 	assertNotError(t, err, "Rejected updateWithServerHello in proper state")
 
 	ctx.state = ctxStateUnknown
-	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
+	err = ctx.updateWithServerFirstFlight([]*HandshakeMessage{cm, cvm})
 	assertError(t, err, "Allowed updateWithServerFirstFlight in wrong state")
 	ctx.state = ctxStateServerHello
-	err = ctx.updateWithServerFirstFlight([]*handshakeMessage{cm, cvm})
+	err = ctx.updateWithServerFirstFlight([]*HandshakeMessage{cm, cvm})
 	assertNotError(t, err, "Rejected updateWithServerFirstFlight in proper state")
 
 	ctx.state = ctxStateUnknown
-	err = ctx.updateWithClientSecondFlight([]*handshakeMessage{cm})
+	err = ctx.updateWithClientSecondFlight([]*HandshakeMessage{cm})
 	assertError(t, err, "Allowed updateWithServerFirstFlight in wrong state")
 	ctx.state = ctxStateServerFirstFlight
-	err = ctx.updateWithClientSecondFlight([]*handshakeMessage{cm})
+	err = ctx.updateWithClientSecondFlight([]*HandshakeMessage{cm})
 	assertNotError(t, err, "Rejected updateWithServerFirstFlight in proper state")
 
 	ctx.state = ctxStateUnknown

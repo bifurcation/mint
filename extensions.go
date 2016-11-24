@@ -7,8 +7,8 @@ import (
 	"github.com/bifurcation/mint/syntax"
 )
 
-type extensionBody interface {
-	Type() extensionType
+type ExtensionBody interface {
+	Type() ExtensionType
 	Marshal() ([]byte, error)
 	Unmarshal(data []byte) (int, error)
 }
@@ -17,30 +17,30 @@ type extensionBody interface {
 //     ExtensionType extension_type;
 //     opaque extension_data<0..2^16-1>;
 // } Extension;
-type extension struct {
-	ExtensionType extensionType
+type Extension struct {
+	ExtensionType ExtensionType
 	ExtensionData []byte `tls:"head=2"`
 }
 
-func (ext extension) Marshal() ([]byte, error) {
+func (ext Extension) Marshal() ([]byte, error) {
 	return syntax.Marshal(ext)
 }
 
-func (ext *extension) Unmarshal(data []byte) (int, error) {
+func (ext *Extension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, ext)
 }
 
-type extensionList []extension
+type ExtensionList []Extension
 
 type extensionListInner struct {
-	List []extension `tls:"head=2"`
+	List []Extension `tls:"head=2"`
 }
 
-func (el extensionList) Marshal() ([]byte, error) {
+func (el ExtensionList) Marshal() ([]byte, error) {
 	return syntax.Marshal(extensionListInner{el})
 }
 
-func (el *extensionList) Unmarshal(data []byte) (int, error) {
+func (el *ExtensionList) Unmarshal(data []byte) (int, error) {
 	var list extensionListInner
 	read, err := syntax.Unmarshal(data, &list)
 	if err != nil {
@@ -51,14 +51,14 @@ func (el *extensionList) Unmarshal(data []byte) (int, error) {
 	return read, nil
 }
 
-func (el *extensionList) Add(src extensionBody) error {
+func (el *ExtensionList) Add(src ExtensionBody) error {
 	data, err := src.Marshal()
 	if err != nil {
 		return err
 	}
 
 	if el == nil {
-		el = new(extensionList)
+		el = new(ExtensionList)
 	}
 
 	// If one already exists with this type, replace it
@@ -70,14 +70,14 @@ func (el *extensionList) Add(src extensionBody) error {
 	}
 
 	// Otherwise append
-	*el = append(*el, extension{
+	*el = append(*el, Extension{
 		ExtensionType: src.Type(),
 		ExtensionData: data,
 	})
 	return nil
 }
 
-func (el extensionList) Find(dst extensionBody) bool {
+func (el ExtensionList) Find(dst ExtensionBody) bool {
 	for _, ext := range el {
 		if ext.ExtensionType == dst.Type() {
 			_, err := dst.Unmarshal(ext.ExtensionData)
@@ -109,7 +109,7 @@ func (el extensionList) Find(dst extensionBody) bool {
 //
 //      2         1          2
 // | listLen | NameType | nameLen | name |
-type serverNameExtension string
+type ServerNameExtension string
 
 type serverNameInner struct {
 	NameType uint8
@@ -120,11 +120,11 @@ type serverNameListInner struct {
 	ServerNameList []serverNameInner `tls:"head=2,min=1"`
 }
 
-func (sni serverNameExtension) Type() extensionType {
-	return extensionTypeServerName
+func (sni ServerNameExtension) Type() ExtensionType {
+	return ExtensionTypeServerName
 }
 
-func (sni serverNameExtension) Marshal() ([]byte, error) {
+func (sni ServerNameExtension) Marshal() ([]byte, error) {
 	list := serverNameListInner{
 		ServerNameList: []serverNameInner{{
 			NameType: 0x00, // host_name
@@ -135,7 +135,7 @@ func (sni serverNameExtension) Marshal() ([]byte, error) {
 	return syntax.Marshal(list)
 }
 
-func (sni *serverNameExtension) Unmarshal(data []byte) (int, error) {
+func (sni *ServerNameExtension) Unmarshal(data []byte) (int, error) {
 	var list serverNameListInner
 	read, err := syntax.Unmarshal(data, &list)
 	if err != nil {
@@ -148,7 +148,7 @@ func (sni *serverNameExtension) Unmarshal(data []byte) (int, error) {
 		return 0, fmt.Errorf("tls.servername: Unsupported name type [%x]", nameType)
 	}
 
-	*sni = serverNameExtension(list.ServerNameList[0].HostName)
+	*sni = ServerNameExtension(list.ServerNameList[0].HostName)
 	return read, nil
 }
 
@@ -169,108 +169,108 @@ func (sni *serverNameExtension) Unmarshal(data []byte) (int, error) {
 //             KeyShareEntry server_share;
 //     };
 // } KeyShare;
-type keyShareEntry struct {
+type KeyShareEntry struct {
 	Group       NamedGroup
 	KeyExchange []byte `tls:"head=2,min=1"`
 }
 
-func (kse keyShareEntry) sizeValid() bool {
+func (kse KeyShareEntry) SizeValid() bool {
 	return len(kse.KeyExchange) == keyExchangeSizeFromNamedGroup(kse.Group)
 }
 
-type keyShareExtension struct {
-	handshakeType handshakeType
-	selectedGroup NamedGroup
-	shares        []keyShareEntry
+type KeyShareExtension struct {
+	HandshakeType HandshakeType
+	SelectedGroup NamedGroup
+	Shares        []KeyShareEntry
 }
 
-type keyShareClientHelloInner struct {
-	ClientShares []keyShareEntry `tls:"head=2,min=0"`
+type KeyShareClientHelloInner struct {
+	ClientShares []KeyShareEntry `tls:"head=2,min=0"`
 }
-type keyShareHelloRetryInner struct {
+type KeyShareHelloRetryInner struct {
 	SelectedGroup NamedGroup
 }
-type keyShareServerHelloInner struct {
-	ServerShare keyShareEntry
+type KeyShareServerHelloInner struct {
+	ServerShare KeyShareEntry
 }
 
-func (ks keyShareExtension) Type() extensionType {
-	return extensionTypeKeyShare
+func (ks KeyShareExtension) Type() ExtensionType {
+	return ExtensionTypeKeyShare
 }
 
-func (ks keyShareExtension) Marshal() ([]byte, error) {
-	switch ks.handshakeType {
-	case handshakeTypeClientHello:
-		for _, share := range ks.shares {
-			if !share.sizeValid() {
+func (ks KeyShareExtension) Marshal() ([]byte, error) {
+	switch ks.HandshakeType {
+	case HandshakeTypeClientHello:
+		for _, share := range ks.Shares {
+			if !share.SizeValid() {
 				return nil, fmt.Errorf("tls.keyshare: Key share has wrong size for group")
 			}
 		}
-		return syntax.Marshal(keyShareClientHelloInner{ks.shares})
+		return syntax.Marshal(KeyShareClientHelloInner{ks.Shares})
 
-	case handshakeTypeHelloRetryRequest:
-		if len(ks.shares) > 0 {
+	case HandshakeTypeHelloRetryRequest:
+		if len(ks.Shares) > 0 {
 			return nil, fmt.Errorf("tls.keyshare: Key shares not allowed for HelloRetryRequest")
 		}
 
-		return syntax.Marshal(keyShareHelloRetryInner{ks.selectedGroup})
+		return syntax.Marshal(KeyShareHelloRetryInner{ks.SelectedGroup})
 
-	case handshakeTypeServerHello:
-		if len(ks.shares) > 1 {
-			return nil, fmt.Errorf("tls.keyshare: Server can only send one key share")
+	case HandshakeTypeServerHello:
+		if len(ks.Shares) != 1 {
+			return nil, fmt.Errorf("tls.keyshare: Server must send exactly one key share")
 		}
 
-		if !ks.shares[0].sizeValid() {
+		if !ks.Shares[0].SizeValid() {
 			return nil, fmt.Errorf("tls.keyshare: Key share has wrong size for group")
 		}
 
-		return syntax.Marshal(keyShareServerHelloInner{ks.shares[0]})
+		return syntax.Marshal(KeyShareServerHelloInner{ks.Shares[0]})
 
 	default:
 		return nil, fmt.Errorf("tls.keyshare: Handshake type not allowed")
 	}
 }
 
-func (ks *keyShareExtension) Unmarshal(data []byte) (int, error) {
-	switch ks.handshakeType {
-	case handshakeTypeClientHello:
-		var inner keyShareClientHelloInner
+func (ks *KeyShareExtension) Unmarshal(data []byte) (int, error) {
+	switch ks.HandshakeType {
+	case HandshakeTypeClientHello:
+		var inner KeyShareClientHelloInner
 		read, err := syntax.Unmarshal(data, &inner)
 		if err != nil {
 			return 0, err
 		}
 
 		for _, share := range inner.ClientShares {
-			if !share.sizeValid() {
+			if !share.SizeValid() {
 				return 0, fmt.Errorf("tls.keyshare: Key share has wrong size for group")
 			}
 		}
 
-		ks.shares = inner.ClientShares
+		ks.Shares = inner.ClientShares
 		return read, nil
 
-	case handshakeTypeHelloRetryRequest:
-		var inner keyShareHelloRetryInner
+	case HandshakeTypeHelloRetryRequest:
+		var inner KeyShareHelloRetryInner
 		read, err := syntax.Unmarshal(data, &inner)
 		if err != nil {
 			return 0, err
 		}
 
-		ks.selectedGroup = inner.SelectedGroup
+		ks.SelectedGroup = inner.SelectedGroup
 		return read, nil
 
-	case handshakeTypeServerHello:
-		var inner keyShareServerHelloInner
+	case HandshakeTypeServerHello:
+		var inner KeyShareServerHelloInner
 		read, err := syntax.Unmarshal(data, &inner)
 		if err != nil {
 			return 0, err
 		}
 
-		if !inner.ServerShare.sizeValid() {
+		if !inner.ServerShare.SizeValid() {
 			return 0, fmt.Errorf("tls.keyshare: Key share has wrong size for group")
 		}
 
-		ks.shares = []keyShareEntry{inner.ServerShare}
+		ks.Shares = []KeyShareEntry{inner.ServerShare}
 		return read, nil
 
 	default:
@@ -281,38 +281,38 @@ func (ks *keyShareExtension) Unmarshal(data []byte) (int, error) {
 // struct {
 //     NamedGroup named_group_list<2..2^16-1>;
 // } NamedGroupList;
-type supportedGroupsExtension struct {
+type SupportedGroupsExtension struct {
 	Groups []NamedGroup `tls:"head=2,min=2"`
 }
 
-func (sg supportedGroupsExtension) Type() extensionType {
-	return extensionTypeSupportedGroups
+func (sg SupportedGroupsExtension) Type() ExtensionType {
+	return ExtensionTypeSupportedGroups
 }
 
-func (sg supportedGroupsExtension) Marshal() ([]byte, error) {
+func (sg SupportedGroupsExtension) Marshal() ([]byte, error) {
 	return syntax.Marshal(sg)
 }
 
-func (sg *supportedGroupsExtension) Unmarshal(data []byte) (int, error) {
+func (sg *SupportedGroupsExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, sg)
 }
 
 // struct {
 //   SignatureScheme supported_signature_algorithms<2..2^16-2>;
 // } SignatureSchemeList
-type signatureAlgorithmsExtension struct {
+type SignatureAlgorithmsExtension struct {
 	Algorithms []SignatureScheme `tls:"head=2,min=2"`
 }
 
-func (sa signatureAlgorithmsExtension) Type() extensionType {
-	return extensionTypeSignatureAlgorithms
+func (sa SignatureAlgorithmsExtension) Type() ExtensionType {
+	return ExtensionTypeSignatureAlgorithms
 }
 
-func (sa signatureAlgorithmsExtension) Marshal() ([]byte, error) {
+func (sa SignatureAlgorithmsExtension) Marshal() ([]byte, error) {
 	return syntax.Marshal(sa)
 }
 
-func (sa *signatureAlgorithmsExtension) Unmarshal(data []byte) (int, error) {
+func (sa *SignatureAlgorithmsExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, sa)
 }
 
@@ -334,57 +334,57 @@ func (sa *signatureAlgorithmsExtension) Unmarshal(data []byte) (int, error) {
 //     };
 //
 // } PreSharedKeyExtension;
-type pskIdentity struct {
+type PSKIdentity struct {
 	Identity            []byte `tls:"head=2,min=1"`
 	ObfuscatedTicketAge uint32
 }
 
-type pskBinderEntry struct {
+type PSKBinderEntry struct {
 	Binder []byte `tls:"head=1,min=32"`
 }
 
-type preSharedKeyExtension struct {
-	handshakeType    handshakeType
-	identities       []pskIdentity
-	binders          []pskBinderEntry
-	selectedIdentity uint16
+type PreSharedKeyExtension struct {
+	HandshakeType    HandshakeType
+	Identities       []PSKIdentity
+	Binders          []PSKBinderEntry
+	SelectedIdentity uint16
 }
 
 type preSharedKeyClientInner struct {
-	Identities []pskIdentity    `tls:"head=2,min=7"`
-	Binders    []pskBinderEntry `tls:"head=2,min=33"`
+	Identities []PSKIdentity    `tls:"head=2,min=7"`
+	Binders    []PSKBinderEntry `tls:"head=2,min=33"`
 }
 
 type preSharedKeyServerInner struct {
 	SelectedIdentity uint16
 }
 
-func (psk preSharedKeyExtension) Type() extensionType {
-	return extensionTypePreSharedKey
+func (psk PreSharedKeyExtension) Type() ExtensionType {
+	return ExtensionTypePreSharedKey
 }
 
-func (psk preSharedKeyExtension) Marshal() ([]byte, error) {
-	switch psk.handshakeType {
-	case handshakeTypeClientHello:
+func (psk PreSharedKeyExtension) Marshal() ([]byte, error) {
+	switch psk.HandshakeType {
+	case HandshakeTypeClientHello:
 		return syntax.Marshal(preSharedKeyClientInner{
-			Identities: psk.identities,
-			Binders:    psk.binders,
+			Identities: psk.Identities,
+			Binders:    psk.Binders,
 		})
 
-	case handshakeTypeServerHello:
-		if len(psk.identities) > 0 || len(psk.binders) > 0 {
+	case HandshakeTypeServerHello:
+		if len(psk.Identities) > 0 || len(psk.Binders) > 0 {
 			return nil, fmt.Errorf("tls.presharedkey: Server can only provide an index")
 		}
-		return syntax.Marshal(preSharedKeyServerInner{psk.selectedIdentity})
+		return syntax.Marshal(preSharedKeyServerInner{psk.SelectedIdentity})
 
 	default:
 		return nil, fmt.Errorf("tls.presharedkey: Handshake type not supported")
 	}
 }
 
-func (psk *preSharedKeyExtension) Unmarshal(data []byte) (int, error) {
-	switch psk.handshakeType {
-	case handshakeTypeClientHello:
+func (psk *PreSharedKeyExtension) Unmarshal(data []byte) (int, error) {
+	switch psk.HandshakeType {
+	case HandshakeTypeClientHello:
 		var inner preSharedKeyClientInner
 		read, err := syntax.Unmarshal(data, &inner)
 		if err != nil {
@@ -395,18 +395,18 @@ func (psk *preSharedKeyExtension) Unmarshal(data []byte) (int, error) {
 			return 0, fmt.Errorf("Lengths of identities and binders not equal")
 		}
 
-		psk.identities = inner.Identities
-		psk.binders = inner.Binders
+		psk.Identities = inner.Identities
+		psk.Binders = inner.Binders
 		return read, nil
 
-	case handshakeTypeServerHello:
+	case HandshakeTypeServerHello:
 		var inner preSharedKeyServerInner
 		read, err := syntax.Unmarshal(data, &inner)
 		if err != nil {
 			return 0, err
 		}
 
-		psk.selectedIdentity = inner.SelectedIdentity
+		psk.SelectedIdentity = inner.SelectedIdentity
 		return read, nil
 
 	default:
@@ -414,10 +414,10 @@ func (psk *preSharedKeyExtension) Unmarshal(data []byte) (int, error) {
 	}
 }
 
-func (psk preSharedKeyExtension) HasIdentity(id []byte) ([]byte, bool) {
-	for i, localID := range psk.identities {
+func (psk PreSharedKeyExtension) HasIdentity(id []byte) ([]byte, bool) {
+	for i, localID := range psk.Identities {
 		if bytes.Equal(localID.Identity, id) {
-			return psk.binders[i].Binder, true
+			return psk.Binders[i].Binder, true
 		}
 	}
 	return nil, false
@@ -428,36 +428,36 @@ func (psk preSharedKeyExtension) HasIdentity(id []byte) ([]byte, bool) {
 // struct {
 //     PskKeyExchangeMode ke_modes<1..255>;
 // } PskKeyExchangeModes;
-type pskKeyExchangeModesExtension struct {
+type PSKKeyExchangeModesExtension struct {
 	KEModes []PSKKeyExchangeMode `tls:"head=1,min=1"`
 }
 
-func (pkem pskKeyExchangeModesExtension) Type() extensionType {
-	return extensionTypePSKKeyExchangeModes
+func (pkem PSKKeyExchangeModesExtension) Type() ExtensionType {
+	return ExtensionTypePSKKeyExchangeModes
 }
 
-func (pkem pskKeyExchangeModesExtension) Marshal() ([]byte, error) {
+func (pkem PSKKeyExchangeModesExtension) Marshal() ([]byte, error) {
 	return syntax.Marshal(pkem)
 }
 
-func (pkem *pskKeyExchangeModesExtension) Unmarshal(data []byte) (int, error) {
+func (pkem *PSKKeyExchangeModesExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, pkem)
 }
 
 // struct {
 // } EarlyDataIndication;
 
-type earlyDataExtension struct{}
+type EarlyDataExtension struct{}
 
-func (ed earlyDataExtension) Type() extensionType {
-	return extensionTypeEarlyData
+func (ed EarlyDataExtension) Type() ExtensionType {
+	return ExtensionTypeEarlyData
 }
 
-func (ed earlyDataExtension) Marshal() ([]byte, error) {
+func (ed EarlyDataExtension) Marshal() ([]byte, error) {
 	return []byte{}, nil
 }
 
-func (ed *earlyDataExtension) Unmarshal(data []byte) (int, error) {
+func (ed *EarlyDataExtension) Unmarshal(data []byte) (int, error) {
 	return 0, nil
 }
 
@@ -465,19 +465,19 @@ func (ed *earlyDataExtension) Unmarshal(data []byte) (int, error) {
 //     uint32 max_early_data_size;
 // } TicketEarlyDataInfo;
 
-type ticketEarlyDataInfoExtension struct {
+type TicketEarlyDataInfoExtension struct {
 	MaxEarlyDataSize uint32
 }
 
-func (tedi ticketEarlyDataInfoExtension) Type() extensionType {
-	return extensionTypeTicketEarlyDataInfo
+func (tedi TicketEarlyDataInfoExtension) Type() ExtensionType {
+	return ExtensionTypeTicketEarlyDataInfo
 }
 
-func (tedi ticketEarlyDataInfoExtension) Marshal() ([]byte, error) {
+func (tedi TicketEarlyDataInfoExtension) Marshal() ([]byte, error) {
 	return syntax.Marshal(tedi)
 }
 
-func (tedi *ticketEarlyDataInfoExtension) Unmarshal(data []byte) (int, error) {
+func (tedi *TicketEarlyDataInfoExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, tedi)
 }
 
@@ -486,31 +486,31 @@ func (tedi *ticketEarlyDataInfoExtension) Unmarshal(data []byte) (int, error) {
 // struct {
 //     ProtocolName protocol_name_list<2..2^16-1>
 // } ProtocolNameList;
-type alpnExtension struct {
-	protocols []string
+type ALPNExtension struct {
+	Protocols []string
 }
 
-type protocolName struct {
+type protocolNameInner struct {
 	Name []byte `tls:"head=1,min=1"`
 }
 
 type alpnExtensionInner struct {
-	Protocols []protocolName `tls:"head=2,min=2"`
+	Protocols []protocolNameInner `tls:"head=2,min=2"`
 }
 
-func (alpn alpnExtension) Type() extensionType {
-	return extensionTypeALPN
+func (alpn ALPNExtension) Type() ExtensionType {
+	return ExtensionTypeALPN
 }
 
-func (alpn alpnExtension) Marshal() ([]byte, error) {
-	protocols := make([]protocolName, len(alpn.protocols))
-	for i, protocol := range alpn.protocols {
-		protocols[i] = protocolName{[]byte(protocol)}
+func (alpn ALPNExtension) Marshal() ([]byte, error) {
+	protocols := make([]protocolNameInner, len(alpn.Protocols))
+	for i, protocol := range alpn.Protocols {
+		protocols[i] = protocolNameInner{[]byte(protocol)}
 	}
 	return syntax.Marshal(alpnExtensionInner{protocols})
 }
 
-func (alpn *alpnExtension) Unmarshal(data []byte) (int, error) {
+func (alpn *ALPNExtension) Unmarshal(data []byte) (int, error) {
 	var inner alpnExtensionInner
 	read, err := syntax.Unmarshal(data, &inner)
 
@@ -518,9 +518,9 @@ func (alpn *alpnExtension) Unmarshal(data []byte) (int, error) {
 		return 0, err
 	}
 
-	alpn.protocols = make([]string, len(inner.Protocols))
+	alpn.Protocols = make([]string, len(inner.Protocols))
 	for i, protocol := range inner.Protocols {
-		alpn.protocols[i] = string(protocol.Name)
+		alpn.Protocols[i] = string(protocol.Name)
 	}
 	return read, nil
 }
@@ -528,37 +528,37 @@ func (alpn *alpnExtension) Unmarshal(data []byte) (int, error) {
 // struct {
 //     ProtocolVersion versions<2..254>;
 // } SupportedVersions;
-type supportedVersionsExtension struct {
+type SupportedVersionsExtension struct {
 	Versions []uint16 `tls:"head=1,min=2,max=254"`
 }
 
-func (sv supportedVersionsExtension) Type() extensionType {
-	return extensionTypeSupportedVersions
+func (sv SupportedVersionsExtension) Type() ExtensionType {
+	return ExtensionTypeSupportedVersions
 }
 
-func (sv supportedVersionsExtension) Marshal() ([]byte, error) {
+func (sv SupportedVersionsExtension) Marshal() ([]byte, error) {
 	return syntax.Marshal(sv)
 }
 
-func (sv *supportedVersionsExtension) Unmarshal(data []byte) (int, error) {
+func (sv *SupportedVersionsExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, sv)
 }
 
 // struct {
 //     opaque cookie<1..2^16-1>;
 // } Cookie;
-type cookieExtension struct {
+type CookieExtension struct {
 	Cookie []byte `tls:"head=2,min=1"`
 }
 
-func (c cookieExtension) Type() extensionType {
-	return extensionTypeCookie
+func (c CookieExtension) Type() ExtensionType {
+	return ExtensionTypeCookie
 }
 
-func (c cookieExtension) Marshal() ([]byte, error) {
+func (c CookieExtension) Marshal() ([]byte, error) {
 	return syntax.Marshal(c)
 }
 
-func (c *cookieExtension) Unmarshal(data []byte) (int, error) {
+func (c *CookieExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, c)
 }

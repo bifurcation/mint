@@ -28,33 +28,9 @@ type PreSharedKey struct {
 // server instance.  The settings for client and server are pretty different,
 // but we just throw them all in here.
 type Config struct {
-	// Only in crypto/tls:
-	// SessionTicketsDisabled   bool               // TODO(#6) -> Both
-	// SessionTicketKey         [32]byte           // TODO(#6) -> Server
-	// Rand                     io.Reader          // TODO(#23) -> Both
-	// PreferServerCipherSuites bool               // TODO(#22) -> Server
-	// NextProtos               []string           // TODO(#21) -> Both
-	// ClientAuth               ClientAuthType     // TODO(#20)
-	// NameToCertificate        map[string]*Certificate // Unused (simplicity)
-	// GetCertificate           func(clientHello *ClientHelloInfo) (*Certificate, error) // Unused (simplicity)
-	// ClientCAs                *x509.CertPool     // Unused (no PKI)
-	// RootCAs                  *x509.CertPool     // Unused (no PKI)
-	// InsecureSkipVerify       bool               // Unused (no PKI)
-	// MinVersion               uint16             // Unused (only 1.3)
-	// MaxVersion               uint16             // Unused (only 1.3)
-	// Time                     func() time.Time   // Unused (no time in 1.3)
-	// ClientSessionCache       ClientSessionCache // Unused (PSKs only in 1.3)
-
-	// Only here:
-	// AuthCertificate          func(chain []*x509.Certificate) error
-	// ClientPSKs               map[string]PreSharedKey
-	// ServerPSKs               []PreSharedKey
-
-	// ---------------------------------------
-
 	// Client fields
 	ServerName      string
-	AuthCertificate func(chain []certificateEntry) error // TODO(#20) -> Both
+	AuthCertificate func(chain []CertificateEntry) error // TODO(#20) -> Both
 
 	// Server fields
 	Certificates       []*Certificate
@@ -70,13 +46,6 @@ type Config struct {
 	NextProtos       []string
 	PSKs             map[string]PreSharedKey
 	PSKModes         []PSKKeyExchangeMode
-
-	// Hidden fields (used for caching in convenient form)
-	enabledSuite  map[CipherSuite]bool
-	enabledGroup  map[NamedGroup]bool
-	enabledProto  map[string]bool
-	enabledScheme map[SignatureScheme]bool
-	certsByName   map[string]*Certificate
 
 	// The same config object can be shared among different connections, so it
 	// needs its own mutex
@@ -120,7 +89,7 @@ func (c *Config) Init(isClient bool) error {
 		}
 
 		c.Certificates = []*Certificate{
-			&Certificate{
+			{
 				Chain:      []*x509.Certificate{cert},
 				PrivateKey: priv,
 			},
@@ -130,14 +99,14 @@ func (c *Config) Init(isClient bool) error {
 	return nil
 }
 
-func (c Config) validForServer() bool {
+func (c Config) ValidForServer() bool {
 	return (len(c.PSKs) > 0) ||
 		(len(c.Certificates) > 0 &&
 			len(c.Certificates[0].Chain) > 0 &&
 			c.Certificates[0].PrivateKey != nil)
 }
 
-func (c Config) validForClient() bool {
+func (c Config) ValidForClient() bool {
 	return len(c.ServerName) > 0
 }
 
@@ -187,22 +156,19 @@ type Conn struct {
 
 	earlyData []byte
 
-	handshake         handshake
+	handshake         Handshake
 	handshakeMutex    sync.Mutex
 	handshakeErr      error
 	handshakeComplete bool
 
-	certificateList []certificateEntry
-
-	readBuffer        []byte
-	in, out           *recordLayer
-	inMutex, outMutex sync.Mutex
+	readBuffer []byte
+	in, out    *RecordLayer
 }
 
-func newConn(conn net.Conn, config *Config, isClient bool) *Conn {
+func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
 	c := &Conn{conn: conn, config: config, isClient: isClient}
-	c.in = newRecordLayer(c.conn)
-	c.out = newRecordLayer(c.conn)
+	c.in = NewRecordLayer(c.conn)
+	c.out = NewRecordLayer(c.conn)
 	return c
 }
 
@@ -221,7 +187,7 @@ func (c *Conn) extendBuffer(n int) error {
 		}
 
 		switch pt.contentType {
-		case recordTypeHandshake:
+		case RecordTypeHandshake:
 			// We do not support fragmentation of post-handshake handshake messages
 			// TODO: Factor this more elegantly; coalesce with handshakeLayer.ReadMessage()
 			start := 0
@@ -230,8 +196,8 @@ func (c *Conn) extendBuffer(n int) error {
 					return fmt.Errorf("Post-handshake handshake message too short for header")
 				}
 
-				hm := &handshakeMessage{}
-				hm.msgType = handshakeType(pt.fragment[start])
+				hm := &HandshakeMessage{}
+				hm.msgType = HandshakeType(pt.fragment[start])
 				hmLen := (int(pt.fragment[start+1]) << 16) + (int(pt.fragment[start+2]) << 8) + int(pt.fragment[start+3])
 
 				if len(pt.fragment[start+handshakeHeaderLen:]) < hmLen {
@@ -240,7 +206,7 @@ func (c *Conn) extendBuffer(n int) error {
 				hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
 
 				switch hm.msgType {
-				case handshakeTypeNewSessionTicket:
+				case HandshakeTypeNewSessionTicket:
 					psk, err := c.handshake.HandleNewSessionTicket(hm)
 					if err != nil {
 						return err
@@ -249,14 +215,14 @@ func (c *Conn) extendBuffer(n int) error {
 					logf(logTypeHandshake, "Storing new session ticket with identity [%x]", psk.Identity)
 					c.config.PSKs[c.config.ServerName] = psk
 
-				case handshakeTypeKeyUpdate:
+				case HandshakeTypeKeyUpdate:
 					outboundUpdate, err := c.handshake.HandleKeyUpdate(hm)
 					if err != nil {
 						return err
 					}
 
 					// Rekey inbound
-					cipher, keys := c.handshake.InboundKeys()
+					cipher, keys := c.handshake.inboundKeys()
 					err = c.in.Rekey(cipher, keys.key, keys.iv)
 					if err != nil {
 						return err
@@ -264,8 +230,8 @@ func (c *Conn) extendBuffer(n int) error {
 
 					if outboundUpdate != nil {
 						// Send KeyUpdate
-						err = c.out.WriteRecord(&tlsPlaintext{
-							contentType: recordTypeHandshake,
+						err = c.out.WriteRecord(&TLSPlaintext{
+							contentType: RecordTypeHandshake,
 							fragment:    outboundUpdate.Marshal(),
 						})
 						if err != nil {
@@ -273,40 +239,40 @@ func (c *Conn) extendBuffer(n int) error {
 						}
 
 						// Rekey outbound
-						cipher, keys := c.handshake.OutboundKeys()
+						cipher, keys := c.handshake.outboundKeys()
 						err = c.out.Rekey(cipher, keys.key, keys.iv)
 						if err != nil {
 							return err
 						}
 					}
 				default:
-					c.sendAlert(alertUnexpectedMessage)
+					c.sendAlert(AlertUnexpectedMessage)
 					return fmt.Errorf("Unsupported post-handshake handshake message [%v]", hm.msgType)
 				}
 
 				start += handshakeHeaderLen + hmLen
 			}
-		case recordTypeAlert:
+		case RecordTypeAlert:
 			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(c.readBuffer), c.readBuffer)
 			if len(pt.fragment) != 2 {
-				c.sendAlert(alertUnexpectedMessage)
+				c.sendAlert(AlertUnexpectedMessage)
 				return io.EOF
 			}
-			if alert(pt.fragment[1]) == alertCloseNotify {
+			if Alert(pt.fragment[1]) == AlertCloseNotify {
 				return io.EOF
 			}
 
 			switch pt.fragment[0] {
-			case alertLevelWarning:
+			case AlertLevelWarning:
 				// drop on the floor
-			case alertLevelError:
-				return alert(pt.fragment[1])
+			case AlertLevelError:
+				return Alert(pt.fragment[1])
 			default:
-				c.sendAlert(alertUnexpectedMessage)
+				c.sendAlert(AlertUnexpectedMessage)
 				return io.EOF
 			}
 
-		case recordTypeApplicationData:
+		case RecordTypeApplicationData:
 			c.readBuffer = append(c.readBuffer, pt.fragment...)
 			logf(logTypeIO, "extended buffer: [%d] %x", len(c.readBuffer), c.readBuffer)
 		}
@@ -321,7 +287,7 @@ func (c *Conn) extendBuffer(n int) error {
 		}
 
 		// if we're over the limit and the next record is not an alert, exit
-		if len(c.readBuffer) == n && recordType(c.in.nextData[0]) != recordTypeAlert {
+		if len(c.readBuffer) == n && RecordType(c.in.nextData[0]) != RecordTypeAlert {
 			return nil
 		}
 	}
@@ -367,8 +333,8 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 	var start int
 	sent := 0
 	for start = 0; len(buffer)-start >= maxFragmentLen; start += maxFragmentLen {
-		err := c.out.WriteRecord(&tlsPlaintext{
-			contentType: recordTypeApplicationData,
+		err := c.out.WriteRecord(&TLSPlaintext{
+			contentType: RecordTypeApplicationData,
 			fragment:    buffer[start : start+maxFragmentLen],
 		})
 
@@ -380,8 +346,8 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 
 	// Send a final partial fragment if necessary
 	if start < len(buffer) {
-		err := c.out.WriteRecord(&tlsPlaintext{
-			contentType: recordTypeApplicationData,
+		err := c.out.WriteRecord(&TLSPlaintext{
+			contentType: RecordTypeApplicationData,
 			fragment:    buffer[start:],
 		})
 
@@ -395,25 +361,25 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 
 // sendAlert sends a TLS alert message.
 // c.out.Mutex <= L.
-func (c *Conn) sendAlert(err alert) error {
+func (c *Conn) sendAlert(err Alert) error {
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
 	tmp := make([]byte, 2)
 	switch err {
-	case alertNoRenegotiation, alertCloseNotify:
-		tmp[0] = alertLevelWarning
+	case AlertNoRenegotiation, AlertCloseNotify:
+		tmp[0] = AlertLevelWarning
 	default:
-		tmp[0] = alertLevelError
+		tmp[0] = AlertLevelError
 	}
 	tmp[1] = byte(err)
-	c.out.WriteRecord(&tlsPlaintext{
-		contentType: recordTypeAlert,
-		fragment:    tmp},
-	)
+	c.out.WriteRecord(&TLSPlaintext{
+		contentType: RecordTypeAlert,
+		fragment:    tmp,
+	})
 
 	// close_notify and end_of_early_data are not actually errors
-	if err != alertCloseNotify && err != alertEndOfEarlyData {
+	if err != AlertCloseNotify && err != AlertEndOfEarlyData {
 		return &net.OpError{Op: "local error", Err: err}
 	}
 	return nil
@@ -423,7 +389,7 @@ func (c *Conn) sendAlert(err alert) error {
 func (c *Conn) Close() error {
 	// XXX crypto/tls has an interlock with Write here.  Do we need that?
 
-	c.sendAlert(alertCloseNotify)
+	c.sendAlert(AlertCloseNotify)
 	return c.conn.Close()
 }
 
@@ -482,7 +448,7 @@ func (c *Conn) Handshake() error {
 
 	if c.handshakeErr != nil {
 		logf(logTypeHandshake, "Handshake failed: %v", c.handshakeErr)
-		c.sendAlert(alertHandshakeFailure)
+		c.sendAlert(AlertHandshakeFailure)
 		c.conn.Close()
 	}
 
@@ -492,19 +458,19 @@ func (c *Conn) Handshake() error {
 func (c *Conn) clientHandshake() error {
 	logf(logTypeHandshake, "Starting clientHandshake")
 
-	h := &clientHandshake{}
-	hIn := newHandshakeLayer(c.in)
-	hOut := newHandshakeLayer(c.out)
+	h := &ClientHandshake{}
+	hIn := NewHandshakeLayer(c.in)
+	hOut := NewHandshakeLayer(c.out)
 
 	// Generate ClientHello
-	caps := capabilities{
+	caps := Capabilities{
 		CipherSuites:     c.config.CipherSuites,
 		Groups:           c.config.Groups,
 		SignatureSchemes: c.config.SignatureSchemes,
 		PSKs:             c.config.PSKs,
 		PSKModes:         c.config.PSKModes,
 	}
-	opts := connectionOptions{
+	opts := ConnectionOptions{
 		ServerName: c.config.ServerName,
 		NextProtos: c.config.NextProtos,
 		EarlyData:  c.earlyData,
@@ -539,7 +505,7 @@ func (c *Conn) clientHandshake() error {
 
 		// Send end_of_earlyData
 		logf(logTypeHandshake, "[client] Sending end_of_early_data...")
-		err = c.sendAlert(alertEndOfEarlyData)
+		err = c.sendAlert(AlertEndOfEarlyData)
 		if err != nil {
 			return err
 		}
@@ -574,8 +540,8 @@ func (c *Conn) clientHandshake() error {
 	dumpCryptoContext("client", h.Context)
 
 	// Read and process server's first flight
-	transcript := []*handshakeMessage{}
-	var finishedMessage *handshakeMessage
+	transcript := []*HandshakeMessage{}
+	var finishedMessage *HandshakeMessage
 	for {
 		hm, err := hIn.ReadMessage()
 		if err != nil {
@@ -584,7 +550,7 @@ func (c *Conn) clientHandshake() error {
 		}
 		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
-		if hm.msgType == handshakeTypeFinished {
+		if hm.msgType == HandshakeTypeFinished {
 			finishedMessage = hm
 			break
 		} else {
@@ -605,7 +571,12 @@ func (c *Conn) clientHandshake() error {
 	}
 
 	// Send client Finished
-	_, err = hOut.WriteMessageBody(h.Context.clientFinished)
+	fm, err := HandshakeMessageFromBody(h.Context.clientFinished)
+	if err != nil {
+		return err
+	}
+
+	err = hOut.WriteMessage(fm)
 	if err != nil {
 		return err
 	}
@@ -627,13 +598,12 @@ func (c *Conn) clientHandshake() error {
 func (c *Conn) serverHandshake() error {
 	logf(logTypeHandshake, "Starting serverHandshake")
 
-	h := &serverHandshake{}
-	hIn := newHandshakeLayer(c.in)
-	hOut := newHandshakeLayer(c.out)
+	h := &ServerHandshake{}
+	hIn := NewHandshakeLayer(c.in)
+	hOut := NewHandshakeLayer(c.out)
 
 	// Read ClientHello and extract extensions
-	ch := new(clientHelloBody)
-	chm, err := hIn.ReadMessageBody(ch)
+	chm, err := hIn.ReadMessage()
 	if err != nil {
 		logf(logTypeHandshake, "Unable to read ClientHello: %v", err)
 		return err
@@ -641,7 +611,7 @@ func (c *Conn) serverHandshake() error {
 	logf(logTypeHandshake, "[server] Read ClientHello")
 
 	// Create the server's first flight
-	caps := capabilities{
+	caps := Capabilities{
 		CipherSuites:     c.config.CipherSuites,
 		Groups:           c.config.Groups,
 		SignatureSchemes: c.config.SignatureSchemes,
@@ -709,15 +679,15 @@ func (c *Conn) serverHandshake() error {
 			}
 
 			switch pt.contentType {
-			case recordTypeAlert:
+			case RecordTypeAlert:
 				logf(logTypeHandshake, "Alert record")
-				alertType := alert(pt.fragment[1])
-				if alertType == alertEndOfEarlyData {
+				alertType := Alert(pt.fragment[1])
+				if alertType == AlertEndOfEarlyData {
 					done = true
 				} else {
 					return fmt.Errorf("tls.server: Unexpected alert in early data [%v]", alertType)
 				}
-			case recordTypeApplicationData:
+			case RecordTypeApplicationData:
 				// XXX: Should expose early data differently
 				logf(logTypeHandshake, "App data")
 				c.readBuffer = append(c.readBuffer, pt.fragment...)
@@ -744,7 +714,7 @@ func (c *Conn) serverHandshake() error {
 			pt, err := c.in.ReadRecord()
 
 			// Ignore decrypt errors...
-			if _, ok := err.(decryptError); ok {
+			if _, ok := err.(DecryptError); ok {
 				continue
 			}
 
@@ -754,7 +724,7 @@ func (c *Conn) serverHandshake() error {
 			}
 
 			// If it's not a handshake message, fail
-			if pt.contentType != recordTypeHandshake {
+			if pt.contentType != RecordTypeHandshake {
 				return fmt.Errorf("[server] Got a non-handshake message encrypted with handshake key")
 			}
 
@@ -767,8 +737,8 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Read and process the client's second flight
-	transcript := []*handshakeMessage{}
-	var finishedMessage *handshakeMessage
+	transcript := []*HandshakeMessage{}
+	var finishedMessage *HandshakeMessage
 	for {
 		hm, err := hIn.ReadMessage()
 		if err != nil {
@@ -777,7 +747,7 @@ func (c *Conn) serverHandshake() error {
 		}
 		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
-		if hm.msgType == handshakeTypeFinished {
+		if hm.msgType == HandshakeTypeFinished {
 			finishedMessage = hm
 			break
 		} else {
@@ -827,9 +797,9 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 		return fmt.Errorf("Cannot update keys until after handshake")
 	}
 
-	request := keyUpdateNotRequested
+	request := KeyUpdateNotRequested
 	if requestUpdate {
-		request = keyUpdateRequested
+		request = KeyUpdateRequested
 	}
 
 	// Create the key update and update the keys internally
@@ -839,8 +809,8 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 	}
 
 	// Send key update
-	err = c.out.WriteRecord(&tlsPlaintext{
-		contentType: recordTypeHandshake,
+	err = c.out.WriteRecord(&TLSPlaintext{
+		contentType: RecordTypeHandshake,
 		fragment:    kum.Marshal(),
 	})
 	if err != nil {
@@ -848,7 +818,7 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 	}
 
 	// Rekey outbound
-	cipher, keys := c.handshake.OutboundKeys()
+	cipher, keys := c.handshake.outboundKeys()
 	err = c.out.Rekey(cipher, keys.key, keys.iv)
 	return err
 }

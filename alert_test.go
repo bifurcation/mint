@@ -5,7 +5,7 @@ import (
 )
 
 func TestAlert(t *testing.T) {
-	assertEquals(t, alertCloseNotify.String(), "close notify")
-	assertEquals(t, alertCloseNotify.Error(), "close notify")
-	assertEquals(t, alert(0xff).String(), "alert(255)")
+	assertEquals(t, AlertCloseNotify.String(), "close notify")
+	assertEquals(t, AlertCloseNotify.Error(), "close notify")
+	assertEquals(t, Alert(0xff).String(), "alert(255)")
 }

@@ -14,9 +14,9 @@ const (
 	maxFragmentLen    = 1 << 14 // max number of bytes in a record
 )
 
-type decryptError string
+type DecryptError string
 
-func (err decryptError) Error() string {
+func (err DecryptError) Error() string {
 	return string(err)
 }
 
@@ -26,18 +26,17 @@ func (err decryptError) Error() string {
 //     uint16 length;
 //     opaque fragment[TLSPlaintext.length];
 // } TLSPlaintext;
-type tlsPlaintext struct {
+type TLSPlaintext struct {
 	// Omitted: record_version (static)
 	// Omitted: length         (computed from fragment)
-	contentType recordType
+	contentType RecordType
 	fragment    []byte
 }
 
-type recordLayer struct {
+type RecordLayer struct {
 	sync.Mutex
 
 	conn     io.ReadWriter // The underlying connection
-	buffer   []byte        // The next record to send
 	nextData []byte        // The next record to send
 
 	ivLength int         // Length of the seq and nonce fields
@@ -46,14 +45,14 @@ type recordLayer struct {
 	cipher   cipher.AEAD // AEAD cipher
 }
 
-func newRecordLayer(conn io.ReadWriter) *recordLayer {
-	r := recordLayer{}
+func NewRecordLayer(conn io.ReadWriter) *RecordLayer {
+	r := RecordLayer{}
 	r.conn = conn
 	r.ivLength = 0
 	return &r
 }
 
-func (r *recordLayer) Rekey(cipher aeadFactory, key []byte, iv []byte) error {
+func (r *RecordLayer) Rekey(cipher aeadFactory, key []byte, iv []byte) error {
 	var err error
 	r.cipher, err = cipher(key)
 	if err != nil {
@@ -67,7 +66,7 @@ func (r *recordLayer) Rekey(cipher aeadFactory, key []byte, iv []byte) error {
 	return nil
 }
 
-func (r *recordLayer) incrementSequenceNumber() {
+func (r *RecordLayer) incrementSequenceNumber() {
 	if r.ivLength == 0 {
 		return
 	}
@@ -86,15 +85,15 @@ func (r *recordLayer) incrementSequenceNumber() {
 	panic("TLS: sequence number wraparound")
 }
 
-func (r *recordLayer) encrypt(pt *tlsPlaintext, padLen int) *tlsPlaintext {
+func (r *RecordLayer) encrypt(pt *TLSPlaintext, padLen int) *TLSPlaintext {
 	// Expand the fragment to hold contentType, padding, and overhead
 	originalLen := len(pt.fragment)
 	plaintextLen := originalLen + 1 + padLen
 	ciphertextLen := plaintextLen + r.cipher.Overhead()
 
 	// Assemble the revised plaintext
-	out := &tlsPlaintext{
-		contentType: recordTypeApplicationData,
+	out := &TLSPlaintext{
+		contentType: RecordTypeApplicationData,
 		fragment:    make([]byte, ciphertextLen),
 	}
 	copy(out.fragment, pt.fragment)
@@ -109,13 +108,13 @@ func (r *recordLayer) encrypt(pt *tlsPlaintext, padLen int) *tlsPlaintext {
 	return out
 }
 
-func (r *recordLayer) decrypt(pt *tlsPlaintext) (*tlsPlaintext, int, error) {
+func (r *RecordLayer) decrypt(pt *TLSPlaintext) (*TLSPlaintext, int, error) {
 	if len(pt.fragment) < r.cipher.Overhead() {
-		return nil, 0, decryptError("tls.record.decrypt: Record too short")
+		return nil, 0, DecryptError("tls.record.decrypt: Record too short")
 	}
 
 	decryptLen := len(pt.fragment) - r.cipher.Overhead()
-	out := &tlsPlaintext{
+	out := &TLSPlaintext{
 		contentType: pt.contentType,
 		fragment:    make([]byte, decryptLen),
 	}
@@ -123,7 +122,7 @@ func (r *recordLayer) decrypt(pt *tlsPlaintext) (*tlsPlaintext, int, error) {
 	// Decrypt
 	_, err := r.cipher.Open(out.fragment[:0], r.nonce, pt.fragment, nil)
 	if err != nil {
-		return nil, 0, decryptError("tls.record.decrypt: AEAD decrypt failed")
+		return nil, 0, DecryptError("tls.record.decrypt: AEAD decrypt failed")
 	}
 
 	// Find the padding boundary
@@ -133,14 +132,14 @@ func (r *recordLayer) decrypt(pt *tlsPlaintext) (*tlsPlaintext, int, error) {
 
 	// Transfer the content type
 	newLen := decryptLen - padLen - 1
-	out.contentType = recordType(out.fragment[newLen])
+	out.contentType = RecordType(out.fragment[newLen])
 
 	// Truncate the message to remove contentType, padding, overhead
 	out.fragment = out.fragment[:newLen]
 	return out, padLen, nil
 }
 
-func (r *recordLayer) readFullBuffer(data []byte) error {
+func (r *RecordLayer) readFullBuffer(data []byte) error {
 	buffer := make([]byte, cap(data)+recordHeaderLen)
 
 	var index int
@@ -163,8 +162,8 @@ func (r *recordLayer) readFullBuffer(data []byte) error {
 	}
 }
 
-func (r *recordLayer) ReadRecord() (*tlsPlaintext, error) {
-	pt := &tlsPlaintext{}
+func (r *RecordLayer) ReadRecord() (*TLSPlaintext, error) {
+	pt := &TLSPlaintext{}
 	header := make([]byte, recordHeaderLen)
 	err := r.readFullBuffer(header)
 	if err != nil {
@@ -172,11 +171,11 @@ func (r *recordLayer) ReadRecord() (*tlsPlaintext, error) {
 	}
 
 	// Validate content type
-	switch recordType(header[0]) {
+	switch RecordType(header[0]) {
 	default:
 		return nil, fmt.Errorf("tls.record: Unknown content type %02x", header[0])
-	case recordTypeAlert, recordTypeHandshake, recordTypeApplicationData:
-		pt.contentType = recordType(header[0])
+	case RecordTypeAlert, RecordTypeHandshake, RecordTypeApplicationData:
+		pt.contentType = RecordType(header[0])
 	}
 
 	// Validate version
@@ -210,17 +209,17 @@ func (r *recordLayer) ReadRecord() (*tlsPlaintext, error) {
 		return nil, fmt.Errorf("tls.record: Plaintext size too big")
 	}
 
-	logf(logTypeIO, "recordLayer.ReadRecord [%d] [%x]", pt.contentType, pt.fragment)
+	logf(logTypeIO, "RecordLayer.ReadRecord [%d] [%x]", pt.contentType, pt.fragment)
 
 	r.incrementSequenceNumber()
 	return pt, nil
 }
 
-func (r *recordLayer) WriteRecord(pt *tlsPlaintext) error {
+func (r *RecordLayer) WriteRecord(pt *TLSPlaintext) error {
 	return r.WriteRecordWithPadding(pt, 0)
 }
 
-func (r *recordLayer) WriteRecordWithPadding(pt *tlsPlaintext, padLen int) error {
+func (r *RecordLayer) WriteRecordWithPadding(pt *TLSPlaintext, padLen int) error {
 	if r.cipher != nil {
 		pt = r.encrypt(pt, padLen)
 	} else if padLen > 0 {
@@ -235,7 +234,7 @@ func (r *recordLayer) WriteRecordWithPadding(pt *tlsPlaintext, padLen int) error
 	header := []byte{byte(pt.contentType), 0x03, 0x01, byte(length >> 8), byte(length)}
 	record := append(header, pt.fragment...)
 
-	logf(logTypeIO, "recordLayer.WriteRecord [%d] [%x]", pt.contentType, pt.fragment)
+	logf(logTypeIO, "RecordLayer.WriteRecord [%d] [%x]", pt.contentType, pt.fragment)
 
 	r.incrementSequenceNumber()
 	_, err := r.conn.Write(record)

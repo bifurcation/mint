@@ -8,26 +8,26 @@ import (
 
 var structs = []interface{}{
 	// Handshake messages
-	&clientHelloBody{},
-	&serverHelloBody{},
-	&finishedBody{verifyDataLen: 32},
-	&encryptedExtensionsBody{},
-	&certificateBody{},
-	&certificateVerifyBody{},
+	&ClientHelloBody{},
+	&ServerHelloBody{},
+	&FinishedBody{VerifyDataLen: 32},
+	&EncryptedExtensionsBody{},
+	&CertificateBody{},
+	&CertificateVerifyBody{},
 
 	// Extensions
-	&extension{},
-	&extensionList{},
-	new(serverNameExtension),
-	&alpnExtension{},
-	&keyShareExtension{handshakeType: handshakeTypeClientHello},
-	&keyShareExtension{handshakeType: handshakeTypeHelloRetryRequest},
-	&keyShareExtension{handshakeType: handshakeTypeServerHello},
-	&supportedGroupsExtension{},
-	&signatureAlgorithmsExtension{},
-	&preSharedKeyExtension{handshakeType: handshakeTypeClientHello},
-	&preSharedKeyExtension{handshakeType: handshakeTypeServerHello},
-	&supportedVersionsExtension{},
+	&Extension{},
+	&ExtensionList{},
+	new(ServerNameExtension),
+	&ALPNExtension{},
+	&KeyShareExtension{HandshakeType: HandshakeTypeClientHello},
+	&KeyShareExtension{HandshakeType: HandshakeTypeHelloRetryRequest},
+	&KeyShareExtension{HandshakeType: HandshakeTypeServerHello},
+	&SupportedGroupsExtension{},
+	&SignatureAlgorithmsExtension{},
+	&PreSharedKeyExtension{HandshakeType: HandshakeTypeClientHello},
+	&PreSharedKeyExtension{HandshakeType: HandshakeTypeServerHello},
+	&SupportedVersionsExtension{},
 }
 
 var validHex = []string{
@@ -42,16 +42,16 @@ var validHex = []string{
 	// Extensions
 	extValidHex,
 	extListValidHex,
-	validExtensionTestCases[extensionTypeServerName].marshaledHex,
-	validExtensionTestCases[extensionTypeALPN].marshaledHex,
+	validExtensionTestCases[ExtensionTypeServerName].marshaledHex,
+	validExtensionTestCases[ExtensionTypeALPN].marshaledHex,
 	keyShareClientHex,
 	keyShareHelloRetryHex,
 	keyShareServerHex,
-	validExtensionTestCases[extensionTypeSupportedGroups].marshaledHex,
-	validExtensionTestCases[extensionTypeSignatureAlgorithms].marshaledHex,
+	validExtensionTestCases[ExtensionTypeSupportedGroups].marshaledHex,
+	validExtensionTestCases[ExtensionTypeSignatureAlgorithms].marshaledHex,
 	pskClientHex,
 	pskServerHex,
-	validExtensionTestCases[extensionTypeSupportedVersions].marshaledHex,
+	validExtensionTestCases[ExtensionTypeSupportedVersions].marshaledHex,
 }
 
 func randomBytes(n int, rand *rand.Rand) []byte {
@@ -60,6 +60,10 @@ func randomBytes(n int, rand *rand.Rand) []byte {
 		r[i] = byte(rand.Int31())
 	}
 	return r
+}
+
+type unmarshaler interface {
+	Unmarshal([]byte) (int, error)
 }
 
 // This just looks for crashes due to bounds errors etc.

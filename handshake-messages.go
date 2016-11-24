@@ -9,20 +9,8 @@ import (
 	"github.com/bifurcation/mint/syntax"
 )
 
-const (
-	fixedClientHelloBodyLen      = 39
-	fixedServerHelloBodyLen      = 36
-	fixedNewSessionTicketBodyLen = 10
-	maxCipherSuites              = 1 << 15
-	extensionHeaderLen           = 4
-	maxExtensionDataLen          = (1 << 16) - 1
-	maxExtensionsLen             = (1 << 16) - 1
-	maxCertRequestContextLen     = 255
-	maxTicketLen                 = (1 << 16) - 1
-)
-
-type handshakeMessageBody interface {
-	Type() handshakeType
+type HandshakeMessageBody interface {
+	Type() HandshakeType
 	Marshal() ([]byte, error)
 	Unmarshal(data []byte) (int, error)
 }
@@ -35,13 +23,13 @@ type handshakeMessageBody interface {
 //     opaque legacy_compression_methods<1..2^8-1>;
 //     Extension extensions<0..2^16-1>;
 // } ClientHello;
-type clientHelloBody struct {
+type ClientHelloBody struct {
 	// Omitted: clientVersion
 	// Omitted: legacySessionID
 	// Omitted: legacyCompressionMethods
-	random       [32]byte
-	cipherSuites []CipherSuite
-	extensions   extensionList
+	Random       [32]byte
+	CipherSuites []CipherSuite
+	Extensions   ExtensionList
 }
 
 type clientHelloBodyInner struct {
@@ -50,25 +38,25 @@ type clientHelloBodyInner struct {
 	LegacySessionID          []byte        `tls:"head=1,max=32"`
 	CipherSuites             []CipherSuite `tls:"head=2,min=2"`
 	LegacyCompressionMethods []byte        `tls:"head=1,min=1"`
-	Extensions               []extension   `tls:"head=2"`
+	Extensions               []Extension   `tls:"head=2"`
 }
 
-func (ch clientHelloBody) Type() handshakeType {
-	return handshakeTypeClientHello
+func (ch ClientHelloBody) Type() HandshakeType {
+	return HandshakeTypeClientHello
 }
 
-func (ch clientHelloBody) Marshal() ([]byte, error) {
+func (ch ClientHelloBody) Marshal() ([]byte, error) {
 	return syntax.Marshal(clientHelloBodyInner{
 		LegacyVersion:            0x0303,
-		Random:                   ch.random,
+		Random:                   ch.Random,
 		LegacySessionID:          []byte{},
-		CipherSuites:             ch.cipherSuites,
+		CipherSuites:             ch.CipherSuites,
 		LegacyCompressionMethods: []byte{0},
-		Extensions:               ch.extensions,
+		Extensions:               ch.Extensions,
 	})
 }
 
-func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
+func (ch *ClientHelloBody) Unmarshal(data []byte) (int, error) {
 	var inner clientHelloBodyInner
 	read, err := syntax.Unmarshal(data, &inner)
 	if err != nil {
@@ -84,31 +72,31 @@ func (ch *clientHelloBody) Unmarshal(data []byte) (int, error) {
 		return 0, fmt.Errorf("tls.clienthello: Invalid compression method")
 	}
 
-	ch.random = inner.Random
-	ch.cipherSuites = inner.CipherSuites
-	ch.extensions = inner.Extensions
+	ch.Random = inner.Random
+	ch.CipherSuites = inner.CipherSuites
+	ch.Extensions = inner.Extensions
 	return read, nil
 }
 
 // TODO: File a spec bug to clarify this
-func (ch clientHelloBody) Truncated() ([]byte, error) {
-	if len(ch.extensions) == 0 {
+func (ch ClientHelloBody) Truncated() ([]byte, error) {
+	if len(ch.Extensions) == 0 {
 		return nil, fmt.Errorf("tls.clienthello.truncate: No extensions")
 	}
 
-	pskExt := ch.extensions[len(ch.extensions)-1]
-	if pskExt.ExtensionType != extensionTypePreSharedKey {
+	pskExt := ch.Extensions[len(ch.Extensions)-1]
+	if pskExt.ExtensionType != ExtensionTypePreSharedKey {
 		return nil, fmt.Errorf("tls.clienthello.truncate: Last extension is not PSK")
 	}
 
-	chm, err := handshakeMessageFromBody(&ch)
+	chm, err := HandshakeMessageFromBody(&ch)
 	if err != nil {
 		return nil, err
 	}
 	chData := chm.Marshal()
 
-	psk := preSharedKeyExtension{
-		handshakeType: handshakeTypeClientHello,
+	psk := PreSharedKeyExtension{
+		HandshakeType: HandshakeTypeClientHello,
 	}
 	_, err = psk.Unmarshal(pskExt.ExtensionData)
 	if err != nil {
@@ -117,8 +105,8 @@ func (ch clientHelloBody) Truncated() ([]byte, error) {
 
 	// Marshal just the binders so that we know how much to truncate
 	binders := struct {
-		Binders []pskBinderEntry `tls:"head=2,min=33"`
-	}{Binders: psk.binders}
+		Binders []PSKBinderEntry `tls:"head=2,min=33"`
+	}{Binders: psk.Binders}
 	binderData, _ := syntax.Marshal(binders)
 	binderLen := len(binderData)
 
@@ -132,22 +120,22 @@ func (ch clientHelloBody) Truncated() ([]byte, error) {
 //     CipherSuite cipher_suite;
 //     Extension extensions<0..2^16-1>;
 // } ServerHello;
-type serverHelloBody struct {
+type ServerHelloBody struct {
 	Version     uint16
 	Random      [32]byte
 	CipherSuite CipherSuite
-	Extensions  extensionList `tls:"head=2"`
+	Extensions  ExtensionList `tls:"head=2"`
 }
 
-func (sh serverHelloBody) Type() handshakeType {
-	return handshakeTypeServerHello
+func (sh ServerHelloBody) Type() HandshakeType {
+	return HandshakeTypeServerHello
 }
 
-func (sh serverHelloBody) Marshal() ([]byte, error) {
+func (sh ServerHelloBody) Marshal() ([]byte, error) {
 	return syntax.Marshal(sh)
 }
 
-func (sh *serverHelloBody) Unmarshal(data []byte) (int, error) {
+func (sh *ServerHelloBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, sh)
 }
 
@@ -164,53 +152,53 @@ func (sh *serverHelloBody) Unmarshal(data []byte) (int, error) {
 // struct doesn't map well to standard TLS presentation language concepts.
 //
 // TODO: File a spec bug
-type finishedBody struct {
-	verifyDataLen int
-	verifyData    []byte
+type FinishedBody struct {
+	VerifyDataLen int
+	VerifyData    []byte
 }
 
-func (fin finishedBody) Type() handshakeType {
-	return handshakeTypeFinished
+func (fin FinishedBody) Type() HandshakeType {
+	return HandshakeTypeFinished
 }
 
-func (fin finishedBody) Marshal() ([]byte, error) {
-	if len(fin.verifyData) != fin.verifyDataLen {
+func (fin FinishedBody) Marshal() ([]byte, error) {
+	if len(fin.VerifyData) != fin.VerifyDataLen {
 		return nil, fmt.Errorf("tls.finished: data length mismatch")
 	}
 
-	body := make([]byte, len(fin.verifyData))
-	copy(body, fin.verifyData)
+	body := make([]byte, len(fin.VerifyData))
+	copy(body, fin.VerifyData)
 	return body, nil
 }
 
-func (fin *finishedBody) Unmarshal(data []byte) (int, error) {
-	if len(data) < fin.verifyDataLen {
+func (fin *FinishedBody) Unmarshal(data []byte) (int, error) {
+	if len(data) < fin.VerifyDataLen {
 		return 0, fmt.Errorf("tls.finished: Malformed finished; too short")
 	}
 
-	fin.verifyData = make([]byte, fin.verifyDataLen)
-	copy(fin.verifyData, data[:fin.verifyDataLen])
-	return fin.verifyDataLen, nil
+	fin.VerifyData = make([]byte, fin.VerifyDataLen)
+	copy(fin.VerifyData, data[:fin.VerifyDataLen])
+	return fin.VerifyDataLen, nil
 }
 
 // struct {
 //     Extension extensions<0..2^16-1>;
 // } EncryptedExtensions;
 //
-// Marshal() and Unmarshal() are handled by extensionList
-type encryptedExtensionsBody struct {
-	Extensions extensionList `tls:"head=2"`
+// Marshal() and Unmarshal() are handled by ExtensionList
+type EncryptedExtensionsBody struct {
+	Extensions ExtensionList `tls:"head=2"`
 }
 
-func (ee encryptedExtensionsBody) Type() handshakeType {
-	return handshakeTypeEncryptedExtensions
+func (ee EncryptedExtensionsBody) Type() HandshakeType {
+	return HandshakeTypeEncryptedExtensions
 }
 
-func (ee encryptedExtensionsBody) Marshal() ([]byte, error) {
+func (ee EncryptedExtensionsBody) Marshal() ([]byte, error) {
 	return syntax.Marshal(ee)
 }
 
-func (ee *encryptedExtensionsBody) Unmarshal(data []byte) (int, error) {
+func (ee *EncryptedExtensionsBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, ee)
 }
 
@@ -225,124 +213,90 @@ func (ee *encryptedExtensionsBody) Unmarshal(data []byte) (int, error) {
 //     opaque certificate_request_context<0..2^8-1>;
 //     CertificateEntry certificate_list<0..2^24-1>;
 // } Certificate;
-type certificateEntry struct {
-	certData   *x509.Certificate
-	extensions extensionList
+type CertificateEntry struct {
+	CertData   *x509.Certificate
+	Extensions ExtensionList
 }
 
-type certificateBody struct {
-	certificateRequestContext []byte
-	certificateList           []certificateEntry
+type CertificateBody struct {
+	CertificateRequestContext []byte
+	CertificateList           []CertificateEntry
 }
 
-func (c certificateBody) Type() handshakeType {
-	return handshakeTypeCertificate
+type certificateEntryInner struct {
+	CertData   []byte        `tls:"head=3,min=1"`
+	Extensions ExtensionList `tls:"head=2"`
 }
 
-func (c certificateBody) Marshal() ([]byte, error) {
-	if len(c.certificateRequestContext) > maxCertRequestContextLen {
-		return nil, fmt.Errorf("tls.certificate: Request context too long")
-	}
-
-	certsData := []byte{}
-	for _, entry := range c.certificateList {
-		if entry.certData == nil || len(entry.certData.Raw) == 0 {
-			return nil, fmt.Errorf("tls:certificate: Unmarshaled certificate")
-		}
-
-		extData, err := entry.extensions.Marshal()
-		if err != nil {
-			return nil, err
-		}
-
-		certLen := len(entry.certData.Raw)
-		entryData := []byte{byte(certLen >> 16), byte(certLen >> 8), byte(certLen)}
-		entryData = append(entryData, entry.certData.Raw...)
-		entryData = append(entryData, extData...)
-		certsData = append(certsData, entryData...)
-	}
-	certsDataLen := len(certsData)
-	certsDataLenBytes := []byte{byte(certsDataLen >> 16), byte(certsDataLen >> 8), byte(certsDataLen)}
-
-	data := []byte{byte(len(c.certificateRequestContext))}
-	data = append(data, c.certificateRequestContext...)
-	data = append(data, certsDataLenBytes...)
-	data = append(data, certsData...)
-	return data, nil
+type certificateBodyInner struct {
+	CertificateRequestContext []byte                  `tls:"head=1"`
+	CertificateList           []certificateEntryInner `tls:"head=3"`
 }
 
-func (c *certificateBody) Unmarshal(data []byte) (int, error) {
-	if len(data) < 1 {
-		return 0, fmt.Errorf("tls:certificate: Message too short for context length")
+func (c CertificateBody) Type() HandshakeType {
+	return HandshakeTypeCertificate
+}
+
+func (c CertificateBody) Marshal() ([]byte, error) {
+	inner := certificateBodyInner{
+		CertificateRequestContext: c.CertificateRequestContext,
+		CertificateList:           make([]certificateEntryInner, len(c.CertificateList)),
 	}
 
-	contextLen := int(data[0])
-	if len(data) < 1+contextLen+3 {
-		return 0, fmt.Errorf("tls:certificate: Message too short for context")
-	}
-	c.certificateRequestContext = make([]byte, contextLen)
-	copy(c.certificateRequestContext, data[1:1+contextLen])
-
-	certsLen := (int(data[1+contextLen]) << 16) + (int(data[1+contextLen+1]) << 8) + int(data[1+contextLen+2])
-	if len(data) < 1+contextLen+3+certsLen {
-		return 0, fmt.Errorf("tls:certificate: Message too short for certificates")
-	}
-
-	start := 1 + contextLen + 3
-	end := 1 + contextLen + 3 + certsLen
-	c.certificateList = []certificateEntry{}
-	for start < end {
-		if len(data[start:]) < 3 {
-			return 0, fmt.Errorf("tls:certificate: Message too short for certificate length")
+	for i, entry := range c.CertificateList {
+		inner.CertificateList[i] = certificateEntryInner{
+			CertData:   entry.CertData.Raw,
+			Extensions: entry.Extensions,
 		}
+	}
 
-		certLen := (int(data[start]) << 16) + (int(data[start+1]) << 8) + int(data[start+2])
-		if len(data[start+3:]) < certLen {
-			return 0, fmt.Errorf("tls:certificate: Message too short for certificate")
-		}
+	return syntax.Marshal(inner)
+}
 
-		cert, err := x509.ParseCertificate(data[start+3 : start+3+certLen])
+func (c *CertificateBody) Unmarshal(data []byte) (int, error) {
+	inner := certificateBodyInner{}
+	read, err := syntax.Unmarshal(data, &inner)
+	if err != nil {
+		return read, err
+	}
+
+	c.CertificateRequestContext = inner.CertificateRequestContext
+	c.CertificateList = make([]CertificateEntry, len(inner.CertificateList))
+
+	for i, entry := range inner.CertificateList {
+		c.CertificateList[i].CertData, err = x509.ParseCertificate(entry.CertData)
 		if err != nil {
 			return 0, fmt.Errorf("tls:certificate: Certificate failed to parse: %v", err)
 		}
 
-		var ext extensionList
-		read, err := ext.Unmarshal(data[start+3+certLen:])
-		if err != nil {
-			return 0, err
-		}
-
-		c.certificateList = append(c.certificateList, certificateEntry{
-			certData:   cert,
-			extensions: ext,
-		})
-		start += 3 + certLen + read
+		c.CertificateList[i].Extensions = entry.Extensions
 	}
-	return start, nil
+
+	return read, nil
 }
 
 // struct {
 //     SignatureScheme algorithm;
 //     opaque signature<0..2^16-1>;
 // } CertificateVerify;
-type certificateVerifyBody struct {
+type CertificateVerifyBody struct {
 	Algorithm SignatureScheme
 	Signature []byte `tls:"head=2"`
 }
 
-func (cv certificateVerifyBody) Type() handshakeType {
-	return handshakeTypeCertificateVerify
+func (cv CertificateVerifyBody) Type() HandshakeType {
+	return HandshakeTypeCertificateVerify
 }
 
-func (cv certificateVerifyBody) Marshal() ([]byte, error) {
+func (cv CertificateVerifyBody) Marshal() ([]byte, error) {
 	return syntax.Marshal(cv)
 }
 
-func (cv *certificateVerifyBody) Unmarshal(data []byte) (int, error) {
+func (cv *CertificateVerifyBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, cv)
 }
 
-func (cv *certificateVerifyBody) computeContext(ctx cryptoContext, transcript []*handshakeMessage) (hashed []byte, err error) {
+func (cv *CertificateVerifyBody) ComputeContext(ctx cryptoContext, transcript []*HandshakeMessage) (hashed []byte, err error) {
 	h := ctx.params.hash.New()
 	handshakeContext := []byte{}
 	for _, msg := range transcript {
@@ -362,7 +316,7 @@ func (cv *certificateVerifyBody) computeContext(ctx cryptoContext, transcript []
 	return
 }
 
-func (cv *certificateVerifyBody) encodeSignatureInput(data []byte) []byte {
+func (cv *CertificateVerifyBody) EncodeSignatureInput(data []byte) []byte {
 	const context = "TLS 1.3, server CertificateVerify"
 	sigInput := bytes.Repeat([]byte{0x20}, 64)
 	sigInput = append(sigInput, []byte(context)...)
@@ -371,25 +325,25 @@ func (cv *certificateVerifyBody) encodeSignatureInput(data []byte) []byte {
 	return sigInput
 }
 
-func (cv *certificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*handshakeMessage, ctx cryptoContext) error {
-	hashedWithContext, err := cv.computeContext(ctx, transcript)
+func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*HandshakeMessage, ctx cryptoContext) error {
+	hashedWithContext, err := cv.ComputeContext(ctx, transcript)
 	if err != nil {
 		return err
 	}
 
-	sigInput := cv.encodeSignatureInput(hashedWithContext)
+	sigInput := cv.EncodeSignatureInput(hashedWithContext)
 	cv.Signature, err = sign(cv.Algorithm, privateKey, sigInput)
 	logf(logTypeHandshake, "Signed: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return err
 }
 
-func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*handshakeMessage, ctx cryptoContext) error {
-	hashedWithContext, err := cv.computeContext(ctx, transcript)
+func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*HandshakeMessage, ctx cryptoContext) error {
+	hashedWithContext, err := cv.ComputeContext(ctx, transcript)
 	if err != nil {
 		return err
 	}
 
-	sigInput := cv.encodeSignatureInput(hashedWithContext)
+	sigInput := cv.EncodeSignatureInput(hashedWithContext)
 	logf(logTypeHandshake, "About to verify: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return verify(cv.Algorithm, publicKey, sigInput, cv.Signature)
 }
@@ -400,30 +354,30 @@ func (cv *certificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript [
 //     opaque ticket<1..2^16-1>;
 //     Extension extensions<0..2^16-2>;
 // } NewSessionTicket;
-type newSessionTicketBody struct {
+type NewSessionTicketBody struct {
 	TicketLifetime uint32
 	TicketAgeAdd   uint32
 	Ticket         []byte        `tls:"head=2,min=1"`
-	Extensions     extensionList `tls:"head=2"`
+	Extensions     ExtensionList `tls:"head=2"`
 }
 
-func newSessionTicket(ticketLen int) (*newSessionTicketBody, error) {
-	tkt := &newSessionTicketBody{
+func NewSessionTicket(ticketLen int) (*NewSessionTicketBody, error) {
+	tkt := &NewSessionTicketBody{
 		Ticket: make([]byte, ticketLen),
 	}
 	_, err := prng.Read(tkt.Ticket)
 	return tkt, err
 }
 
-func (tkt newSessionTicketBody) Type() handshakeType {
-	return handshakeTypeNewSessionTicket
+func (tkt NewSessionTicketBody) Type() HandshakeType {
+	return HandshakeTypeNewSessionTicket
 }
 
-func (tkt newSessionTicketBody) Marshal() ([]byte, error) {
+func (tkt NewSessionTicketBody) Marshal() ([]byte, error) {
 	return syntax.Marshal(tkt)
 }
 
-func (tkt *newSessionTicketBody) Unmarshal(data []byte) (int, error) {
+func (tkt *NewSessionTicketBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, tkt)
 }
 
@@ -434,18 +388,18 @@ func (tkt *newSessionTicketBody) Unmarshal(data []byte) (int, error) {
 // struct {
 //     KeyUpdateRequest request_update;
 // } KeyUpdate;
-type keyUpdateBody struct {
-	KeyUpdateRequest keyUpdateRequest
+type KeyUpdateBody struct {
+	KeyUpdateRequest KeyUpdateRequest
 }
 
-func (ku keyUpdateBody) Type() handshakeType {
-	return handshakeTypeKeyUpdate
+func (ku KeyUpdateBody) Type() HandshakeType {
+	return HandshakeTypeKeyUpdate
 }
 
-func (ku keyUpdateBody) Marshal() ([]byte, error) {
+func (ku KeyUpdateBody) Marshal() ([]byte, error) {
 	return syntax.Marshal(ku)
 }
 
-func (ku *keyUpdateBody) Unmarshal(data []byte) (int, error) {
+func (ku *KeyUpdateBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, ku)
 }

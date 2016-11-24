@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-func versionNegotiation(offered, supported []uint16) (bool, uint16) {
+func VersionNegotiation(offered, supported []uint16) (bool, uint16) {
 	for _, offeredVersion := range offered {
 		for _, supportedVersion := range supported {
 			logf(logTypeHandshake, "[server] version offered by client [%04x] <> [%04x]", offeredVersion, supportedVersion)
@@ -20,7 +20,7 @@ func versionNegotiation(offered, supported []uint16) (bool, uint16) {
 	return false, 0
 }
 
-func dhNegotiation(keyShares []keyShareEntry, groups []NamedGroup) (bool, NamedGroup, []byte, []byte) {
+func DHNegotiation(keyShares []KeyShareEntry, groups []NamedGroup) (bool, NamedGroup, []byte, []byte) {
 	for _, share := range keyShares {
 		for _, group := range groups {
 			if group != share.Group {
@@ -46,7 +46,7 @@ func dhNegotiation(keyShares []keyShareEntry, groups []NamedGroup) (bool, NamedG
 	return false, 0, nil, nil
 }
 
-func pskNegotiation(identities []pskIdentity, binders []pskBinderEntry, chTrunc []byte, psks map[string]PreSharedKey) (bool, int, *PreSharedKey, cryptoContext, error) {
+func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, chTrunc []byte, psks map[string]PreSharedKey) (bool, int, *PreSharedKey, cryptoContext, error) {
 	logf(logTypeNegotiation, "Negotiating PSK offered=[%d] supported=[%d]", len(identities), len(psks))
 	for i, id := range identities {
 		for _, key := range psks {
@@ -75,7 +75,7 @@ func pskNegotiation(identities []pskIdentity, binders []pskBinderEntry, chTrunc 
 	return false, 0, nil, cryptoContext{}, nil
 }
 
-func pskModeNegotiation(canDoDH, canDoPSK bool, modes []PSKKeyExchangeMode) (bool, bool) {
+func PSKModeNegotiation(canDoDH, canDoPSK bool, modes []PSKKeyExchangeMode) (bool, bool) {
 	logf(logTypeNegotiation, "Negotiating PSK modes [%v] [%v] [%+v]", canDoDH, canDoPSK, modes)
 	dhAllowed := false
 	dhRequired := true
@@ -94,7 +94,7 @@ func pskModeNegotiation(canDoDH, canDoPSK bool, modes []PSKKeyExchangeMode) (boo
 	return usingDH, usingPSK
 }
 
-func certificateSelection(serverName string, signatureSchemes []SignatureScheme, certs []*Certificate) (*Certificate, SignatureScheme, error) {
+func CertificateSelection(serverName string, signatureSchemes []SignatureScheme, certs []*Certificate) (*Certificate, SignatureScheme, error) {
 	// Select for server name
 	candidatesByName := []*Certificate{}
 	for _, cert := range certs {
@@ -123,13 +123,13 @@ func certificateSelection(serverName string, signatureSchemes []SignatureScheme,
 	return nil, 0, fmt.Errorf("No certificates compatible with signature schemes")
 }
 
-func earlyDataNegotiation(usingPSK, gotEarlyData, allowEarlyData bool) bool {
+func EarlyDataNegotiation(usingPSK, gotEarlyData, allowEarlyData bool) bool {
 	usingEarlyData := gotEarlyData && usingPSK && allowEarlyData
 	logf(logTypeNegotiation, "Early data negotiation (%v, %v, %v) => %v", usingPSK, gotEarlyData, allowEarlyData, usingEarlyData)
 	return usingEarlyData
 }
 
-func cipherSuiteNegotiation(psk *PreSharedKey, offered, supported []CipherSuite) (CipherSuite, error) {
+func CipherSuiteNegotiation(psk *PreSharedKey, offered, supported []CipherSuite) (CipherSuite, error) {
 	for _, s1 := range offered {
 		if psk != nil {
 			if s1 == psk.CipherSuite {
@@ -148,7 +148,7 @@ func cipherSuiteNegotiation(psk *PreSharedKey, offered, supported []CipherSuite)
 	return 0, fmt.Errorf("No overlap between offered and supproted ciphersuites (psk? [%v])", psk != nil)
 }
 
-func alpnNegotiation(psk *PreSharedKey, offered, supported []string) (string, error) {
+func ALPNNegotiation(psk *PreSharedKey, offered, supported []string) (string, error) {
 	for _, p1 := range offered {
 		if psk != nil {
 			if p1 != psk.NextProto {

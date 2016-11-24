@@ -14,7 +14,7 @@ import (
 // The configuration config must be non-nil and must include
 // at least one certificate or else set GetCertificate.
 func Server(conn net.Conn, config *Config) *Conn {
-	return newConn(conn, config, false)
+	return NewConn(conn, config, false)
 }
 
 // Client returns a new TLS client side connection
@@ -22,18 +22,18 @@ func Server(conn net.Conn, config *Config) *Conn {
 // The config cannot be nil: users must set either ServerName or
 // InsecureSkipVerify in the config.
 func Client(conn net.Conn, config *Config) *Conn {
-	return newConn(conn, config, true)
+	return NewConn(conn, config, true)
 }
 
 // A listener implements a network listener (net.Listener) for TLS connections.
-type listener struct {
+type Listener struct {
 	net.Listener
 	config *Config
 }
 
 // Accept waits for and returns the next incoming TLS connection.
 // The returned connection c is a *tls.Conn.
-func (l *listener) Accept() (c net.Conn, err error) {
+func (l *Listener) Accept() (c net.Conn, err error) {
 	c, err = l.Listener.Accept()
 	if err != nil {
 		return
@@ -49,7 +49,7 @@ func (l *listener) Accept() (c net.Conn, err error) {
 // The configuration config must be non-nil and must include
 // at least one certificate or else set GetCertificate.
 func NewListener(inner net.Listener, config *Config) net.Listener {
-	l := new(listener)
+	l := new(Listener)
 	l.Listener = inner
 	l.config = config
 	return l
@@ -60,7 +60,7 @@ func NewListener(inner net.Listener, config *Config) net.Listener {
 // The configuration config must be non-nil and must include
 // at least one certificate or else set GetCertificate.
 func Listen(network, laddr string, config *Config) (net.Listener, error) {
-	if config == nil || !config.validForServer() {
+	if config == nil || !config.ValidForServer() {
 		return nil, errors.New("tls: neither Certificates nor GetCertificate set in Config")
 	}
 	l, err := net.Listen(network, laddr)
@@ -70,11 +70,11 @@ func Listen(network, laddr string, config *Config) (net.Listener, error) {
 	return NewListener(l, config), nil
 }
 
-type timeoutError struct{}
+type TimeoutError struct{}
 
-func (timeoutError) Error() string   { return "tls: DialWithDialer timed out" }
-func (timeoutError) Timeout() bool   { return true }
-func (timeoutError) Temporary() bool { return true }
+func (TimeoutError) Error() string   { return "tls: DialWithDialer timed out" }
+func (TimeoutError) Timeout() bool   { return true }
+func (TimeoutError) Temporary() bool { return true }
 
 // DialWithDialer connects to the given network address using dialer.Dial and
 // then initiates a TLS handshake, returning the resulting TLS connection. Any
@@ -101,7 +101,7 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*
 	if timeout != 0 {
 		errChannel = make(chan error, 2)
 		time.AfterFunc(timeout, func() {
-			errChannel <- timeoutError{}
+			errChannel <- TimeoutError{}
 		})
 	}
 

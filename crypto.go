@@ -28,15 +28,6 @@ import (
 
 var prng = rand.Reader
 
-type handshakeMode uint8
-
-const (
-	handshakeModeUnknown handshakeMode = iota
-	handshakeModePSK
-	handshakeModePSKAndDH
-	handshakeModeDH
-)
-
 type aeadFactory func(key []byte) (cipher.AEAD, error)
 
 type cipherSuiteParams struct {
@@ -99,13 +90,13 @@ var (
 	}
 
 	cipherSuiteMap = map[CipherSuite]cipherSuiteParams{
-		TLS_AES_128_GCM_SHA256: cipherSuiteParams{
+		TLS_AES_128_GCM_SHA256: {
 			cipher: newAESGCM,
 			hash:   crypto.SHA256,
 			keyLen: 16,
 			ivLen:  12,
 		},
-		TLS_AES_256_GCM_SHA384: cipherSuiteParams{
+		TLS_AES_256_GCM_SHA384: {
 			cipher: newAESGCM,
 			hash:   crypto.SHA384,
 			keyLen: 32,
@@ -741,7 +732,7 @@ type cryptoContext struct {
 
 	// updateWithServerFirstFlight(...)
 	serverFinishedData  []byte
-	serverFinished      *finishedBody
+	serverFinished      *FinishedBody
 	clientTrafficSecret []byte
 	serverTrafficSecret []byte
 	clientTrafficKeys   keySet
@@ -750,7 +741,7 @@ type cryptoContext struct {
 
 	// updateWithClientSecondFlight(...)
 	clientFinishedData []byte
-	clientFinished     *finishedBody
+	clientFinished     *FinishedBody
 	resumptionSecret   []byte
 }
 
@@ -807,7 +798,7 @@ func (ctx *cryptoContext) preInit(psk PreSharedKey) error {
 	return nil
 }
 
-func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *handshakeMessage) {
+func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *HandshakeMessage) {
 	chBytes := chm.Marshal()
 
 	h := ctx.params.hash.New()
@@ -827,7 +818,7 @@ func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *handshakeMessage) {
 }
 
 // TODO: Merge with UpdateWithServerHello?
-func (ctx *cryptoContext) init(suite CipherSuite, chm *handshakeMessage) error {
+func (ctx *cryptoContext) init(suite CipherSuite, chm *HandshakeMessage) error {
 	logf(logTypeCrypto, "Initializing crypto context")
 
 	// Configure based on cipherSuite
@@ -863,7 +854,7 @@ func (ctx *cryptoContext) init(suite CipherSuite, chm *handshakeMessage) error {
 	return nil
 }
 
-func (ctx *cryptoContext) updateWithServerHello(shm *handshakeMessage, dhSecret []byte) error {
+func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret []byte) error {
 	logf(logTypeCrypto, "Updating crypto context with ServerHello")
 
 	if ctx.state != ctxStateClientHello {
@@ -911,7 +902,7 @@ func (ctx *cryptoContext) updateWithServerHello(shm *handshakeMessage, dhSecret 
 	return nil
 }
 
-func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) error {
+func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*HandshakeMessage) error {
 	logf(logTypeCrypto, "Updating crypto context with server's first flight")
 
 	if ctx.state != ctxStateServerHello {
@@ -932,13 +923,13 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) 
 	ctx.serverFinishedData = ctx.computeFinishedData(ctx.serverHandshakeTrafficSecret, ctx.h3)
 	logf(logTypeCrypto, "server finished data: [%d] %x", len(ctx.serverFinishedData), ctx.serverFinishedData)
 
-	ctx.serverFinished = &finishedBody{
-		verifyDataLen: ctx.params.hash.Size(),
-		verifyData:    ctx.serverFinishedData,
+	ctx.serverFinished = &FinishedBody{
+		VerifyDataLen: ctx.params.hash.Size(),
+		VerifyData:    ctx.serverFinishedData,
 	}
 
 	// Update the handshake hash with the Finished message
-	finishedMessage, _ := handshakeMessageFromBody(ctx.serverFinished)
+	finishedMessage, _ := HandshakeMessageFromBody(ctx.serverFinished)
 	ctx.handshakeHash.Write(finishedMessage.Marshal())
 	ctx.h4 = ctx.handshakeHash.Sum(nil)
 	logf(logTypeCrypto, "handshake hash 4 [%d]: %x", len(ctx.h4), ctx.h4)
@@ -966,7 +957,7 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) 
 	return nil
 }
 
-func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*handshakeMessage) error {
+func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*HandshakeMessage) error {
 	logf(logTypeCrypto, "Updating crypto context with client's second flight")
 
 	if ctx.state != ctxStateServerFirstFlight {
@@ -989,13 +980,13 @@ func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*handshakeMessage)
 	ctx.clientFinishedData = ctx.computeFinishedData(ctx.clientHandshakeTrafficSecret, ctx.h5)
 	logf(logTypeCrypto, "client Finished data: [%d] %x", len(ctx.clientFinishedData), ctx.clientFinishedData)
 
-	ctx.clientFinished = &finishedBody{
-		verifyDataLen: ctx.params.hash.Size(),
-		verifyData:    ctx.clientFinishedData,
+	ctx.clientFinished = &FinishedBody{
+		VerifyDataLen: ctx.params.hash.Size(),
+		VerifyData:    ctx.clientFinishedData,
 	}
 
 	// Update the handshake hash
-	finishedMessage, _ := handshakeMessageFromBody(ctx.clientFinished)
+	finishedMessage, _ := HandshakeMessageFromBody(ctx.clientFinished)
 	ctx.handshakeHash.Write(finishedMessage.Marshal())
 	ctx.h6 = ctx.handshakeHash.Sum(nil)
 	logf(logTypeCrypto, "handshake hash 6 [%d]: %x", len(ctx.h6), ctx.h6)
