@@ -40,12 +40,13 @@ type ConnectionParameters struct {
 type Handshake interface {
 	IsClient() bool
 	ConnectionParams() ConnectionParameters
-	CryptoContext() *cryptoContext
-	InboundKeys() (aeadFactory, keySet)
-	OutboundKeys() (aeadFactory, keySet)
 	CreateKeyUpdate(KeyUpdateRequest) (*HandshakeMessage, error)
 	HandleKeyUpdate(*HandshakeMessage) (*HandshakeMessage, error)
 	HandleNewSessionTicket(*HandshakeMessage) (PreSharedKey, error)
+
+	cryptoContext() *cryptoContext
+	inboundKeys() (aeadFactory, keySet)
+	outboundKeys() (aeadFactory, keySet)
 }
 
 ///// Common methods
@@ -112,19 +113,19 @@ func (h *ClientHandshake) IsClient() bool {
 	return true
 }
 
-func (h *ClientHandshake) CryptoContext() *cryptoContext {
-	return &h.Context
-}
-
 func (h ClientHandshake) ConnectionParams() ConnectionParameters {
 	return h.Params
 }
 
-func (h *ClientHandshake) InboundKeys() (aeadFactory, keySet) {
+func (h *ClientHandshake) cryptoContext() *cryptoContext {
+	return &h.Context
+}
+
+func (h *ClientHandshake) inboundKeys() (aeadFactory, keySet) {
 	return h.Context.params.cipher, h.Context.serverTrafficKeys
 }
 
-func (h *ClientHandshake) OutboundKeys() (aeadFactory, keySet) {
+func (h *ClientHandshake) outboundKeys() (aeadFactory, keySet) {
 	return h.Context.params.cipher, h.Context.clientTrafficKeys
 }
 
@@ -430,10 +431,6 @@ func (h *ServerHandshake) IsClient() bool {
 	return true
 }
 
-func (h *ServerHandshake) CryptoContext() *cryptoContext {
-	return &h.Context
-}
-
 func (h ServerHandshake) ConnectionParams() ConnectionParameters {
 	return h.Params
 }
@@ -450,11 +447,15 @@ func (h *ServerHandshake) HandleNewSessionTicket(hm *HandshakeMessage) (PreShare
 	return PreSharedKey{}, fmt.Errorf("tls.server: Client sent NewSessionTicket")
 }
 
-func (h *ServerHandshake) InboundKeys() (aeadFactory, keySet) {
+func (h *ServerHandshake) cryptoContext() *cryptoContext {
+	return &h.Context
+}
+
+func (h *ServerHandshake) inboundKeys() (aeadFactory, keySet) {
 	return h.Context.params.cipher, h.Context.clientTrafficKeys
 }
 
-func (h *ServerHandshake) OutboundKeys() (aeadFactory, keySet) {
+func (h *ServerHandshake) outboundKeys() (aeadFactory, keySet) {
 	return h.Context.params.cipher, h.Context.serverTrafficKeys
 }
 

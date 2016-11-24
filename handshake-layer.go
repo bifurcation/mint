@@ -124,9 +124,8 @@ func (h *HandshakeLayer) extendBuffer(n int) error {
 			if Alert(pt.fragment[1]) == AlertEndOfEarlyData {
 				// TODO: add a state change for 0-RTT here
 				return nil
-			} else {
-				return Alert(pt.fragment[1])
 			}
+			return Alert(pt.fragment[1])
 		}
 
 		h.buffer = append(h.buffer, pt.fragment...)

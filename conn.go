@@ -256,7 +256,7 @@ func (c *Conn) extendBuffer(n int) error {
 					}
 
 					// Rekey inbound
-					cipher, keys := c.handshake.InboundKeys()
+					cipher, keys := c.handshake.inboundKeys()
 					err = c.in.Rekey(cipher, keys.key, keys.iv)
 					if err != nil {
 						return err
@@ -273,7 +273,7 @@ func (c *Conn) extendBuffer(n int) error {
 						}
 
 						// Rekey outbound
-						cipher, keys := c.handshake.OutboundKeys()
+						cipher, keys := c.handshake.outboundKeys()
 						err = c.out.Rekey(cipher, keys.key, keys.iv)
 						if err != nil {
 							return err
@@ -848,7 +848,7 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 	}
 
 	// Rekey outbound
-	cipher, keys := c.handshake.OutboundKeys()
+	cipher, keys := c.handshake.outboundKeys()
 	err = c.out.Rekey(cipher, keys.key, keys.iv)
 	return err
 }

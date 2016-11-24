@@ -279,7 +279,7 @@ func TestBasicFlows(t *testing.T) {
 		<-done
 
 		assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
-		assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
+		assertContextEquals(t, client.handshake.cryptoContext(), server.handshake.cryptoContext())
 	}
 }
 
@@ -305,7 +305,7 @@ func TestPSKFlows(t *testing.T) {
 		assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
 		assert(t, client.handshake.ConnectionParams().UsingPSK, "Session did not use the provided PSK")
 
-		assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
+		assertContextEquals(t, client.handshake.cryptoContext(), server.handshake.cryptoContext())
 	}
 }
 
@@ -332,7 +332,7 @@ func TestResumption(t *testing.T) {
 	<-done
 
 	assertDeepEquals(t, client1.handshake.ConnectionParams(), server1.handshake.ConnectionParams())
-	assertContextEquals(t, client1.handshake.CryptoContext(), server1.handshake.CryptoContext())
+	assertContextEquals(t, client1.handshake.cryptoContext(), server1.handshake.cryptoContext())
 	assertEquals(t, len(clientConfig.PSKs), 1)
 	assertEquals(t, len(serverConfig.PSKs), 1)
 
@@ -364,7 +364,7 @@ func TestResumption(t *testing.T) {
 	<-done
 
 	assertDeepEquals(t, client2.handshake.ConnectionParams(), server2.handshake.ConnectionParams())
-	assertContextEquals(t, client2.handshake.CryptoContext(), server2.handshake.CryptoContext())
+	assertContextEquals(t, client2.handshake.cryptoContext(), server2.handshake.cryptoContext())
 }
 
 func Test0xRTT(t *testing.T) {
@@ -388,7 +388,7 @@ func Test0xRTT(t *testing.T) {
 
 	<-done
 
-	assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
+	assertContextEquals(t, client.handshake.cryptoContext(), server.handshake.cryptoContext())
 	assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
 	assert(t, client.handshake.ConnectionParams().UsingEarlyData, "Session did not negotiate early data")
 	assertByteEquals(t, client.earlyData, server.readBuffer)
@@ -464,8 +464,8 @@ func TestKeyUpdate(t *testing.T) {
 	assertNotError(t, err, "Client failed handshake")
 	<-s2c
 
-	clientContext0 := *client.handshake.CryptoContext()
-	serverContext0 := *server.handshake.CryptoContext()
+	clientContext0 := *client.handshake.cryptoContext()
+	serverContext0 := *server.handshake.cryptoContext()
 	assertContextEquals(t, &clientContext0, &serverContext0)
 
 	// Null read to trigger key update
@@ -473,8 +473,8 @@ func TestKeyUpdate(t *testing.T) {
 	<-s2c
 	client.Read(zeroBuf)
 
-	clientContext1 := *client.handshake.CryptoContext()
-	serverContext1 := *server.handshake.CryptoContext()
+	clientContext1 := *client.handshake.cryptoContext()
+	serverContext1 := *server.handshake.cryptoContext()
 	assertContextEquals(t, &clientContext1, &serverContext1)
 	assertNotByteEquals(t, clientContext0.serverTrafficKeys.key, clientContext1.serverTrafficKeys.key)
 	assertNotByteEquals(t, clientContext0.serverTrafficKeys.iv, clientContext1.serverTrafficKeys.iv)
@@ -486,8 +486,8 @@ func TestKeyUpdate(t *testing.T) {
 	c2s <- true
 	<-s2c
 
-	clientContext2 := *client.handshake.CryptoContext()
-	serverContext2 := *server.handshake.CryptoContext()
+	clientContext2 := *client.handshake.cryptoContext()
+	serverContext2 := *server.handshake.cryptoContext()
 	assertContextEquals(t, &clientContext2, &serverContext2)
 	assertByteEquals(t, clientContext1.serverTrafficKeys.key, clientContext2.serverTrafficKeys.key)
 	assertByteEquals(t, clientContext1.serverTrafficKeys.iv, clientContext2.serverTrafficKeys.iv)
@@ -500,8 +500,8 @@ func TestKeyUpdate(t *testing.T) {
 	<-s2c
 	client.Read(zeroBuf)
 
-	clientContext3 := *client.handshake.CryptoContext()
-	serverContext3 := *server.handshake.CryptoContext()
+	clientContext3 := *client.handshake.cryptoContext()
+	serverContext3 := *server.handshake.cryptoContext()
 	assertContextEquals(t, &clientContext3, &serverContext3)
 	assertNotByteEquals(t, clientContext2.serverTrafficKeys.key, clientContext3.serverTrafficKeys.key)
 	assertNotByteEquals(t, clientContext2.serverTrafficKeys.iv, clientContext3.serverTrafficKeys.iv)
