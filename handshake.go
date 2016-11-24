@@ -241,11 +241,11 @@ func (h *ClientHandshake) CreateClientHello(opts ConnectionOptions, caps Capabil
 		psk = &PreSharedKeyExtension{
 			HandshakeType: HandshakeTypeClientHello,
 			Identities: []PSKIdentity{
-				PSKIdentity{Identity: key.Identity},
+				{Identity: key.Identity},
 			},
 			Binders: []PSKBinderEntry{
 				// Note: Stub to get the length fields right
-				PSKBinderEntry{Binder: bytes.Repeat([]byte{0x00}, keyParams.hash.Size())},
+				{Binder: bytes.Repeat([]byte{0x00}, keyParams.hash.Size())},
 			},
 		}
 		ch.Extensions.Add(psk)
@@ -584,7 +584,7 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 		logf(logTypeHandshake, "[server] sending DH extension")
 		err = sh.Extensions.Add(&KeyShareExtension{
 			HandshakeType: HandshakeTypeServerHello,
-			Shares:        []KeyShareEntry{KeyShareEntry{Group: dhGroup, KeyExchange: dhPub}},
+			Shares:        []KeyShareEntry{{Group: dhGroup, KeyExchange: dhPub}},
 		})
 		if err != nil {
 			return nil, nil, err

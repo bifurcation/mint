@@ -28,15 +28,6 @@ import (
 
 var prng = rand.Reader
 
-type handshakeMode uint8
-
-const (
-	handshakeModeUnknown handshakeMode = iota
-	handshakeModePSK
-	handshakeModePSKAndDH
-	handshakeModeDH
-)
-
 type aeadFactory func(key []byte) (cipher.AEAD, error)
 
 type cipherSuiteParams struct {
@@ -99,13 +90,13 @@ var (
 	}
 
 	cipherSuiteMap = map[CipherSuite]cipherSuiteParams{
-		TLS_AES_128_GCM_SHA256: cipherSuiteParams{
+		TLS_AES_128_GCM_SHA256: {
 			cipher: newAESGCM,
 			hash:   crypto.SHA256,
 			keyLen: 16,
 			ivLen:  12,
 		},
-		TLS_AES_256_GCM_SHA384: cipherSuiteParams{
+		TLS_AES_256_GCM_SHA384: {
 			cipher: newAESGCM,
 			hash:   crypto.SHA384,
 			keyLen: 32,

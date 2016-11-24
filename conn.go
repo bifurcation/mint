@@ -28,30 +28,6 @@ type PreSharedKey struct {
 // server instance.  The settings for client and server are pretty different,
 // but we just throw them all in here.
 type Config struct {
-	// Only in crypto/tls:
-	// SessionTicketsDisabled   bool               // TODO(#6) -> Both
-	// SessionTicketKey         [32]byte           // TODO(#6) -> Server
-	// Rand                     io.Reader          // TODO(#23) -> Both
-	// PreferServerCipherSuites bool               // TODO(#22) -> Server
-	// NextProtos               []string           // TODO(#21) -> Both
-	// ClientAuth               ClientAuthType     // TODO(#20)
-	// NameToCertificate        map[string]*Certificate // Unused (simplicity)
-	// GetCertificate           func(clientHello *ClientHelloInfo) (*Certificate, error) // Unused (simplicity)
-	// ClientCAs                *x509.CertPool     // Unused (no PKI)
-	// RootCAs                  *x509.CertPool     // Unused (no PKI)
-	// InsecureSkipVerify       bool               // Unused (no PKI)
-	// MinVersion               uint16             // Unused (only 1.3)
-	// MaxVersion               uint16             // Unused (only 1.3)
-	// Time                     func() time.Time   // Unused (no time in 1.3)
-	// ClientSessionCache       ClientSessionCache // Unused (PSKs only in 1.3)
-
-	// Only here:
-	// AuthCertificate          func(chain []*x509.Certificate) error
-	// ClientPSKs               map[string]PreSharedKey
-	// ServerPSKs               []PreSharedKey
-
-	// ---------------------------------------
-
 	// Client fields
 	ServerName      string
 	AuthCertificate func(chain []CertificateEntry) error // TODO(#20) -> Both
@@ -70,13 +46,6 @@ type Config struct {
 	NextProtos       []string
 	PSKs             map[string]PreSharedKey
 	PSKModes         []PSKKeyExchangeMode
-
-	// Hidden fields (used for caching in convenient form)
-	enabledSuite  map[CipherSuite]bool
-	enabledGroup  map[NamedGroup]bool
-	enabledProto  map[string]bool
-	enabledScheme map[SignatureScheme]bool
-	certsByName   map[string]*Certificate
 
 	// The same config object can be shared among different connections, so it
 	// needs its own mutex
@@ -120,7 +89,7 @@ func (c *Config) Init(isClient bool) error {
 		}
 
 		c.Certificates = []*Certificate{
-			&Certificate{
+			{
 				Chain:      []*x509.Certificate{cert},
 				PrivateKey: priv,
 			},
@@ -192,11 +161,8 @@ type Conn struct {
 	handshakeErr      error
 	handshakeComplete bool
 
-	certificateList []CertificateEntry
-
-	readBuffer        []byte
-	in, out           *RecordLayer
-	inMutex, outMutex sync.Mutex
+	readBuffer []byte
+	in, out    *RecordLayer
 }
 
 func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {

@@ -37,7 +37,6 @@ type RecordLayer struct {
 	sync.Mutex
 
 	conn     io.ReadWriter // The underlying connection
-	buffer   []byte        // The next record to send
 	nextData []byte        // The next record to send
 
 	ivLength int         // Length of the seq and nonce fields

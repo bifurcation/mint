@@ -381,8 +381,7 @@ var (
 		Signature: random(64),
 	}
 
-	dhSecretIn  = random(32)
-	pskSecretIn = random(32)
+	dhSecretIn = random(32)
 )
 
 func keySetEmpty(k keySet) bool {
@@ -405,15 +404,15 @@ func TestCryptoContext(t *testing.T) {
 	clientHelloContextIn.Extensions.Add(&KeyShareExtension{
 		HandshakeType: HandshakeTypeClientHello,
 		Shares: []KeyShareEntry{
-			KeyShareEntry{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256))},
-			KeyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
+			{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256))},
+			{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
 		},
 	})
 
 	serverHelloContextIn.Extensions.Add(&KeyShareExtension{
 		HandshakeType: HandshakeTypeServerHello,
 		Shares: []KeyShareEntry{
-			KeyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
+			{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
 		},
 	})
 

@@ -74,20 +74,6 @@ var (
 
 	insufficientDataHex = "1603010004" + "01000004" + "1603010002" + "0000"
 	nonHandshakeHex     = "15030100020000"
-
-	// Also borrow ClientHello and ServerHello inputs from handshake-messages_test.go
-	finishedHex         = "1603010006" + "14000002" + "0000"
-	chLen               = len(chValidHex) / 2
-	shLen               = len(shValidHex) / 2
-	chMessageHeaderHex  = hex.EncodeToString([]byte{0x01, 0x00, 0x00, byte(chLen)})
-	shMessageHeaderHex  = hex.EncodeToString([]byte{0x02, 0x00, 0x00, byte(shLen)})
-	chRecordLen         = len(chMessageHeaderHex)/2 + chLen
-	chRecordLenHex      = hex.EncodeToString([]byte{byte(chRecordLen)})
-	chValidMessageHex   = "16030100" + chRecordLenHex + chMessageHeaderHex + chValidHex
-	chshRecordLen       = chRecordLen + len(shMessageHeaderHex)/2 + shLen
-	chshRecordLenHex    = hex.EncodeToString([]byte{byte(chshRecordLen)})
-	chshValidMessageHex = "16030100" + chshRecordLenHex + chMessageHeaderHex + chValidHex +
-		shMessageHeaderHex + shValidHex
 )
 
 func TestMessageMarshal(t *testing.T) {

@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+const (
+	fixedClientHelloBodyLen  = 39
+	fixedServerHelloBodyLen  = 36
+	maxCipherSuites          = 1 << 15
+	maxExtensionDataLen      = (1 << 16) - 1
+	maxCertRequestContextLen = 255
+	maxTicketLen             = (1 << 16) - 1
+)
+
 var (
 	supportedVersionHex = hex.EncodeToString([]byte{
 		byte(supportedVersion >> 8),
@@ -38,7 +47,7 @@ var (
 		Random:       helloRandom,
 		CipherSuites: chCipherSuites,
 		Extensions: []Extension{
-			Extension{
+			{
 				ExtensionType: ExtensionTypePreSharedKey,
 				ExtensionData: chTruncPSKData,
 			},
@@ -54,14 +63,14 @@ var (
 		Random:       helloRandom,
 		CipherSuites: chCipherSuites,
 		Extensions: []Extension{
-			Extension{ExtensionType: ExtensionTypeEarlyData},
+			{ExtensionType: ExtensionTypeEarlyData},
 		},
 	}
 	chTruncBadPSK = ClientHelloBody{
 		Random:       helloRandom,
 		CipherSuites: chCipherSuites,
 		Extensions: []Extension{
-			Extension{ExtensionType: ExtensionTypePreSharedKey},
+			{ExtensionType: ExtensionTypePreSharedKey},
 		},
 	}
 
@@ -132,11 +141,11 @@ var (
 	certValidIn = CertificateBody{
 		CertificateRequestContext: []byte{0, 0, 0, 0},
 		CertificateList: []CertificateEntry{
-			CertificateEntry{
+			{
 				CertData:   cert1,
 				Extensions: extListValidIn,
 			},
-			CertificateEntry{
+			{
 				CertData:   cert2,
 				Extensions: extListValidIn,
 			},
@@ -145,7 +154,7 @@ var (
 	certOverflowIn = CertificateBody{
 		CertificateRequestContext: []byte{0, 0, 0, 0},
 		CertificateList: []CertificateEntry{
-			CertificateEntry{
+			{
 				CertData:   cert1,
 				Extensions: extListSingleTooLongIn,
 			},
@@ -172,7 +181,7 @@ var (
 		TicketAgeAdd:   0x04050607,
 		Ticket:         []byte{0x08, 0x09, 0x0a, 0x0b},
 		Extensions: []Extension{
-			Extension{
+			{
 				ExtensionType: 0xeeff,
 				ExtensionData: []byte{0x11, 0x22},
 			},
@@ -280,7 +289,7 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	chValid[37+7] = 0x00
 
 	// Test unmarshal failure on extension list unmarshal failure
-	chLen, err = ch.Unmarshal(chOverflow)
+	_, err = ch.Unmarshal(chOverflow)
 	assertError(t, err, "Unmarshaled a ClientHello with invalid extensions")
 }
 

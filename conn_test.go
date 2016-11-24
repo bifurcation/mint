@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-const pollInterval = 100
-
 type pipeConn struct {
 	r     *bytes.Buffer
 	w     *bytes.Buffer
@@ -148,7 +146,7 @@ var (
 		Key:          []byte{4, 5, 6, 7},
 	}
 	certificates = []*Certificate{
-		&Certificate{
+		{
 			Chain:      []*x509.Certificate{serverCert},
 			PrivateKey: serverKey,
 		},

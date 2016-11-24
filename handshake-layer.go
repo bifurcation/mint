@@ -72,11 +72,7 @@ func (hm HandshakeMessage) ToBody() (HandshakeMessageBody, error) {
 	}
 
 	_, err := body.Unmarshal(hm.body)
-	if err != nil {
-		return body, err
-	}
-
-	return body, nil
+	return body, err
 }
 
 func HandshakeMessageFromBody(body HandshakeMessageBody) (*HandshakeMessage, error) {

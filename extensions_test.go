@@ -70,8 +70,8 @@ var (
 	keyShareClientIn = &KeyShareExtension{
 		HandshakeType: HandshakeTypeClientHello,
 		Shares: []KeyShareEntry{
-			KeyShareEntry{Group: P256, KeyExchange: p256},
-			KeyShareEntry{Group: P521, KeyExchange: p521},
+			{Group: P256, KeyExchange: p256},
+			{Group: P521, KeyExchange: p521},
 		},
 	}
 	keyShareHelloRetryIn = &KeyShareExtension{
@@ -81,13 +81,13 @@ var (
 	keyShareServerIn = &KeyShareExtension{
 		HandshakeType: HandshakeTypeServerHello,
 		Shares: []KeyShareEntry{
-			KeyShareEntry{Group: P256, KeyExchange: p256},
+			{Group: P256, KeyExchange: p256},
 		},
 	}
 	keyShareInvalidIn = &KeyShareExtension{
 		HandshakeType: HandshakeTypeServerHello,
 		Shares: []KeyShareEntry{
-			KeyShareEntry{Group: P256, KeyExchange: []byte{0}},
+			{Group: P256, KeyExchange: []byte{0}},
 		},
 	}
 	keyShareClientHex = "00ce" + "00170041" + hex.EncodeToString(p256) +
@@ -105,13 +105,13 @@ var (
 	pskClientIn  = &PreSharedKeyExtension{
 		HandshakeType: HandshakeTypeClientHello,
 		Identities: []PSKIdentity{
-			PSKIdentity{
+			{
 				Identity:            []byte{0x01, 0x02, 0x03, 0x04},
 				ObfuscatedTicketAge: 0x05060708,
 			},
 		},
 		Binders: []PSKBinderEntry{
-			PSKBinderEntry{
+			{
 				Binder: bytes.Repeat([]byte{0xA0}, 32),
 			},
 		},

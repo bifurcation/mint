@@ -9,18 +9,6 @@ import (
 	"github.com/bifurcation/mint/syntax"
 )
 
-const (
-	fixedClientHelloBodyLen      = 39
-	fixedServerHelloBodyLen      = 36
-	fixedNewSessionTicketBodyLen = 10
-	maxCipherSuites              = 1 << 15
-	extensionHeaderLen           = 4
-	maxExtensionDataLen          = (1 << 16) - 1
-	maxExtensionsLen             = (1 << 16) - 1
-	maxCertRequestContextLen     = 255
-	maxTicketLen                 = (1 << 16) - 1
-)
-
 type HandshakeMessageBody interface {
 	Type() HandshakeType
 	Marshal() ([]byte, error)
