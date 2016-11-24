@@ -479,9 +479,9 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
 
-	chMessage, _ := handshakeMessageFromBody(&chValidIn)
-	shMessage, _ := handshakeMessageFromBody(&shValidIn)
-	transcript := []*handshakeMessage{chMessage, shMessage}
+	chMessage, _ := HandshakeMessageFromBody(&chValidIn)
+	shMessage, _ := HandshakeMessageFromBody(&shValidIn)
+	transcript := []*HandshakeMessage{chMessage, shMessage}
 	nilTranscript := append(transcript, nil)
 
 	privRSA, err := newSigningKey(RSA_PSS_SHA256)

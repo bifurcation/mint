@@ -62,6 +62,10 @@ func randomBytes(n int, rand *rand.Rand) []byte {
 	return r
 }
 
+type unmarshaler interface {
+	Unmarshal([]byte) (int, error)
+}
+
 // This just looks for crashes due to bounds errors etc.
 func TestFuzz(t *testing.T) {
 	rand := rand.New(rand.NewSource(0))

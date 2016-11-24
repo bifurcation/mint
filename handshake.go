@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-type capabilities struct {
+type Capabilities struct {
 	// For both client and server
 	CipherSuites     []CipherSuite
 	Groups           []NamedGroup
@@ -21,13 +21,13 @@ type capabilities struct {
 	AllowEarlyData bool
 }
 
-type connectionOptions struct {
+type ConnectionOptions struct {
 	ServerName string
 	NextProtos []string
 	EarlyData  []byte
 }
 
-type connectionParameters struct {
+type ConnectionParameters struct {
 	UsingPSK       bool
 	UsingDH        bool
 	UsingEarlyData bool
@@ -37,20 +37,20 @@ type connectionParameters struct {
 	NextProto   string
 }
 
-type handshake interface {
+type Handshake interface {
 	IsClient() bool
-	ConnectionParams() connectionParameters
+	ConnectionParams() ConnectionParameters
 	CryptoContext() *cryptoContext
 	InboundKeys() (aeadFactory, keySet)
 	OutboundKeys() (aeadFactory, keySet)
-	CreateKeyUpdate(KeyUpdateRequest) (*handshakeMessage, error)
-	HandleKeyUpdate(*handshakeMessage) (*handshakeMessage, error)
-	HandleNewSessionTicket(*handshakeMessage) (PreSharedKey, error)
+	CreateKeyUpdate(KeyUpdateRequest) (*HandshakeMessage, error)
+	HandleKeyUpdate(*HandshakeMessage) (*HandshakeMessage, error)
+	HandleNewSessionTicket(*HandshakeMessage) (PreSharedKey, error)
 }
 
 ///// Common methods
 
-func createKeyUpdate(client bool, ctx *cryptoContext, requestUpdate KeyUpdateRequest) (*handshakeMessage, error) {
+func createKeyUpdate(client bool, ctx *cryptoContext, requestUpdate KeyUpdateRequest) (*HandshakeMessage, error) {
 	// Roll the outbound keys
 	err := ctx.updateKeys(client)
 	if err != nil {
@@ -58,12 +58,12 @@ func createKeyUpdate(client bool, ctx *cryptoContext, requestUpdate KeyUpdateReq
 	}
 
 	// Return a KeyUpdate message
-	return handshakeMessageFromBody(&KeyUpdateBody{
+	return HandshakeMessageFromBody(&KeyUpdateBody{
 		KeyUpdateRequest: requestUpdate,
 	})
 }
 
-func handleKeyUpdate(client bool, ctx *cryptoContext, hm *handshakeMessage) (*handshakeMessage, error) {
+func handleKeyUpdate(client bool, ctx *cryptoContext, hm *HandshakeMessage) (*HandshakeMessage, error) {
 	var ku KeyUpdateBody
 	_, err := ku.Unmarshal(hm.body)
 	if err != nil {
@@ -77,14 +77,14 @@ func handleKeyUpdate(client bool, ctx *cryptoContext, hm *handshakeMessage) (*ha
 	}
 
 	// If requested, roll outbound keys and send a KeyUpdate
-	var outboundMessage *handshakeMessage
+	var outboundMessage *HandshakeMessage
 	if ku.KeyUpdateRequest == KeyUpdateRequested {
 		err = ctx.updateKeys(client)
 		if err != nil {
 			return nil, err
 		}
 
-		return handshakeMessageFromBody(&KeyUpdateBody{
+		return HandshakeMessageFromBody(&KeyUpdateBody{
 			KeyUpdateRequest: KeyUpdateNotRequested,
 		})
 	}
@@ -94,49 +94,49 @@ func handleKeyUpdate(client bool, ctx *cryptoContext, hm *handshakeMessage) (*ha
 
 ///// Client-side Handshake methods
 
-type clientHandshake struct {
+type ClientHandshake struct {
 	OfferedDH  map[NamedGroup][]byte
 	OfferedPSK PreSharedKey
 
 	PSK     []byte
 	Context cryptoContext
-	Params  connectionParameters
+	Params  ConnectionParameters
 
 	AuthCertificate func(chain []CertificateEntry) error
 
-	clientHello *handshakeMessage
-	serverHello *handshakeMessage
+	clientHello *HandshakeMessage
+	serverHello *HandshakeMessage
 }
 
-func (h *clientHandshake) IsClient() bool {
+func (h *ClientHandshake) IsClient() bool {
 	return true
 }
 
-func (h *clientHandshake) CryptoContext() *cryptoContext {
+func (h *ClientHandshake) CryptoContext() *cryptoContext {
 	return &h.Context
 }
 
-func (h clientHandshake) ConnectionParams() connectionParameters {
+func (h ClientHandshake) ConnectionParams() ConnectionParameters {
 	return h.Params
 }
 
-func (h *clientHandshake) InboundKeys() (aeadFactory, keySet) {
+func (h *ClientHandshake) InboundKeys() (aeadFactory, keySet) {
 	return h.Context.params.cipher, h.Context.serverTrafficKeys
 }
 
-func (h *clientHandshake) OutboundKeys() (aeadFactory, keySet) {
+func (h *ClientHandshake) OutboundKeys() (aeadFactory, keySet) {
 	return h.Context.params.cipher, h.Context.clientTrafficKeys
 }
 
-func (h *clientHandshake) CreateKeyUpdate(requestUpdate KeyUpdateRequest) (*handshakeMessage, error) {
+func (h *ClientHandshake) CreateKeyUpdate(requestUpdate KeyUpdateRequest) (*HandshakeMessage, error) {
 	return createKeyUpdate(true, &h.Context, requestUpdate)
 }
 
-func (h *clientHandshake) HandleKeyUpdate(hm *handshakeMessage) (*handshakeMessage, error) {
+func (h *ClientHandshake) HandleKeyUpdate(hm *HandshakeMessage) (*HandshakeMessage, error) {
 	return handleKeyUpdate(true, &h.Context, hm)
 }
 
-func (h *clientHandshake) HandleNewSessionTicket(hm *handshakeMessage) (PreSharedKey, error) {
+func (h *ClientHandshake) HandleNewSessionTicket(hm *HandshakeMessage) (PreSharedKey, error) {
 	var tkt NewSessionTicketBody
 	_, err := tkt.Unmarshal(hm.body)
 	if err != nil {
@@ -153,7 +153,7 @@ func (h *clientHandshake) HandleNewSessionTicket(hm *handshakeMessage) (PreShare
 	return psk, nil
 }
 
-func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabilities) (*handshakeMessage, error) {
+func (h *ClientHandshake) CreateClientHello(opts ConnectionOptions, caps Capabilities) (*HandshakeMessage, error) {
 	// key_shares
 	h.OfferedDH = map[NamedGroup][]byte{}
 	ks := KeyShareExtension{
@@ -267,7 +267,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 		psk.Binders[0].Binder = binder
 		ch.Extensions.Add(psk)
 
-		h.clientHello, err = handshakeMessageFromBody(ch)
+		h.clientHello, err = HandshakeMessageFromBody(ch)
 		if err != nil {
 			return nil, err
 		}
@@ -275,7 +275,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 		h.Context.earlyUpdateWithClientHello(h.clientHello)
 	}
 
-	h.clientHello, err = handshakeMessageFromBody(ch)
+	h.clientHello, err = HandshakeMessageFromBody(ch)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +283,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 	return h.clientHello, nil
 }
 
-func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
+func (h *ClientHandshake) HandleServerHello(shm *HandshakeMessage) error {
 	// Unmarshal the ServerHello
 	sh := &ServerHelloBody{}
 	_, err := sh.Unmarshal(shm.body)
@@ -338,7 +338,7 @@ func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 	return nil
 }
 
-func (h *clientHandshake) HandleServerFirstFlight(transcript []*handshakeMessage, finishedMessage *handshakeMessage) error {
+func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage, finishedMessage *HandshakeMessage) error {
 	// Extract messages from sequence
 	var err error
 	var ee *EncryptedExtensionsBody
@@ -382,7 +382,7 @@ func (h *clientHandshake) HandleServerFirstFlight(transcript []*handshakeMessage
 			return fmt.Errorf("tls.client: No server auth data provided")
 		}
 
-		transcriptForCertVerify := []*handshakeMessage{h.clientHello, h.serverHello}
+		transcriptForCertVerify := []*HandshakeMessage{h.clientHello, h.serverHello}
 		transcriptForCertVerify = append(transcriptForCertVerify, transcript[:certVerifyIndex]...)
 		logf(logTypeHandshake, "[client] Transcript for certVerify")
 		for _, hm := range transcriptForCertVerify {
@@ -421,44 +421,44 @@ func (h *clientHandshake) HandleServerFirstFlight(transcript []*handshakeMessage
 
 ///// Server-side handshake logic
 
-type serverHandshake struct {
+type ServerHandshake struct {
 	Context cryptoContext
-	Params  connectionParameters
+	Params  ConnectionParameters
 }
 
-func (h *serverHandshake) IsClient() bool {
+func (h *ServerHandshake) IsClient() bool {
 	return true
 }
 
-func (h *serverHandshake) CryptoContext() *cryptoContext {
+func (h *ServerHandshake) CryptoContext() *cryptoContext {
 	return &h.Context
 }
 
-func (h serverHandshake) ConnectionParams() connectionParameters {
+func (h ServerHandshake) ConnectionParams() ConnectionParameters {
 	return h.Params
 }
 
-func (h *serverHandshake) CreateKeyUpdate(requestUpdate KeyUpdateRequest) (*handshakeMessage, error) {
+func (h *ServerHandshake) CreateKeyUpdate(requestUpdate KeyUpdateRequest) (*HandshakeMessage, error) {
 	return createKeyUpdate(false, &h.Context, requestUpdate)
 }
 
-func (h *serverHandshake) HandleKeyUpdate(hm *handshakeMessage) (*handshakeMessage, error) {
+func (h *ServerHandshake) HandleKeyUpdate(hm *HandshakeMessage) (*HandshakeMessage, error) {
 	return handleKeyUpdate(false, &h.Context, hm)
 }
 
-func (h *serverHandshake) HandleNewSessionTicket(hm *handshakeMessage) (PreSharedKey, error) {
+func (h *ServerHandshake) HandleNewSessionTicket(hm *HandshakeMessage) (PreSharedKey, error) {
 	return PreSharedKey{}, fmt.Errorf("tls.server: Client sent NewSessionTicket")
 }
 
-func (h *serverHandshake) InboundKeys() (aeadFactory, keySet) {
+func (h *ServerHandshake) InboundKeys() (aeadFactory, keySet) {
 	return h.Context.params.cipher, h.Context.clientTrafficKeys
 }
 
-func (h *serverHandshake) OutboundKeys() (aeadFactory, keySet) {
+func (h *ServerHandshake) OutboundKeys() (aeadFactory, keySet) {
 	return h.Context.params.cipher, h.Context.serverTrafficKeys
 }
 
-func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabilities) (*handshakeMessage, []*handshakeMessage, error) {
+func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabilities) (*HandshakeMessage, []*HandshakeMessage, error) {
 	ch := &ClientHelloBody{}
 	_, err := ch.Unmarshal(chm.body)
 	if err != nil {
@@ -601,7 +601,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	}
 	logf(logTypeHandshake, "[server] Done creating ServerHello")
 
-	shm, err := handshakeMessageFromBody(sh)
+	shm, err := HandshakeMessageFromBody(sh)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -634,12 +634,12 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 		}
 	}
 	ee := &EncryptedExtensionsBody{eeList}
-	eem, err := handshakeMessageFromBody(ee)
+	eem, err := HandshakeMessageFromBody(ee)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	transcript := []*handshakeMessage{eem}
+	transcript := []*HandshakeMessage{eem}
 
 	// Authenticate with a certificate if required
 	if !h.Params.UsingPSK {
@@ -650,23 +650,23 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 		for i, entry := range cert.Chain {
 			certificate.CertificateList[i] = CertificateEntry{CertData: entry}
 		}
-		certm, err := handshakeMessageFromBody(certificate)
+		certm, err := HandshakeMessageFromBody(certificate)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		certificateVerify := &CertificateVerifyBody{Algorithm: certScheme}
 		logf(logTypeHandshake, "Creating CertVerify: %04x %v", certScheme, h.Context.params.hash)
-		err = certificateVerify.Sign(cert.PrivateKey, []*handshakeMessage{chm, shm, eem, certm}, h.Context)
+		err = certificateVerify.Sign(cert.PrivateKey, []*HandshakeMessage{chm, shm, eem, certm}, h.Context)
 		if err != nil {
 			return nil, nil, err
 		}
-		certvm, err := handshakeMessageFromBody(certificateVerify)
+		certvm, err := HandshakeMessageFromBody(certificateVerify)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		transcript = append(transcript, []*handshakeMessage{certm, certvm}...)
+		transcript = append(transcript, []*HandshakeMessage{certm, certvm}...)
 	}
 
 	// Crank the crypto context
@@ -674,7 +674,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	if err != nil {
 		return nil, nil, err
 	}
-	fm, err := handshakeMessageFromBody(h.Context.serverFinished)
+	fm, err := HandshakeMessageFromBody(h.Context.serverFinished)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -684,7 +684,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	return shm, transcript, nil
 }
 
-func (h *serverHandshake) HandleClientSecondFlight(transcript []*handshakeMessage, finishedMessage *handshakeMessage) error {
+func (h *ServerHandshake) HandleClientSecondFlight(transcript []*HandshakeMessage, finishedMessage *HandshakeMessage) error {
 	// XXX Currently, we don't process anything besides the Finished
 
 	err := h.Context.updateWithClientSecondFlight(transcript)
@@ -706,7 +706,7 @@ func (h *serverHandshake) HandleClientSecondFlight(transcript []*handshakeMessag
 	return nil
 }
 
-func (h *serverHandshake) CreateNewSessionTicket(length int, lifetime uint32) (PreSharedKey, *handshakeMessage, error) {
+func (h *ServerHandshake) CreateNewSessionTicket(length int, lifetime uint32) (PreSharedKey, *HandshakeMessage, error) {
 	// TODO: Check that we're in the right state for this
 
 	tkt, err := NewSessionTicket(length)
@@ -728,6 +728,6 @@ func (h *serverHandshake) CreateNewSessionTicket(length int, lifetime uint32) (P
 		Key:          h.Context.resumptionSecret,
 	}
 
-	tktm, err := handshakeMessageFromBody(tkt)
+	tktm, err := HandshakeMessageFromBody(tkt)
 	return newPSK, tktm, err
 }

@@ -25,7 +25,7 @@ func recordHeaderHex(data []byte) string {
 var (
 	messageType = HandshakeTypeClientHello
 
-	tinyMessageIn = &handshakeMessage{
+	tinyMessageIn = &HandshakeMessage{
 		msgType: messageType,
 		body:    []byte{0, 0, 0, 0},
 	}
@@ -47,15 +47,15 @@ var (
 
 	shortHex = recordHeaderHex(shortMessage) + hex.EncodeToString(shortMessage)
 
-	shortMessageIn = &handshakeMessage{
+	shortMessageIn = &HandshakeMessage{
 		msgType: messageType,
 		body:    shortMessageBody,
 	}
-	longMessageIn = &handshakeMessage{
+	longMessageIn = &HandshakeMessage{
 		msgType: messageType,
 		body:    longMessageBody,
 	}
-	tooLongMessageIn = &handshakeMessage{
+	tooLongMessageIn = &HandshakeMessage{
 		msgType: messageType,
 		body:    bytes.Repeat([]byte{0xef}, maxHandshakeMessageLen+1),
 	}
@@ -108,47 +108,47 @@ func TestMessageToBody(t *testing.T) {
 	ticketValid, _ := hex.DecodeString(ticketValidHex)
 
 	// Test successful marshal of ClientHello
-	hm := handshakeMessage{HandshakeTypeClientHello, chValid}
+	hm := HandshakeMessage{HandshakeTypeClientHello, chValid}
 	_, err := hm.toBody()
 	assertNotError(t, err, "Failed to convert ClientHello body")
 
 	// Test successful marshal of ServerHello
-	hm = handshakeMessage{HandshakeTypeServerHello, shValid}
+	hm = HandshakeMessage{HandshakeTypeServerHello, shValid}
 	_, err = hm.toBody()
 	assertNotError(t, err, "Failed to convert ServerHello body")
 
 	// Test successful marshal of EncryptedExtensions
-	hm = handshakeMessage{HandshakeTypeEncryptedExtensions, encExtValid}
+	hm = HandshakeMessage{HandshakeTypeEncryptedExtensions, encExtValid}
 	_, err = hm.toBody()
 	assertNotError(t, err, "Failed to convert EncryptedExtensions body")
 
 	// Test successful marshal of Certificate
-	hm = handshakeMessage{HandshakeTypeCertificate, certValid}
+	hm = HandshakeMessage{HandshakeTypeCertificate, certValid}
 	_, err = hm.toBody()
 	assertNotError(t, err, "Failed to convert Certificate body")
 
 	// Test successful marshal of CertificateVerify
-	hm = handshakeMessage{HandshakeTypeCertificateVerify, certVerifyValid}
+	hm = HandshakeMessage{HandshakeTypeCertificateVerify, certVerifyValid}
 	_, err = hm.toBody()
 	assertNotError(t, err, "Failed to convert CertificateVerify body")
 
 	// Test successful marshal of Finished
-	hm = handshakeMessage{HandshakeTypeFinished, finValid}
+	hm = HandshakeMessage{HandshakeTypeFinished, finValid}
 	_, err = hm.toBody()
 	assertNotError(t, err, "Failed to convert Finished body")
 
 	// Test successful marshal of NewSessionTicket
-	hm = handshakeMessage{HandshakeTypeNewSessionTicket, ticketValid}
+	hm = HandshakeMessage{HandshakeTypeNewSessionTicket, ticketValid}
 	_, err = hm.toBody()
 	assertNotError(t, err, "Failed to convert NewSessionTicket body")
 
 	// Test failure on unsupported body type
-	hm = handshakeMessage{HandshakeTypeHelloRetryRequest, []byte{}}
+	hm = HandshakeMessage{HandshakeTypeHelloRetryRequest, []byte{}}
 	_, err = hm.toBody()
 	assertError(t, err, "Converted an unsupported message")
 
 	// Test failure on marshal failure
-	hm = handshakeMessage{HandshakeTypeClientHello, []byte{}}
+	hm = HandshakeMessage{HandshakeTypeClientHello, []byte{}}
 	_, err = hm.toBody()
 	assertError(t, err, "Converted an empty message")
 
@@ -158,14 +158,14 @@ func TestMessageFromBody(t *testing.T) {
 	chValid, _ := hex.DecodeString(chValidHex)
 
 	// Test successful conversion
-	hm, err := handshakeMessageFromBody(&chValidIn)
+	hm, err := HandshakeMessageFromBody(&chValidIn)
 	assertNotError(t, err, "Failed to convert ClientHello body to message")
 	assertEquals(t, hm.msgType, chValidIn.Type())
 	assertByteEquals(t, hm.body, chValid)
 
 	// Test conversion failure on marshal failure
 	chValidIn.CipherSuites = []CipherSuite{}
-	hm, err = handshakeMessageFromBody(&chValidIn)
+	hm, err = HandshakeMessageFromBody(&chValidIn)
 	assertError(t, err, "Converted a ClientHello that should not have marshaled")
 	chValidIn.CipherSuites = chCipherSuites
 }
@@ -286,7 +286,7 @@ func TestWriteHandshakeMessage(t *testing.T) {
 	// Test successful write of multiple messages sequentially
 	b = bytes.NewBuffer(nil)
 	h = newHandshakeLayer(newRecordLayer(b))
-	err = h.WriteMessages([]*handshakeMessage{shortMessageIn, longMessageIn, shortMessageIn})
+	err = h.WriteMessages([]*HandshakeMessage{shortMessageIn, longMessageIn, shortMessageIn})
 	assertNotError(t, err, "Failed to write valid long message")
 	assertByteEquals(t, b.Bytes(), shortLongShort)
 

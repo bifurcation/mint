@@ -490,12 +490,12 @@ type ALPNExtension struct {
 	Protocols []string
 }
 
-type protocolName struct {
+type protocolNameInner struct {
 	Name []byte `tls:"head=1,min=1"`
 }
 
 type alpnExtensionInner struct {
-	Protocols []protocolName `tls:"head=2,min=2"`
+	Protocols []protocolNameInner `tls:"head=2,min=2"`
 }
 
 func (alpn ALPNExtension) Type() ExtensionType {
@@ -503,9 +503,9 @@ func (alpn ALPNExtension) Type() ExtensionType {
 }
 
 func (alpn ALPNExtension) Marshal() ([]byte, error) {
-	protocols := make([]protocolName, len(alpn.Protocols))
+	protocols := make([]protocolNameInner, len(alpn.Protocols))
 	for i, protocol := range alpn.Protocols {
-		protocols[i] = protocolName{[]byte(protocol)}
+		protocols[i] = protocolNameInner{[]byte(protocol)}
 	}
 	return syntax.Marshal(alpnExtensionInner{protocols})
 }

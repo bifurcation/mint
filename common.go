@@ -112,14 +112,6 @@ const (
 	PSKModeDHEKE PSKKeyExchangeMode = 1
 )
 
-type marshaler interface {
-	Marshal() ([]byte, error)
-}
-
-type unmarshaler interface {
-	Unmarshal([]byte) (int, error)
-}
-
 // enum {
 //     update_not_requested(0), update_requested(1), (255)
 // } KeyUpdateRequest;

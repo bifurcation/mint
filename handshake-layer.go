@@ -28,7 +28,7 @@ const (
 // } Handshake;
 //
 // TODO: File a spec bug
-type handshakeMessage struct {
+type HandshakeMessage struct {
 	// Omitted: length
 	msgType HandshakeType
 	body    []byte
@@ -37,7 +37,7 @@ type handshakeMessage struct {
 // Note: This could be done with the `syntax` module, using the simplified
 // syntax as discussed above.  However, since this is so simple, there's not
 // much benefit to doing so.
-func (hm handshakeMessage) Marshal() []byte {
+func (hm HandshakeMessage) Marshal() []byte {
 	msgLen := len(hm.body)
 	data := make([]byte, 4+len(hm.body))
 	data[0] = byte(hm.msgType)
@@ -48,8 +48,8 @@ func (hm handshakeMessage) Marshal() []byte {
 	return data
 }
 
-func (hm handshakeMessage) toBody() (HandshakeMessageBody, error) {
-	logf(logTypeHandshake, "handshakeMessage.toBody [%d] [%x]", hm.msgType, hm.body)
+func (hm HandshakeMessage) toBody() (HandshakeMessageBody, error) {
+	logf(logTypeHandshake, "HandshakeMessage.toBody [%d] [%x]", hm.msgType, hm.body)
 
 	var body HandshakeMessageBody
 	switch hm.msgType {
@@ -79,31 +79,31 @@ func (hm handshakeMessage) toBody() (HandshakeMessageBody, error) {
 	return body, nil
 }
 
-func handshakeMessageFromBody(body HandshakeMessageBody) (*handshakeMessage, error) {
+func HandshakeMessageFromBody(body HandshakeMessageBody) (*HandshakeMessage, error) {
 	data, err := body.Marshal()
 	if err != nil {
 		return nil, err
 	}
 
-	return &handshakeMessage{
+	return &HandshakeMessage{
 		msgType: body.Type(),
 		body:    data,
 	}, nil
 }
 
-type handshakeLayer struct {
-	conn   *recordLayer // Used for reading/writing records
+type HandshakeLayer struct {
+	conn   *RecordLayer // Used for reading/writing records
 	buffer []byte       // Read buffer
 }
 
-func newHandshakeLayer(r *recordLayer) *handshakeLayer {
-	h := handshakeLayer{}
+func newHandshakeLayer(r *RecordLayer) *HandshakeLayer {
+	h := HandshakeLayer{}
 	h.conn = r
 	h.buffer = []byte{}
 	return &h
 }
 
-func (h *handshakeLayer) extendBuffer(n int) error {
+func (h *HandshakeLayer) extendBuffer(n int) error {
 	for len(h.buffer) < n {
 		pt, err := h.conn.ReadRecord()
 		if err != nil {
@@ -118,14 +118,14 @@ func (h *handshakeLayer) extendBuffer(n int) error {
 		if pt.contentType == RecordTypeAlert {
 			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(h.buffer), h.buffer)
 			if len(pt.fragment) < 2 {
-				h.sendAlert(alertUnexpectedMessage)
+				h.sendAlert(AlertUnexpectedMessage)
 				return io.EOF
 			}
-			if alert(pt.fragment[1]) == alertEndOfEarlyData {
+			if Alert(pt.fragment[1]) == AlertEndOfEarlyData {
 				// TODO: add a state change for 0-RTT here
 				return nil
 			} else {
-				return alert(pt.fragment[1])
+				return Alert(pt.fragment[1])
 			}
 		}
 
@@ -135,30 +135,30 @@ func (h *handshakeLayer) extendBuffer(n int) error {
 }
 
 // sendAlert sends a TLS alert message.
-func (h *handshakeLayer) sendAlert(err alert) error {
+func (h *HandshakeLayer) sendAlert(err Alert) error {
 	tmp := make([]byte, 2)
-	tmp[0] = alertLevelError
+	tmp[0] = AlertLevelError
 	tmp[1] = byte(err)
-	h.conn.WriteRecord(&tlsPlaintext{
+	h.conn.WriteRecord(&TLSPlaintext{
 		contentType: RecordTypeAlert,
 		fragment:    tmp},
 	)
 
 	// closeNotify is a special case in that it isn't an error:
-	if err != alertCloseNotify {
+	if err != AlertCloseNotify {
 		return &net.OpError{Op: "local error", Err: err}
 	}
 	return nil
 }
 
-func (h *handshakeLayer) ReadMessage() (*handshakeMessage, error) {
+func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 	// Read the header
 	err := h.extendBuffer(handshakeHeaderLen)
 	if err != nil {
 		return nil, err
 	}
 
-	hm := &handshakeMessage{}
+	hm := &HandshakeMessage{}
 	hm.msgType = HandshakeType(h.buffer[0])
 	hmLen := (int(h.buffer[1]) << 16) + (int(h.buffer[2]) << 8) + int(h.buffer[3])
 
@@ -173,7 +173,7 @@ func (h *handshakeLayer) ReadMessage() (*handshakeMessage, error) {
 	return hm, nil
 }
 
-func (h *handshakeLayer) ReadMessageBody(body HandshakeMessageBody) (*handshakeMessage, error) {
+func (h *HandshakeLayer) ReadMessageBody(body HandshakeMessageBody) (*HandshakeMessage, error) {
 	hm, err := h.ReadMessage()
 	if err != nil {
 		return nil, err
@@ -194,11 +194,11 @@ func (h *handshakeLayer) ReadMessageBody(body HandshakeMessageBody) (*handshakeM
 	return hm, nil
 }
 
-func (h *handshakeLayer) WriteMessage(hm *handshakeMessage) error {
-	return h.WriteMessages([]*handshakeMessage{hm})
+func (h *HandshakeLayer) WriteMessage(hm *HandshakeMessage) error {
+	return h.WriteMessages([]*HandshakeMessage{hm})
 }
 
-func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
+func (h *HandshakeLayer) WriteMessages(hms []*HandshakeMessage) error {
 	for _, hm := range hms {
 		logf(logTypeHandshake, "WriteMessage [%d] %x", hm.msgType, hm.body)
 	}
@@ -217,7 +217,7 @@ func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 	// Send full-size fragments
 	var start int
 	for start = 0; len(buffer)-start >= maxFragmentLen; start += maxFragmentLen {
-		err := h.conn.WriteRecord(&tlsPlaintext{
+		err := h.conn.WriteRecord(&TLSPlaintext{
 			contentType: RecordTypeHandshake,
 			fragment:    buffer[start : start+maxFragmentLen],
 		})
@@ -229,7 +229,7 @@ func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 
 	// Send a final partial fragment if necessary
 	if start < len(buffer) {
-		err := h.conn.WriteRecord(&tlsPlaintext{
+		err := h.conn.WriteRecord(&TLSPlaintext{
 			contentType: RecordTypeHandshake,
 			fragment:    buffer[start:],
 		})
@@ -241,7 +241,7 @@ func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 	return nil
 }
 
-func (h *handshakeLayer) WriteMessageBody(body HandshakeMessageBody) (*handshakeMessage, error) {
+func (h *HandshakeLayer) WriteMessageBody(body HandshakeMessageBody) (*HandshakeMessage, error) {
 	hms, err := h.WriteMessageBodies([]HandshakeMessageBody{body})
 	if err != nil {
 		return nil, err
@@ -252,10 +252,10 @@ func (h *handshakeLayer) WriteMessageBody(body HandshakeMessageBody) (*handshake
 	return hms[0], nil
 }
 
-func (h *handshakeLayer) WriteMessageBodies(bodies []HandshakeMessageBody) ([]*handshakeMessage, error) {
-	hms := make([]*handshakeMessage, len(bodies))
+func (h *HandshakeLayer) WriteMessageBodies(bodies []HandshakeMessageBody) ([]*HandshakeMessage, error) {
+	hms := make([]*HandshakeMessage, len(bodies))
 	for i, body := range bodies {
-		hm, err := handshakeMessageFromBody(body)
+		hm, err := HandshakeMessageFromBody(body)
 		if err != nil {
 			return nil, err
 		}

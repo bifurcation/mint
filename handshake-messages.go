@@ -101,7 +101,7 @@ func (ch ClientHelloBody) Truncated() ([]byte, error) {
 		return nil, fmt.Errorf("tls.clienthello.truncate: Last extension is not PSK")
 	}
 
-	chm, err := handshakeMessageFromBody(&ch)
+	chm, err := HandshakeMessageFromBody(&ch)
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +342,7 @@ func (cv *CertificateVerifyBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, cv)
 }
 
-func (cv *CertificateVerifyBody) computeContext(ctx cryptoContext, transcript []*handshakeMessage) (hashed []byte, err error) {
+func (cv *CertificateVerifyBody) computeContext(ctx cryptoContext, transcript []*HandshakeMessage) (hashed []byte, err error) {
 	h := ctx.params.hash.New()
 	handshakeContext := []byte{}
 	for _, msg := range transcript {
@@ -371,7 +371,7 @@ func (cv *CertificateVerifyBody) encodeSignatureInput(data []byte) []byte {
 	return sigInput
 }
 
-func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*handshakeMessage, ctx cryptoContext) error {
+func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*HandshakeMessage, ctx cryptoContext) error {
 	hashedWithContext, err := cv.computeContext(ctx, transcript)
 	if err != nil {
 		return err
@@ -383,7 +383,7 @@ func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*ha
 	return err
 }
 
-func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*handshakeMessage, ctx cryptoContext) error {
+func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*HandshakeMessage, ctx cryptoContext) error {
 	hashedWithContext, err := cv.computeContext(ctx, transcript)
 	if err != nil {
 		return err

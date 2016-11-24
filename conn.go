@@ -187,7 +187,7 @@ type Conn struct {
 
 	earlyData []byte
 
-	handshake         handshake
+	handshake         Handshake
 	handshakeMutex    sync.Mutex
 	handshakeErr      error
 	handshakeComplete bool
@@ -195,7 +195,7 @@ type Conn struct {
 	certificateList []CertificateEntry
 
 	readBuffer        []byte
-	in, out           *recordLayer
+	in, out           *RecordLayer
 	inMutex, outMutex sync.Mutex
 }
 
@@ -230,7 +230,7 @@ func (c *Conn) extendBuffer(n int) error {
 					return fmt.Errorf("Post-handshake handshake message too short for header")
 				}
 
-				hm := &handshakeMessage{}
+				hm := &HandshakeMessage{}
 				hm.msgType = HandshakeType(pt.fragment[start])
 				hmLen := (int(pt.fragment[start+1]) << 16) + (int(pt.fragment[start+2]) << 8) + int(pt.fragment[start+3])
 
@@ -264,7 +264,7 @@ func (c *Conn) extendBuffer(n int) error {
 
 					if outboundUpdate != nil {
 						// Send KeyUpdate
-						err = c.out.WriteRecord(&tlsPlaintext{
+						err = c.out.WriteRecord(&TLSPlaintext{
 							contentType: RecordTypeHandshake,
 							fragment:    outboundUpdate.Marshal(),
 						})
@@ -280,7 +280,7 @@ func (c *Conn) extendBuffer(n int) error {
 						}
 					}
 				default:
-					c.sendAlert(alertUnexpectedMessage)
+					c.sendAlert(AlertUnexpectedMessage)
 					return fmt.Errorf("Unsupported post-handshake handshake message [%v]", hm.msgType)
 				}
 
@@ -289,20 +289,20 @@ func (c *Conn) extendBuffer(n int) error {
 		case RecordTypeAlert:
 			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(c.readBuffer), c.readBuffer)
 			if len(pt.fragment) != 2 {
-				c.sendAlert(alertUnexpectedMessage)
+				c.sendAlert(AlertUnexpectedMessage)
 				return io.EOF
 			}
-			if alert(pt.fragment[1]) == alertCloseNotify {
+			if Alert(pt.fragment[1]) == AlertCloseNotify {
 				return io.EOF
 			}
 
 			switch pt.fragment[0] {
-			case alertLevelWarning:
+			case AlertLevelWarning:
 				// drop on the floor
-			case alertLevelError:
-				return alert(pt.fragment[1])
+			case AlertLevelError:
+				return Alert(pt.fragment[1])
 			default:
-				c.sendAlert(alertUnexpectedMessage)
+				c.sendAlert(AlertUnexpectedMessage)
 				return io.EOF
 			}
 
@@ -367,7 +367,7 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 	var start int
 	sent := 0
 	for start = 0; len(buffer)-start >= maxFragmentLen; start += maxFragmentLen {
-		err := c.out.WriteRecord(&tlsPlaintext{
+		err := c.out.WriteRecord(&TLSPlaintext{
 			contentType: RecordTypeApplicationData,
 			fragment:    buffer[start : start+maxFragmentLen],
 		})
@@ -380,7 +380,7 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 
 	// Send a final partial fragment if necessary
 	if start < len(buffer) {
-		err := c.out.WriteRecord(&tlsPlaintext{
+		err := c.out.WriteRecord(&TLSPlaintext{
 			contentType: RecordTypeApplicationData,
 			fragment:    buffer[start:],
 		})
@@ -395,25 +395,25 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 
 // sendAlert sends a TLS alert message.
 // c.out.Mutex <= L.
-func (c *Conn) sendAlert(err alert) error {
+func (c *Conn) sendAlert(err Alert) error {
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
 	tmp := make([]byte, 2)
 	switch err {
-	case alertNoRenegotiation, alertCloseNotify:
-		tmp[0] = alertLevelWarning
+	case AlertNoRenegotiation, AlertCloseNotify:
+		tmp[0] = AlertLevelWarning
 	default:
-		tmp[0] = alertLevelError
+		tmp[0] = AlertLevelError
 	}
 	tmp[1] = byte(err)
-	c.out.WriteRecord(&tlsPlaintext{
+	c.out.WriteRecord(&TLSPlaintext{
 		contentType: RecordTypeAlert,
-		fragment:    tmp},
-	)
+		fragment:    tmp,
+	})
 
 	// close_notify and end_of_early_data are not actually errors
-	if err != alertCloseNotify && err != alertEndOfEarlyData {
+	if err != AlertCloseNotify && err != AlertEndOfEarlyData {
 		return &net.OpError{Op: "local error", Err: err}
 	}
 	return nil
@@ -423,7 +423,7 @@ func (c *Conn) sendAlert(err alert) error {
 func (c *Conn) Close() error {
 	// XXX crypto/tls has an interlock with Write here.  Do we need that?
 
-	c.sendAlert(alertCloseNotify)
+	c.sendAlert(AlertCloseNotify)
 	return c.conn.Close()
 }
 
@@ -482,7 +482,7 @@ func (c *Conn) Handshake() error {
 
 	if c.handshakeErr != nil {
 		logf(logTypeHandshake, "Handshake failed: %v", c.handshakeErr)
-		c.sendAlert(alertHandshakeFailure)
+		c.sendAlert(AlertHandshakeFailure)
 		c.conn.Close()
 	}
 
@@ -492,19 +492,19 @@ func (c *Conn) Handshake() error {
 func (c *Conn) clientHandshake() error {
 	logf(logTypeHandshake, "Starting clientHandshake")
 
-	h := &clientHandshake{}
+	h := &ClientHandshake{}
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
 
 	// Generate ClientHello
-	caps := capabilities{
+	caps := Capabilities{
 		CipherSuites:     c.config.CipherSuites,
 		Groups:           c.config.Groups,
 		SignatureSchemes: c.config.SignatureSchemes,
 		PSKs:             c.config.PSKs,
 		PSKModes:         c.config.PSKModes,
 	}
-	opts := connectionOptions{
+	opts := ConnectionOptions{
 		ServerName: c.config.ServerName,
 		NextProtos: c.config.NextProtos,
 		EarlyData:  c.earlyData,
@@ -539,7 +539,7 @@ func (c *Conn) clientHandshake() error {
 
 		// Send end_of_earlyData
 		logf(logTypeHandshake, "[client] Sending end_of_early_data...")
-		err = c.sendAlert(alertEndOfEarlyData)
+		err = c.sendAlert(AlertEndOfEarlyData)
 		if err != nil {
 			return err
 		}
@@ -574,8 +574,8 @@ func (c *Conn) clientHandshake() error {
 	dumpCryptoContext("client", h.Context)
 
 	// Read and process server's first flight
-	transcript := []*handshakeMessage{}
-	var finishedMessage *handshakeMessage
+	transcript := []*HandshakeMessage{}
+	var finishedMessage *HandshakeMessage
 	for {
 		hm, err := hIn.ReadMessage()
 		if err != nil {
@@ -627,7 +627,7 @@ func (c *Conn) clientHandshake() error {
 func (c *Conn) serverHandshake() error {
 	logf(logTypeHandshake, "Starting serverHandshake")
 
-	h := &serverHandshake{}
+	h := &ServerHandshake{}
 	hIn := newHandshakeLayer(c.in)
 	hOut := newHandshakeLayer(c.out)
 
@@ -641,7 +641,7 @@ func (c *Conn) serverHandshake() error {
 	logf(logTypeHandshake, "[server] Read ClientHello")
 
 	// Create the server's first flight
-	caps := capabilities{
+	caps := Capabilities{
 		CipherSuites:     c.config.CipherSuites,
 		Groups:           c.config.Groups,
 		SignatureSchemes: c.config.SignatureSchemes,
@@ -711,8 +711,8 @@ func (c *Conn) serverHandshake() error {
 			switch pt.contentType {
 			case RecordTypeAlert:
 				logf(logTypeHandshake, "Alert record")
-				alertType := alert(pt.fragment[1])
-				if alertType == alertEndOfEarlyData {
+				alertType := Alert(pt.fragment[1])
+				if alertType == AlertEndOfEarlyData {
 					done = true
 				} else {
 					return fmt.Errorf("tls.server: Unexpected alert in early data [%v]", alertType)
@@ -744,7 +744,7 @@ func (c *Conn) serverHandshake() error {
 			pt, err := c.in.ReadRecord()
 
 			// Ignore decrypt errors...
-			if _, ok := err.(decryptError); ok {
+			if _, ok := err.(DecryptError); ok {
 				continue
 			}
 
@@ -767,8 +767,8 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Read and process the client's second flight
-	transcript := []*handshakeMessage{}
-	var finishedMessage *handshakeMessage
+	transcript := []*HandshakeMessage{}
+	var finishedMessage *HandshakeMessage
 	for {
 		hm, err := hIn.ReadMessage()
 		if err != nil {
@@ -839,7 +839,7 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 	}
 
 	// Send key update
-	err = c.out.WriteRecord(&tlsPlaintext{
+	err = c.out.WriteRecord(&TLSPlaintext{
 		contentType: RecordTypeHandshake,
 		fragment:    kum.Marshal(),
 	})

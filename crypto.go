@@ -807,7 +807,7 @@ func (ctx *cryptoContext) preInit(psk PreSharedKey) error {
 	return nil
 }
 
-func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *handshakeMessage) {
+func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *HandshakeMessage) {
 	chBytes := chm.Marshal()
 
 	h := ctx.params.hash.New()
@@ -827,7 +827,7 @@ func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *handshakeMessage) {
 }
 
 // TODO: Merge with UpdateWithServerHello?
-func (ctx *cryptoContext) init(suite CipherSuite, chm *handshakeMessage) error {
+func (ctx *cryptoContext) init(suite CipherSuite, chm *HandshakeMessage) error {
 	logf(logTypeCrypto, "Initializing crypto context")
 
 	// Configure based on cipherSuite
@@ -863,7 +863,7 @@ func (ctx *cryptoContext) init(suite CipherSuite, chm *handshakeMessage) error {
 	return nil
 }
 
-func (ctx *cryptoContext) updateWithServerHello(shm *handshakeMessage, dhSecret []byte) error {
+func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret []byte) error {
 	logf(logTypeCrypto, "Updating crypto context with ServerHello")
 
 	if ctx.state != ctxStateClientHello {
@@ -911,7 +911,7 @@ func (ctx *cryptoContext) updateWithServerHello(shm *handshakeMessage, dhSecret 
 	return nil
 }
 
-func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) error {
+func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*HandshakeMessage) error {
 	logf(logTypeCrypto, "Updating crypto context with server's first flight")
 
 	if ctx.state != ctxStateServerHello {
@@ -938,7 +938,7 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) 
 	}
 
 	// Update the handshake hash with the Finished message
-	finishedMessage, _ := handshakeMessageFromBody(ctx.serverFinished)
+	finishedMessage, _ := HandshakeMessageFromBody(ctx.serverFinished)
 	ctx.handshakeHash.Write(finishedMessage.Marshal())
 	ctx.h4 = ctx.handshakeHash.Sum(nil)
 	logf(logTypeCrypto, "handshake hash 4 [%d]: %x", len(ctx.h4), ctx.h4)
@@ -966,7 +966,7 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*handshakeMessage) 
 	return nil
 }
 
-func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*handshakeMessage) error {
+func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*HandshakeMessage) error {
 	logf(logTypeCrypto, "Updating crypto context with client's second flight")
 
 	if ctx.state != ctxStateServerFirstFlight {
@@ -995,7 +995,7 @@ func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*handshakeMessage)
 	}
 
 	// Update the handshake hash
-	finishedMessage, _ := handshakeMessageFromBody(ctx.clientFinished)
+	finishedMessage, _ := HandshakeMessageFromBody(ctx.clientFinished)
 	ctx.handshakeHash.Write(finishedMessage.Marshal())
 	ctx.h6 = ctx.handshakeHash.Sum(nil)
 	logf(logTypeCrypto, "handshake hash 6 [%d]: %x", len(ctx.h6), ctx.h6)

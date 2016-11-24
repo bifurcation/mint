@@ -96,7 +96,7 @@ func TestWriteRecord(t *testing.T) {
 	plaintext, _ := hex.DecodeString(plaintextHex)
 
 	// Test that plain WriteRecord works
-	pt := &tlsPlaintext{
+	pt := &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
@@ -107,7 +107,7 @@ func TestWriteRecord(t *testing.T) {
 	assertByteEquals(t, b.Bytes(), plaintext)
 
 	// Test failure on size too big
-	pt = &tlsPlaintext{
+	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    bytes.Repeat([]byte{0}, maxFragmentLen+1),
 	}
@@ -115,7 +115,7 @@ func TestWriteRecord(t *testing.T) {
 	assertError(t, err, "Allowed a too-large record")
 
 	// Test failure if padding is requested without encryption
-	pt = &tlsPlaintext{
+	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    bytes.Repeat([]byte{0}, 5),
 	}
@@ -170,7 +170,7 @@ func TestEncryptRecord(t *testing.T) {
 	b := bytes.NewBuffer(nil)
 	r := newRecordLayer(b)
 	r.Rekey(newAESGCM, key, iv)
-	pt := &tlsPlaintext{
+	pt := &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
@@ -182,7 +182,7 @@ func TestEncryptRecord(t *testing.T) {
 	b.Truncate(0)
 	r = newRecordLayer(b)
 	r.Rekey(newAESGCM, key, iv)
-	pt = &tlsPlaintext{
+	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
@@ -197,7 +197,7 @@ func TestEncryptRecord(t *testing.T) {
 	for i := 0; i < sequenceChange; i++ {
 		r.incrementSequenceNumber()
 	}
-	pt = &tlsPlaintext{
+	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
@@ -209,7 +209,7 @@ func TestEncryptRecord(t *testing.T) {
 	b.Truncate(0)
 	r = newRecordLayer(b)
 	r.Rekey(newAESGCM, key, iv)
-	pt = &tlsPlaintext{
+	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    bytes.Repeat([]byte{0}, maxFragmentLen-paddingLength),
 	}
@@ -227,7 +227,7 @@ func TestReadWrite(t *testing.T) {
 	in := newRecordLayer(b)
 
 	// Unencrypted
-	ptIn := &tlsPlaintext{
+	ptIn := &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
@@ -255,10 +255,10 @@ func TestOverSocket(t *testing.T) {
 	plaintext, _ := hex.DecodeString(plaintextHex)
 
 	socketReady := make(chan bool)
-	done := make(chan tlsPlaintext, 1)
+	done := make(chan TLSPlaintext, 1)
 	port := ":9001"
 
-	ptIn := tlsPlaintext{
+	ptIn := TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
