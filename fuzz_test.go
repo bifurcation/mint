@@ -20,13 +20,13 @@ var structs = []interface{}{
 	&extensionList{},
 	new(serverNameExtension),
 	&alpnExtension{},
-	&keyShareExtension{handshakeType: handshakeTypeClientHello},
-	&keyShareExtension{handshakeType: handshakeTypeHelloRetryRequest},
-	&keyShareExtension{handshakeType: handshakeTypeServerHello},
+	&keyShareExtension{HandshakeType: HandshakeTypeClientHello},
+	&keyShareExtension{HandshakeType: HandshakeTypeHelloRetryRequest},
+	&keyShareExtension{HandshakeType: HandshakeTypeServerHello},
 	&supportedGroupsExtension{},
 	&signatureAlgorithmsExtension{},
-	&preSharedKeyExtension{handshakeType: handshakeTypeClientHello},
-	&preSharedKeyExtension{handshakeType: handshakeTypeServerHello},
+	&preSharedKeyExtension{HandshakeType: HandshakeTypeClientHello},
+	&preSharedKeyExtension{HandshakeType: HandshakeTypeServerHello},
 	&supportedVersionsExtension{},
 }
 

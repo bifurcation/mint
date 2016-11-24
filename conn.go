@@ -221,7 +221,7 @@ func (c *Conn) extendBuffer(n int) error {
 		}
 
 		switch pt.contentType {
-		case recordTypeHandshake:
+		case RecordTypeHandshake:
 			// We do not support fragmentation of post-handshake handshake messages
 			// TODO: Factor this more elegantly; coalesce with handshakeLayer.ReadMessage()
 			start := 0
@@ -231,7 +231,7 @@ func (c *Conn) extendBuffer(n int) error {
 				}
 
 				hm := &handshakeMessage{}
-				hm.msgType = handshakeType(pt.fragment[start])
+				hm.msgType = HandshakeType(pt.fragment[start])
 				hmLen := (int(pt.fragment[start+1]) << 16) + (int(pt.fragment[start+2]) << 8) + int(pt.fragment[start+3])
 
 				if len(pt.fragment[start+handshakeHeaderLen:]) < hmLen {
@@ -240,7 +240,7 @@ func (c *Conn) extendBuffer(n int) error {
 				hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
 
 				switch hm.msgType {
-				case handshakeTypeNewSessionTicket:
+				case HandshakeTypeNewSessionTicket:
 					psk, err := c.handshake.HandleNewSessionTicket(hm)
 					if err != nil {
 						return err
@@ -249,7 +249,7 @@ func (c *Conn) extendBuffer(n int) error {
 					logf(logTypeHandshake, "Storing new session ticket with identity [%x]", psk.Identity)
 					c.config.PSKs[c.config.ServerName] = psk
 
-				case handshakeTypeKeyUpdate:
+				case HandshakeTypeKeyUpdate:
 					outboundUpdate, err := c.handshake.HandleKeyUpdate(hm)
 					if err != nil {
 						return err
@@ -265,7 +265,7 @@ func (c *Conn) extendBuffer(n int) error {
 					if outboundUpdate != nil {
 						// Send KeyUpdate
 						err = c.out.WriteRecord(&tlsPlaintext{
-							contentType: recordTypeHandshake,
+							contentType: RecordTypeHandshake,
 							fragment:    outboundUpdate.Marshal(),
 						})
 						if err != nil {
@@ -286,7 +286,7 @@ func (c *Conn) extendBuffer(n int) error {
 
 				start += handshakeHeaderLen + hmLen
 			}
-		case recordTypeAlert:
+		case RecordTypeAlert:
 			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(c.readBuffer), c.readBuffer)
 			if len(pt.fragment) != 2 {
 				c.sendAlert(alertUnexpectedMessage)
@@ -306,7 +306,7 @@ func (c *Conn) extendBuffer(n int) error {
 				return io.EOF
 			}
 
-		case recordTypeApplicationData:
+		case RecordTypeApplicationData:
 			c.readBuffer = append(c.readBuffer, pt.fragment...)
 			logf(logTypeIO, "extended buffer: [%d] %x", len(c.readBuffer), c.readBuffer)
 		}
@@ -321,7 +321,7 @@ func (c *Conn) extendBuffer(n int) error {
 		}
 
 		// if we're over the limit and the next record is not an alert, exit
-		if len(c.readBuffer) == n && recordType(c.in.nextData[0]) != recordTypeAlert {
+		if len(c.readBuffer) == n && RecordType(c.in.nextData[0]) != RecordTypeAlert {
 			return nil
 		}
 	}
@@ -368,7 +368,7 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 	sent := 0
 	for start = 0; len(buffer)-start >= maxFragmentLen; start += maxFragmentLen {
 		err := c.out.WriteRecord(&tlsPlaintext{
-			contentType: recordTypeApplicationData,
+			contentType: RecordTypeApplicationData,
 			fragment:    buffer[start : start+maxFragmentLen],
 		})
 
@@ -381,7 +381,7 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 	// Send a final partial fragment if necessary
 	if start < len(buffer) {
 		err := c.out.WriteRecord(&tlsPlaintext{
-			contentType: recordTypeApplicationData,
+			contentType: RecordTypeApplicationData,
 			fragment:    buffer[start:],
 		})
 
@@ -408,7 +408,7 @@ func (c *Conn) sendAlert(err alert) error {
 	}
 	tmp[1] = byte(err)
 	c.out.WriteRecord(&tlsPlaintext{
-		contentType: recordTypeAlert,
+		contentType: RecordTypeAlert,
 		fragment:    tmp},
 	)
 
@@ -584,7 +584,7 @@ func (c *Conn) clientHandshake() error {
 		}
 		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
-		if hm.msgType == handshakeTypeFinished {
+		if hm.msgType == HandshakeTypeFinished {
 			finishedMessage = hm
 			break
 		} else {
@@ -709,7 +709,7 @@ func (c *Conn) serverHandshake() error {
 			}
 
 			switch pt.contentType {
-			case recordTypeAlert:
+			case RecordTypeAlert:
 				logf(logTypeHandshake, "Alert record")
 				alertType := alert(pt.fragment[1])
 				if alertType == alertEndOfEarlyData {
@@ -717,7 +717,7 @@ func (c *Conn) serverHandshake() error {
 				} else {
 					return fmt.Errorf("tls.server: Unexpected alert in early data [%v]", alertType)
 				}
-			case recordTypeApplicationData:
+			case RecordTypeApplicationData:
 				// XXX: Should expose early data differently
 				logf(logTypeHandshake, "App data")
 				c.readBuffer = append(c.readBuffer, pt.fragment...)
@@ -754,7 +754,7 @@ func (c *Conn) serverHandshake() error {
 			}
 
 			// If it's not a handshake message, fail
-			if pt.contentType != recordTypeHandshake {
+			if pt.contentType != RecordTypeHandshake {
 				return fmt.Errorf("[server] Got a non-handshake message encrypted with handshake key")
 			}
 
@@ -777,7 +777,7 @@ func (c *Conn) serverHandshake() error {
 		}
 		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
-		if hm.msgType == handshakeTypeFinished {
+		if hm.msgType == HandshakeTypeFinished {
 			finishedMessage = hm
 			break
 		} else {
@@ -827,9 +827,9 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 		return fmt.Errorf("Cannot update keys until after handshake")
 	}
 
-	request := keyUpdateNotRequested
+	request := KeyUpdateNotRequested
 	if requestUpdate {
-		request = keyUpdateRequested
+		request = KeyUpdateRequested
 	}
 
 	// Create the key update and update the keys internally
@@ -840,7 +840,7 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 
 	// Send key update
 	err = c.out.WriteRecord(&tlsPlaintext{
-		contentType: recordTypeHandshake,
+		contentType: RecordTypeHandshake,
 		fragment:    kum.Marshal(),
 	})
 	if err != nil {

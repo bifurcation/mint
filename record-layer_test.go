@@ -54,7 +54,7 @@ func TestReadRecord(t *testing.T) {
 	r := newRecordLayer(bytes.NewBuffer(plaintext))
 	pt, err := r.ReadRecord()
 	assertNotError(t, err, "Failed to decode valid plaintext")
-	assertEquals(t, pt.contentType, recordTypeAlert)
+	assertEquals(t, pt.contentType, RecordTypeAlert)
 	assertByteEquals(t, pt.fragment, plaintext[5:])
 
 	// Test failure on unkown record type
@@ -97,7 +97,7 @@ func TestWriteRecord(t *testing.T) {
 
 	// Test that plain WriteRecord works
 	pt := &tlsPlaintext{
-		contentType: recordType(plaintext[0]),
+		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
 	b := bytes.NewBuffer(nil)
@@ -108,7 +108,7 @@ func TestWriteRecord(t *testing.T) {
 
 	// Test failure on size too big
 	pt = &tlsPlaintext{
-		contentType: recordType(plaintext[0]),
+		contentType: RecordType(plaintext[0]),
 		fragment:    bytes.Repeat([]byte{0}, maxFragmentLen+1),
 	}
 	err = r.WriteRecord(pt)
@@ -116,7 +116,7 @@ func TestWriteRecord(t *testing.T) {
 
 	// Test failure if padding is requested without encryption
 	pt = &tlsPlaintext{
-		contentType: recordType(plaintext[0]),
+		contentType: RecordType(plaintext[0]),
 		fragment:    bytes.Repeat([]byte{0}, 5),
 	}
 	err = r.WriteRecordWithPadding(pt, 5)
@@ -135,7 +135,7 @@ func TestDecryptRecord(t *testing.T) {
 	r.Rekey(newAESGCM, key, iv)
 	pt, err := r.ReadRecord()
 	assertNotError(t, err, "Failed to decrypt valid record")
-	assertEquals(t, pt.contentType, recordTypeAlert)
+	assertEquals(t, pt.contentType, RecordTypeAlert)
 	assertByteEquals(t, pt.fragment, plaintext[5:])
 
 	// Test successful decrypt after sequence number change
@@ -146,7 +146,7 @@ func TestDecryptRecord(t *testing.T) {
 	}
 	pt, err = r.ReadRecord()
 	assertNotError(t, err, "Failed to properly handle sequence number change")
-	assertEquals(t, pt.contentType, recordTypeAlert)
+	assertEquals(t, pt.contentType, RecordTypeAlert)
 	assertByteEquals(t, pt.fragment, plaintext[5:])
 
 	// Test failure on decrypt failure
@@ -171,7 +171,7 @@ func TestEncryptRecord(t *testing.T) {
 	r := newRecordLayer(b)
 	r.Rekey(newAESGCM, key, iv)
 	pt := &tlsPlaintext{
-		contentType: recordType(plaintext[0]),
+		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
 	err := r.WriteRecord(pt)
@@ -183,7 +183,7 @@ func TestEncryptRecord(t *testing.T) {
 	r = newRecordLayer(b)
 	r.Rekey(newAESGCM, key, iv)
 	pt = &tlsPlaintext{
-		contentType: recordType(plaintext[0]),
+		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
 	err = r.WriteRecordWithPadding(pt, paddingLength)
@@ -198,7 +198,7 @@ func TestEncryptRecord(t *testing.T) {
 		r.incrementSequenceNumber()
 	}
 	pt = &tlsPlaintext{
-		contentType: recordType(plaintext[0]),
+		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
 	err = r.WriteRecordWithPadding(pt, paddingLength)
@@ -210,7 +210,7 @@ func TestEncryptRecord(t *testing.T) {
 	r = newRecordLayer(b)
 	r.Rekey(newAESGCM, key, iv)
 	pt = &tlsPlaintext{
-		contentType: recordType(plaintext[0]),
+		contentType: RecordType(plaintext[0]),
 		fragment:    bytes.Repeat([]byte{0}, maxFragmentLen-paddingLength),
 	}
 	err = r.WriteRecordWithPadding(pt, paddingLength)
@@ -228,7 +228,7 @@ func TestReadWrite(t *testing.T) {
 
 	// Unencrypted
 	ptIn := &tlsPlaintext{
-		contentType: recordType(plaintext[0]),
+		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
 	err := out.WriteRecord(ptIn)
@@ -259,7 +259,7 @@ func TestOverSocket(t *testing.T) {
 	port := ":9001"
 
 	ptIn := tlsPlaintext{
-		contentType: recordType(plaintext[0]),
+		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
 

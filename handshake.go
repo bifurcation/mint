@@ -43,14 +43,14 @@ type handshake interface {
 	CryptoContext() *cryptoContext
 	InboundKeys() (aeadFactory, keySet)
 	OutboundKeys() (aeadFactory, keySet)
-	CreateKeyUpdate(keyUpdateRequest) (*handshakeMessage, error)
+	CreateKeyUpdate(KeyUpdateRequest) (*handshakeMessage, error)
 	HandleKeyUpdate(*handshakeMessage) (*handshakeMessage, error)
 	HandleNewSessionTicket(*handshakeMessage) (PreSharedKey, error)
 }
 
 ///// Common methods
 
-func createKeyUpdate(client bool, ctx *cryptoContext, requestUpdate keyUpdateRequest) (*handshakeMessage, error) {
+func createKeyUpdate(client bool, ctx *cryptoContext, requestUpdate KeyUpdateRequest) (*handshakeMessage, error) {
 	// Roll the outbound keys
 	err := ctx.updateKeys(client)
 	if err != nil {
@@ -78,14 +78,14 @@ func handleKeyUpdate(client bool, ctx *cryptoContext, hm *handshakeMessage) (*ha
 
 	// If requested, roll outbound keys and send a KeyUpdate
 	var outboundMessage *handshakeMessage
-	if ku.KeyUpdateRequest == keyUpdateRequested {
+	if ku.KeyUpdateRequest == KeyUpdateRequested {
 		err = ctx.updateKeys(client)
 		if err != nil {
 			return nil, err
 		}
 
 		return handshakeMessageFromBody(&keyUpdateBody{
-			KeyUpdateRequest: keyUpdateNotRequested,
+			KeyUpdateRequest: KeyUpdateNotRequested,
 		})
 	}
 
@@ -128,7 +128,7 @@ func (h *clientHandshake) OutboundKeys() (aeadFactory, keySet) {
 	return h.Context.params.cipher, h.Context.clientTrafficKeys
 }
 
-func (h *clientHandshake) CreateKeyUpdate(requestUpdate keyUpdateRequest) (*handshakeMessage, error) {
+func (h *clientHandshake) CreateKeyUpdate(requestUpdate KeyUpdateRequest) (*handshakeMessage, error) {
 	return createKeyUpdate(true, &h.Context, requestUpdate)
 }
 
@@ -157,7 +157,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 	// key_shares
 	h.OfferedDH = map[NamedGroup][]byte{}
 	ks := keyShareExtension{
-		handshakeType: handshakeTypeClientHello,
+		HandshakeType: HandshakeTypeClientHello,
 		shares:        make([]keyShareEntry, len(caps.Groups)),
 	}
 	for i, group := range caps.Groups {
@@ -238,7 +238,7 @@ func (h *clientHandshake) CreateClientHello(opts connectionOptions, caps capabil
 
 		// Add the shim PSK extension to the ClientHello
 		psk = &preSharedKeyExtension{
-			handshakeType: handshakeTypeClientHello,
+			HandshakeType: HandshakeTypeClientHello,
 			identities: []pskIdentity{
 				pskIdentity{Identity: key.Identity},
 			},
@@ -297,8 +297,8 @@ func (h *clientHandshake) HandleServerHello(shm *handshakeMessage) error {
 	}
 
 	// Do PSK or key agreement depending on extensions
-	serverPSK := preSharedKeyExtension{handshakeType: handshakeTypeServerHello}
-	serverKeyShare := keyShareExtension{handshakeType: handshakeTypeServerHello}
+	serverPSK := preSharedKeyExtension{HandshakeType: HandshakeTypeServerHello}
+	serverKeyShare := keyShareExtension{HandshakeType: HandshakeTypeServerHello}
 	serverEarlyData := earlyDataExtension{}
 
 	foundPSK := sh.Extensions.Find(&serverPSK)
@@ -347,13 +347,13 @@ func (h *clientHandshake) HandleServerFirstFlight(transcript []*handshakeMessage
 	var certVerifyIndex int
 	for i, msg := range transcript {
 		switch msg.msgType {
-		case handshakeTypeEncryptedExtensions:
+		case HandshakeTypeEncryptedExtensions:
 			ee = new(encryptedExtensionsBody)
 			_, err = ee.Unmarshal(msg.body)
-		case handshakeTypeCertificate:
+		case HandshakeTypeCertificate:
 			cert = new(certificateBody)
 			_, err = cert.Unmarshal(msg.body)
-		case handshakeTypeCertificateVerify:
+		case HandshakeTypeCertificateVerify:
 			certVerifyIndex = i
 			certVerify = new(certificateVerifyBody)
 			_, err = certVerify.Unmarshal(msg.body)
@@ -438,7 +438,7 @@ func (h serverHandshake) ConnectionParams() connectionParameters {
 	return h.Params
 }
 
-func (h *serverHandshake) CreateKeyUpdate(requestUpdate keyUpdateRequest) (*handshakeMessage, error) {
+func (h *serverHandshake) CreateKeyUpdate(requestUpdate KeyUpdateRequest) (*handshakeMessage, error) {
 	return createKeyUpdate(false, &h.Context, requestUpdate)
 }
 
@@ -469,8 +469,8 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	serverName := new(serverNameExtension)
 	supportedGroups := new(supportedGroupsExtension)
 	signatureAlgorithms := new(signatureAlgorithmsExtension)
-	clientKeyShares := &keyShareExtension{handshakeType: handshakeTypeClientHello}
-	clientPSK := &preSharedKeyExtension{handshakeType: handshakeTypeClientHello}
+	clientKeyShares := &keyShareExtension{HandshakeType: HandshakeTypeClientHello}
+	clientPSK := &preSharedKeyExtension{HandshakeType: HandshakeTypeClientHello}
 	clientEarlyData := &earlyDataExtension{}
 	clientALPN := new(alpnExtension)
 	clientPSKModes := new(pskKeyExchangeModesExtension)
@@ -582,7 +582,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	if h.Params.UsingDH {
 		logf(logTypeHandshake, "[server] sending DH extension")
 		err = sh.Extensions.Add(&keyShareExtension{
-			handshakeType: handshakeTypeServerHello,
+			HandshakeType: HandshakeTypeServerHello,
 			shares:        []keyShareEntry{keyShareEntry{Group: dhGroup, KeyExchange: dhPub}},
 		})
 		if err != nil {
@@ -592,7 +592,7 @@ func (h *serverHandshake) HandleClientHello(chm *handshakeMessage, caps capabili
 	if h.Params.UsingPSK {
 		logf(logTypeHandshake, "[server] sending PSK extension")
 		err = sh.Extensions.Add(&preSharedKeyExtension{
-			handshakeType:    handshakeTypeServerHello,
+			HandshakeType:    HandshakeTypeServerHello,
 			selectedIdentity: uint16(selectedPSK),
 		})
 		if err != nil {

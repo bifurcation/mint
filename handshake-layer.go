@@ -30,7 +30,7 @@ const (
 // TODO: File a spec bug
 type handshakeMessage struct {
 	// Omitted: length
-	msgType handshakeType
+	msgType HandshakeType
 	body    []byte
 }
 
@@ -53,19 +53,19 @@ func (hm handshakeMessage) toBody() (handshakeMessageBody, error) {
 
 	var body handshakeMessageBody
 	switch hm.msgType {
-	case handshakeTypeClientHello:
+	case HandshakeTypeClientHello:
 		body = new(clientHelloBody)
-	case handshakeTypeServerHello:
+	case HandshakeTypeServerHello:
 		body = new(serverHelloBody)
-	case handshakeTypeEncryptedExtensions:
+	case HandshakeTypeEncryptedExtensions:
 		body = new(encryptedExtensionsBody)
-	case handshakeTypeCertificate:
+	case HandshakeTypeCertificate:
 		body = new(certificateBody)
-	case handshakeTypeCertificateVerify:
+	case HandshakeTypeCertificateVerify:
 		body = new(certificateVerifyBody)
-	case handshakeTypeFinished:
+	case HandshakeTypeFinished:
 		body = new(finishedBody)
-	case handshakeTypeNewSessionTicket:
+	case HandshakeTypeNewSessionTicket:
 		body = new(newSessionTicketBody)
 	default:
 		return body, fmt.Errorf("tls.handshakemessage: Unsupported body type")
@@ -110,12 +110,12 @@ func (h *handshakeLayer) extendBuffer(n int) error {
 			return err
 		}
 
-		if pt.contentType != recordTypeHandshake &&
-			pt.contentType != recordTypeAlert {
+		if pt.contentType != RecordTypeHandshake &&
+			pt.contentType != RecordTypeAlert {
 			return fmt.Errorf("tls.handshakelayer: Unexpected record type %04x", pt.contentType)
 		}
 
-		if pt.contentType == recordTypeAlert {
+		if pt.contentType == RecordTypeAlert {
 			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(h.buffer), h.buffer)
 			if len(pt.fragment) < 2 {
 				h.sendAlert(alertUnexpectedMessage)
@@ -140,7 +140,7 @@ func (h *handshakeLayer) sendAlert(err alert) error {
 	tmp[0] = alertLevelError
 	tmp[1] = byte(err)
 	h.conn.WriteRecord(&tlsPlaintext{
-		contentType: recordTypeAlert,
+		contentType: RecordTypeAlert,
 		fragment:    tmp},
 	)
 
@@ -159,7 +159,7 @@ func (h *handshakeLayer) ReadMessage() (*handshakeMessage, error) {
 	}
 
 	hm := &handshakeMessage{}
-	hm.msgType = handshakeType(h.buffer[0])
+	hm.msgType = HandshakeType(h.buffer[0])
 	hmLen := (int(h.buffer[1]) << 16) + (int(h.buffer[2]) << 8) + int(h.buffer[3])
 
 	// Read the body
@@ -218,7 +218,7 @@ func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 	var start int
 	for start = 0; len(buffer)-start >= maxFragmentLen; start += maxFragmentLen {
 		err := h.conn.WriteRecord(&tlsPlaintext{
-			contentType: recordTypeHandshake,
+			contentType: RecordTypeHandshake,
 			fragment:    buffer[start : start+maxFragmentLen],
 		})
 
@@ -230,7 +230,7 @@ func (h *handshakeLayer) WriteMessages(hms []*handshakeMessage) error {
 	// Send a final partial fragment if necessary
 	if start < len(buffer) {
 		err := h.conn.WriteRecord(&tlsPlaintext{
-			contentType: recordTypeHandshake,
+			contentType: RecordTypeHandshake,
 			fragment:    buffer[start:],
 		})
 

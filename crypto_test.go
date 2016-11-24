@@ -403,7 +403,7 @@ func TestCryptoContext(t *testing.T) {
 		},
 	})
 	clientHelloContextIn.extensions.Add(&keyShareExtension{
-		handshakeType: handshakeTypeClientHello,
+		HandshakeType: HandshakeTypeClientHello,
 		shares: []keyShareEntry{
 			keyShareEntry{Group: P256, KeyExchange: random(keyExchangeSizeFromNamedGroup(P256))},
 			keyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
@@ -411,7 +411,7 @@ func TestCryptoContext(t *testing.T) {
 	})
 
 	serverHelloContextIn.Extensions.Add(&keyShareExtension{
-		handshakeType: handshakeTypeServerHello,
+		HandshakeType: HandshakeTypeServerHello,
 		shares: []keyShareEntry{
 			keyShareEntry{Group: P521, KeyExchange: random(keyExchangeSizeFromNamedGroup(P521))},
 		},

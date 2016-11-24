@@ -29,7 +29,7 @@ func (err decryptError) Error() string {
 type tlsPlaintext struct {
 	// Omitted: record_version (static)
 	// Omitted: length         (computed from fragment)
-	contentType recordType
+	contentType RecordType
 	fragment    []byte
 }
 
@@ -94,7 +94,7 @@ func (r *recordLayer) encrypt(pt *tlsPlaintext, padLen int) *tlsPlaintext {
 
 	// Assemble the revised plaintext
 	out := &tlsPlaintext{
-		contentType: recordTypeApplicationData,
+		contentType: RecordTypeApplicationData,
 		fragment:    make([]byte, ciphertextLen),
 	}
 	copy(out.fragment, pt.fragment)
@@ -133,7 +133,7 @@ func (r *recordLayer) decrypt(pt *tlsPlaintext) (*tlsPlaintext, int, error) {
 
 	// Transfer the content type
 	newLen := decryptLen - padLen - 1
-	out.contentType = recordType(out.fragment[newLen])
+	out.contentType = RecordType(out.fragment[newLen])
 
 	// Truncate the message to remove contentType, padding, overhead
 	out.fragment = out.fragment[:newLen]
@@ -172,11 +172,11 @@ func (r *recordLayer) ReadRecord() (*tlsPlaintext, error) {
 	}
 
 	// Validate content type
-	switch recordType(header[0]) {
+	switch RecordType(header[0]) {
 	default:
 		return nil, fmt.Errorf("tls.record: Unknown content type %02x", header[0])
-	case recordTypeAlert, recordTypeHandshake, recordTypeApplicationData:
-		pt.contentType = recordType(header[0])
+	case RecordTypeAlert, RecordTypeHandshake, RecordTypeApplicationData:
+		pt.contentType = RecordType(header[0])
 	}
 
 	// Validate version

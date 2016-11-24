@@ -179,7 +179,7 @@ func (kse keyShareEntry) sizeValid() bool {
 }
 
 type keyShareExtension struct {
-	handshakeType handshakeType
+	HandshakeType HandshakeType
 	selectedGroup NamedGroup
 	shares        []keyShareEntry
 }
@@ -199,8 +199,8 @@ func (ks keyShareExtension) Type() extensionType {
 }
 
 func (ks keyShareExtension) Marshal() ([]byte, error) {
-	switch ks.handshakeType {
-	case handshakeTypeClientHello:
+	switch ks.HandshakeType {
+	case HandshakeTypeClientHello:
 		for _, share := range ks.shares {
 			if !share.sizeValid() {
 				return nil, fmt.Errorf("tls.keyshare: Key share has wrong size for group")
@@ -208,14 +208,14 @@ func (ks keyShareExtension) Marshal() ([]byte, error) {
 		}
 		return syntax.Marshal(keyShareClientHelloInner{ks.shares})
 
-	case handshakeTypeHelloRetryRequest:
+	case HandshakeTypeHelloRetryRequest:
 		if len(ks.shares) > 0 {
 			return nil, fmt.Errorf("tls.keyshare: Key shares not allowed for HelloRetryRequest")
 		}
 
 		return syntax.Marshal(keyShareHelloRetryInner{ks.selectedGroup})
 
-	case handshakeTypeServerHello:
+	case HandshakeTypeServerHello:
 		if len(ks.shares) > 1 {
 			return nil, fmt.Errorf("tls.keyshare: Server can only send one key share")
 		}
@@ -232,8 +232,8 @@ func (ks keyShareExtension) Marshal() ([]byte, error) {
 }
 
 func (ks *keyShareExtension) Unmarshal(data []byte) (int, error) {
-	switch ks.handshakeType {
-	case handshakeTypeClientHello:
+	switch ks.HandshakeType {
+	case HandshakeTypeClientHello:
 		var inner keyShareClientHelloInner
 		read, err := syntax.Unmarshal(data, &inner)
 		if err != nil {
@@ -249,7 +249,7 @@ func (ks *keyShareExtension) Unmarshal(data []byte) (int, error) {
 		ks.shares = inner.ClientShares
 		return read, nil
 
-	case handshakeTypeHelloRetryRequest:
+	case HandshakeTypeHelloRetryRequest:
 		var inner keyShareHelloRetryInner
 		read, err := syntax.Unmarshal(data, &inner)
 		if err != nil {
@@ -259,7 +259,7 @@ func (ks *keyShareExtension) Unmarshal(data []byte) (int, error) {
 		ks.selectedGroup = inner.SelectedGroup
 		return read, nil
 
-	case handshakeTypeServerHello:
+	case HandshakeTypeServerHello:
 		var inner keyShareServerHelloInner
 		read, err := syntax.Unmarshal(data, &inner)
 		if err != nil {
@@ -344,7 +344,7 @@ type pskBinderEntry struct {
 }
 
 type preSharedKeyExtension struct {
-	handshakeType    handshakeType
+	HandshakeType    HandshakeType
 	identities       []pskIdentity
 	binders          []pskBinderEntry
 	selectedIdentity uint16
@@ -364,14 +364,14 @@ func (psk preSharedKeyExtension) Type() extensionType {
 }
 
 func (psk preSharedKeyExtension) Marshal() ([]byte, error) {
-	switch psk.handshakeType {
-	case handshakeTypeClientHello:
+	switch psk.HandshakeType {
+	case HandshakeTypeClientHello:
 		return syntax.Marshal(preSharedKeyClientInner{
 			Identities: psk.identities,
 			Binders:    psk.binders,
 		})
 
-	case handshakeTypeServerHello:
+	case HandshakeTypeServerHello:
 		if len(psk.identities) > 0 || len(psk.binders) > 0 {
 			return nil, fmt.Errorf("tls.presharedkey: Server can only provide an index")
 		}
@@ -383,8 +383,8 @@ func (psk preSharedKeyExtension) Marshal() ([]byte, error) {
 }
 
 func (psk *preSharedKeyExtension) Unmarshal(data []byte) (int, error) {
-	switch psk.handshakeType {
-	case handshakeTypeClientHello:
+	switch psk.HandshakeType {
+	case HandshakeTypeClientHello:
 		var inner preSharedKeyClientInner
 		read, err := syntax.Unmarshal(data, &inner)
 		if err != nil {
@@ -399,7 +399,7 @@ func (psk *preSharedKeyExtension) Unmarshal(data []byte) (int, error) {
 		psk.binders = inner.Binders
 		return read, nil
 
-	case handshakeTypeServerHello:
+	case HandshakeTypeServerHello:
 		var inner preSharedKeyServerInner
 		read, err := syntax.Unmarshal(data, &inner)
 		if err != nil {

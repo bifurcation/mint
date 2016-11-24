@@ -68,24 +68,24 @@ var (
 	p256             = bytes.Repeat([]byte{0}, len256)
 	p521             = bytes.Repeat([]byte{0}, len521)
 	keyShareClientIn = &keyShareExtension{
-		handshakeType: handshakeTypeClientHello,
+		HandshakeType: HandshakeTypeClientHello,
 		shares: []keyShareEntry{
 			keyShareEntry{Group: P256, KeyExchange: p256},
 			keyShareEntry{Group: P521, KeyExchange: p521},
 		},
 	}
 	keyShareHelloRetryIn = &keyShareExtension{
-		handshakeType: handshakeTypeHelloRetryRequest,
+		HandshakeType: HandshakeTypeHelloRetryRequest,
 		selectedGroup: P256,
 	}
 	keyShareServerIn = &keyShareExtension{
-		handshakeType: handshakeTypeServerHello,
+		HandshakeType: HandshakeTypeServerHello,
 		shares: []keyShareEntry{
 			keyShareEntry{Group: P256, KeyExchange: p256},
 		},
 	}
 	keyShareInvalidIn = &keyShareExtension{
-		handshakeType: handshakeTypeServerHello,
+		HandshakeType: HandshakeTypeServerHello,
 		shares: []keyShareEntry{
 			keyShareEntry{Group: P256, KeyExchange: []byte{0}},
 		},
@@ -103,7 +103,7 @@ var (
 		"0021" + "20" + "A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0"
 	pskServerHex = "0002"
 	pskClientIn  = &preSharedKeyExtension{
-		handshakeType: handshakeTypeClientHello,
+		HandshakeType: HandshakeTypeClientHello,
 		identities: []pskIdentity{
 			pskIdentity{
 				Identity:            []byte{0x01, 0x02, 0x03, 0x04},
@@ -117,11 +117,11 @@ var (
 		},
 	}
 	pskServerIn = &preSharedKeyExtension{
-		handshakeType:    handshakeTypeServerHello,
+		HandshakeType:    HandshakeTypeServerHello,
 		selectedIdentity: 2,
 	}
 	pskInvalidIn = &preSharedKeyExtension{
-		handshakeType: handshakeTypeHelloRetryRequest,
+		HandshakeType: HandshakeTypeHelloRetryRequest,
 	}
 
 	// SNI test cases (pre-declared so that we can take references in the test case)
@@ -171,8 +171,8 @@ var validExtensionTestCases = map[extensionType]struct {
 		marshaledHex: "000c08687474702f312e31026832",
 	},
 
-	// Omitted: KeyShare (depends on handshakeType)
-	// Omitted: PreSharedKey (depends on handshakeType)
+	// Omitted: KeyShare (depends on HandshakeType)
+	// Omitted: PreSharedKey (depends on HandshakeType)
 
 	// EarlyData
 	extensionTypeEarlyData: {
@@ -354,7 +354,7 @@ func TestExtensionAdd(t *testing.T) {
 
 func TestExtensionFind(t *testing.T) {
 	// Test successful find
-	ks := keyShareExtension{handshakeType: handshakeTypeServerHello}
+	ks := keyShareExtension{HandshakeType: HandshakeTypeServerHello}
 	found := extListKeyShareIn.Find(&ks)
 	assert(t, found, "Failed to find a valid extension")
 
@@ -409,76 +409,76 @@ func TestKeyShareMarshalUnmarshal(t *testing.T) {
 	assertByteEquals(t, out, keyShareServer)
 
 	// Test marshal failure on HRR trying to send shares
-	keyShareClientIn.handshakeType = handshakeTypeHelloRetryRequest
+	keyShareClientIn.HandshakeType = HandshakeTypeHelloRetryRequest
 	out, err = keyShareClientIn.Marshal()
 	assertError(t, err, "Marshaled key shares for hello retry request")
-	keyShareClientIn.handshakeType = handshakeTypeClientHello
+	keyShareClientIn.HandshakeType = HandshakeTypeClientHello
 
 	// Test marshal failure on server trying to send multiple
-	keyShareClientIn.handshakeType = handshakeTypeServerHello
+	keyShareClientIn.HandshakeType = HandshakeTypeServerHello
 	out, err = keyShareClientIn.Marshal()
 	assertError(t, err, "Marshaled multiple key shares for server")
-	keyShareClientIn.handshakeType = handshakeTypeClientHello
+	keyShareClientIn.HandshakeType = HandshakeTypeClientHello
 
 	// Test marshal failure on an incorrect key share size (server)
 	out, err = keyShareInvalidIn.Marshal()
 	assertError(t, err, "Marshaled a server key share with a wrong-size key")
 
 	// Test marshal failure on an incorrect key share size (client)
-	keyShareInvalidIn.handshakeType = handshakeTypeClientHello
+	keyShareInvalidIn.HandshakeType = HandshakeTypeClientHello
 	out, err = keyShareInvalidIn.Marshal()
 	assertError(t, err, "Marshaled key shares for hello retry request")
-	keyShareInvalidIn.handshakeType = handshakeTypeServerHello
+	keyShareInvalidIn.HandshakeType = HandshakeTypeServerHello
 
 	// Test marshal failure on an unsupported handshake type
-	keyShareInvalidIn.handshakeType = handshakeTypeCertificate
+	keyShareInvalidIn.HandshakeType = HandshakeTypeCertificate
 	out, err = keyShareInvalidIn.Marshal()
 	assertError(t, err, "Marshaled key an unsupported handshake type")
-	keyShareInvalidIn.handshakeType = handshakeTypeServerHello
+	keyShareInvalidIn.HandshakeType = HandshakeTypeServerHello
 
 	// Test successful unmarshal (client)
-	ks := keyShareExtension{handshakeType: handshakeTypeClientHello}
+	ks := keyShareExtension{HandshakeType: HandshakeTypeClientHello}
 	read, err := ks.Unmarshal(keyShareClient)
 	assertNotError(t, err, "Failed to unmarshal valid KeyShare (client)")
 	assertDeepEquals(t, &ks, keyShareClientIn)
 	assertEquals(t, read, len(keyShareClient))
 
 	// Test successful unmarshal (hello retry)
-	ks = keyShareExtension{handshakeType: handshakeTypeHelloRetryRequest}
+	ks = keyShareExtension{HandshakeType: HandshakeTypeHelloRetryRequest}
 	read, err = ks.Unmarshal(keyShareHelloRetry)
 	assertNotError(t, err, "Failed to unmarshal valid KeyShare (hello retry)")
 	assertDeepEquals(t, &ks, keyShareHelloRetryIn)
 	assertEquals(t, read, len(keyShareHelloRetry))
 
 	// Test successful unmarshal (server)
-	ks = keyShareExtension{handshakeType: handshakeTypeServerHello}
+	ks = keyShareExtension{HandshakeType: HandshakeTypeServerHello}
 	read, err = ks.Unmarshal(keyShareServer)
 	assertNotError(t, err, "Failed to unmarshal valid KeyShare (server)")
 	assertDeepEquals(t, &ks, keyShareServerIn)
 	assertEquals(t, read, len(keyShareServer))
 
 	// Test unmarshal failure on underlying unmarshal failure (client)
-	ks = keyShareExtension{handshakeType: handshakeTypeClientHello}
+	ks = keyShareExtension{HandshakeType: HandshakeTypeClientHello}
 	read, err = ks.Unmarshal(keyShareClient[:1])
 	assertError(t, err, "Unmarshaled a KeyShare without a length")
 
 	// Test unmarshal failure on underlying unmarshal failure (hello retry)
-	ks = keyShareExtension{handshakeType: handshakeTypeHelloRetryRequest}
+	ks = keyShareExtension{HandshakeType: HandshakeTypeHelloRetryRequest}
 	read, err = ks.Unmarshal(keyShareHelloRetry[:1])
 	assertError(t, err, "Unmarshaled a KeyShare without a length")
 
 	// Test unmarshal failure on underlying unmarshal failure (server)
-	ks = keyShareExtension{handshakeType: handshakeTypeServerHello}
+	ks = keyShareExtension{HandshakeType: HandshakeTypeServerHello}
 	read, err = ks.Unmarshal(keyShareServer[:1])
 	assertError(t, err, "Unmarshaled a KeyShare without a length")
 
 	// Test unmarshal failure on an incorrect key share size
-	ks = keyShareExtension{handshakeType: handshakeTypeClientHello}
+	ks = keyShareExtension{HandshakeType: HandshakeTypeClientHello}
 	read, err = ks.Unmarshal(keyShareInvalid)
 	assertError(t, err, "Unmarshaled a key share with a wrong-size key")
 
 	// Test unmarshal failure on an unsupported handshake type
-	ks = keyShareExtension{handshakeType: handshakeTypeCertificate}
+	ks = keyShareExtension{HandshakeType: HandshakeTypeCertificate}
 	read, err = ks.Unmarshal(keyShareInvalid)
 	assertError(t, err, "Unmarshaled a key share with an unsupported handshake type")
 }
@@ -512,36 +512,36 @@ func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
 	assertError(t, err, "Marshaled PSK for unsupported handshake type")
 
 	// Test successful unmarshal (client side)
-	psk := preSharedKeyExtension{handshakeType: handshakeTypeClientHello}
+	psk := preSharedKeyExtension{HandshakeType: HandshakeTypeClientHello}
 	read, err := psk.Unmarshal(pskClient)
 	assertNotError(t, err, "Failed to unmarshal valid KeyShare (client)")
 	assertDeepEquals(t, &psk, pskClientIn)
 	assertEquals(t, read, len(pskClient))
 
 	// Test successful unmarshal (server side)
-	psk = preSharedKeyExtension{handshakeType: handshakeTypeServerHello}
+	psk = preSharedKeyExtension{HandshakeType: HandshakeTypeServerHello}
 	read, err = psk.Unmarshal(pskServer)
 	assertNotError(t, err, "Failed to unmarshal valid KeyShare (server)")
 	assertDeepEquals(t, &psk, pskServerIn)
 	assertEquals(t, read, len(pskServer))
 
 	// Test unmarshal failure on underlying unmarshal failure (client)
-	psk = preSharedKeyExtension{handshakeType: handshakeTypeClientHello}
+	psk = preSharedKeyExtension{HandshakeType: HandshakeTypeClientHello}
 	read, err = psk.Unmarshal(pskClient[:1])
 	assertError(t, err, "Unmarshaled a KeyShare without a length")
 
 	// Test unmarshal failure on underlying unmarshal failure (server)
-	psk = preSharedKeyExtension{handshakeType: handshakeTypeServerHello}
+	psk = preSharedKeyExtension{HandshakeType: HandshakeTypeServerHello}
 	read, err = psk.Unmarshal(pskClient[:1])
 	assertError(t, err, "Unmarshaled a KeyShare without a length")
 
 	// Test unmarshal failure on unsupported handshake type
-	psk = preSharedKeyExtension{handshakeType: handshakeTypeCertificate}
+	psk = preSharedKeyExtension{HandshakeType: HandshakeTypeCertificate}
 	read, err = psk.Unmarshal(pskClient)
 	assertError(t, err, "Unmarshaled a KeyShare with an unsupported handshake type")
 
 	// Test unmarshal failure on unbalanced identities/binders lengths (client)
-	psk = preSharedKeyExtension{handshakeType: handshakeTypeClientHello}
+	psk = preSharedKeyExtension{HandshakeType: HandshakeTypeClientHello}
 	read, err = psk.Unmarshal(pskClientUnbalanced)
 	assertError(t, err, "Unmarshaled a KeyShare unbalanced lengths")
 

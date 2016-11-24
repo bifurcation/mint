@@ -9,30 +9,30 @@ var (
 )
 
 // enum {...} ContentType;
-type recordType byte
+type RecordType byte
 
 const (
-	recordTypeAlert           recordType = 21
-	recordTypeHandshake       recordType = 22
-	recordTypeApplicationData recordType = 23
+	RecordTypeAlert           RecordType = 21
+	RecordTypeHandshake       RecordType = 22
+	RecordTypeApplicationData RecordType = 23
 )
 
 // enum {...} HandshakeType;
-type handshakeType byte
+type HandshakeType byte
 
 const (
 	// Omitted: *_RESERVED
-	handshakeTypeClientHello         handshakeType = 1
-	handshakeTypeServerHello         handshakeType = 2
-	handshakeTypeNewSessionTicket    handshakeType = 4
-	handshakeTypeHelloRetryRequest   handshakeType = 6
-	handshakeTypeEncryptedExtensions handshakeType = 8
-	handshakeTypeCertificate         handshakeType = 11
-	handshakeTypeCertificateRequest  handshakeType = 13
-	handshakeTypeCertificateVerify   handshakeType = 15
-	handshakeTypeServerConfiguration handshakeType = 17
-	handshakeTypeFinished            handshakeType = 20
-	handshakeTypeKeyUpdate           handshakeType = 24
+	HandshakeTypeClientHello         HandshakeType = 1
+	HandshakeTypeServerHello         HandshakeType = 2
+	HandshakeTypeNewSessionTicket    HandshakeType = 4
+	HandshakeTypeHelloRetryRequest   HandshakeType = 6
+	HandshakeTypeEncryptedExtensions HandshakeType = 8
+	HandshakeTypeCertificate         HandshakeType = 11
+	HandshakeTypeCertificateRequest  HandshakeType = 13
+	HandshakeTypeCertificateVerify   HandshakeType = 15
+	HandshakeTypeServerConfiguration HandshakeType = 17
+	HandshakeTypeFinished            HandshakeType = 20
+	HandshakeTypeKeyUpdate           HandshakeType = 24
 )
 
 // uint8 CipherSuite[2];
@@ -123,9 +123,9 @@ type unmarshaler interface {
 // enum {
 //     update_not_requested(0), update_requested(1), (255)
 // } KeyUpdateRequest;
-type keyUpdateRequest uint8
+type KeyUpdateRequest uint8
 
 const (
-	keyUpdateNotRequested keyUpdateRequest = 0
-	keyUpdateRequested    keyUpdateRequest = 1
+	KeyUpdateNotRequested KeyUpdateRequest = 0
+	KeyUpdateRequested    KeyUpdateRequest = 1
 )

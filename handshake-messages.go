@@ -22,7 +22,7 @@ const (
 )
 
 type handshakeMessageBody interface {
-	Type() handshakeType
+	Type() HandshakeType
 	Marshal() ([]byte, error)
 	Unmarshal(data []byte) (int, error)
 }
@@ -53,8 +53,8 @@ type clientHelloBodyInner struct {
 	Extensions               []extension   `tls:"head=2"`
 }
 
-func (ch clientHelloBody) Type() handshakeType {
-	return handshakeTypeClientHello
+func (ch clientHelloBody) Type() HandshakeType {
+	return HandshakeTypeClientHello
 }
 
 func (ch clientHelloBody) Marshal() ([]byte, error) {
@@ -108,7 +108,7 @@ func (ch clientHelloBody) Truncated() ([]byte, error) {
 	chData := chm.Marshal()
 
 	psk := preSharedKeyExtension{
-		handshakeType: handshakeTypeClientHello,
+		HandshakeType: HandshakeTypeClientHello,
 	}
 	_, err = psk.Unmarshal(pskExt.ExtensionData)
 	if err != nil {
@@ -139,8 +139,8 @@ type serverHelloBody struct {
 	Extensions  extensionList `tls:"head=2"`
 }
 
-func (sh serverHelloBody) Type() handshakeType {
-	return handshakeTypeServerHello
+func (sh serverHelloBody) Type() HandshakeType {
+	return HandshakeTypeServerHello
 }
 
 func (sh serverHelloBody) Marshal() ([]byte, error) {
@@ -169,8 +169,8 @@ type finishedBody struct {
 	verifyData    []byte
 }
 
-func (fin finishedBody) Type() handshakeType {
-	return handshakeTypeFinished
+func (fin finishedBody) Type() HandshakeType {
+	return HandshakeTypeFinished
 }
 
 func (fin finishedBody) Marshal() ([]byte, error) {
@@ -202,8 +202,8 @@ type encryptedExtensionsBody struct {
 	Extensions extensionList `tls:"head=2"`
 }
 
-func (ee encryptedExtensionsBody) Type() handshakeType {
-	return handshakeTypeEncryptedExtensions
+func (ee encryptedExtensionsBody) Type() HandshakeType {
+	return HandshakeTypeEncryptedExtensions
 }
 
 func (ee encryptedExtensionsBody) Marshal() ([]byte, error) {
@@ -235,8 +235,8 @@ type certificateBody struct {
 	certificateList           []certificateEntry
 }
 
-func (c certificateBody) Type() handshakeType {
-	return handshakeTypeCertificate
+func (c certificateBody) Type() HandshakeType {
+	return HandshakeTypeCertificate
 }
 
 func (c certificateBody) Marshal() ([]byte, error) {
@@ -330,8 +330,8 @@ type certificateVerifyBody struct {
 	Signature []byte `tls:"head=2"`
 }
 
-func (cv certificateVerifyBody) Type() handshakeType {
-	return handshakeTypeCertificateVerify
+func (cv certificateVerifyBody) Type() HandshakeType {
+	return HandshakeTypeCertificateVerify
 }
 
 func (cv certificateVerifyBody) Marshal() ([]byte, error) {
@@ -415,8 +415,8 @@ func newSessionTicket(ticketLen int) (*newSessionTicketBody, error) {
 	return tkt, err
 }
 
-func (tkt newSessionTicketBody) Type() handshakeType {
-	return handshakeTypeNewSessionTicket
+func (tkt newSessionTicketBody) Type() HandshakeType {
+	return HandshakeTypeNewSessionTicket
 }
 
 func (tkt newSessionTicketBody) Marshal() ([]byte, error) {
@@ -435,11 +435,11 @@ func (tkt *newSessionTicketBody) Unmarshal(data []byte) (int, error) {
 //     KeyUpdateRequest request_update;
 // } KeyUpdate;
 type keyUpdateBody struct {
-	KeyUpdateRequest keyUpdateRequest
+	KeyUpdateRequest KeyUpdateRequest
 }
 
-func (ku keyUpdateBody) Type() handshakeType {
-	return handshakeTypeKeyUpdate
+func (ku keyUpdateBody) Type() HandshakeType {
+	return HandshakeTypeKeyUpdate
 }
 
 func (ku keyUpdateBody) Marshal() ([]byte, error) {

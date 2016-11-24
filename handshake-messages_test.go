@@ -189,17 +189,17 @@ var (
 	// KeyUpdate test cases
 	keyUpdateValidHex = "01"
 	keyUpdateValidIn  = keyUpdateBody{
-		KeyUpdateRequest: keyUpdateRequested,
+		KeyUpdateRequest: KeyUpdateRequested,
 	}
 )
 
 func TestHandshakeMessageTypes(t *testing.T) {
-	assertEquals(t, clientHelloBody{}.Type(), handshakeTypeClientHello)
-	assertEquals(t, serverHelloBody{}.Type(), handshakeTypeServerHello)
-	assertEquals(t, finishedBody{}.Type(), handshakeTypeFinished)
-	assertEquals(t, encryptedExtensionsBody{}.Type(), handshakeTypeEncryptedExtensions)
-	assertEquals(t, certificateBody{}.Type(), handshakeTypeCertificate)
-	assertEquals(t, certificateVerifyBody{}.Type(), handshakeTypeCertificateVerify)
+	assertEquals(t, clientHelloBody{}.Type(), HandshakeTypeClientHello)
+	assertEquals(t, serverHelloBody{}.Type(), HandshakeTypeServerHello)
+	assertEquals(t, finishedBody{}.Type(), HandshakeTypeFinished)
+	assertEquals(t, encryptedExtensionsBody{}.Type(), HandshakeTypeEncryptedExtensions)
+	assertEquals(t, certificateBody{}.Type(), HandshakeTypeCertificate)
+	assertEquals(t, certificateVerifyBody{}.Type(), HandshakeTypeCertificateVerify)
 }
 
 func TestClientHelloMarshalUnmarshal(t *testing.T) {
@@ -207,7 +207,7 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	chOverflow, _ := hex.DecodeString(chOverflowHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (clientHelloBody{}).Type(), handshakeTypeClientHello)
+	assertEquals(t, (clientHelloBody{}).Type(), HandshakeTypeClientHello)
 
 	// Test successful marshal
 	out, err := chValidIn.Marshal()
@@ -315,7 +315,7 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 	shOverflow, _ := hex.DecodeString(shOverflowHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (serverHelloBody{}).Type(), handshakeTypeServerHello)
+	assertEquals(t, (serverHelloBody{}).Type(), HandshakeTypeServerHello)
 
 	// Test successful marshal
 	out, err := shValidIn.Marshal()
@@ -361,7 +361,7 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 	finValid, _ := hex.DecodeString(finValidHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (finishedBody{}).Type(), handshakeTypeFinished)
+	assertEquals(t, (finishedBody{}).Type(), HandshakeTypeFinished)
 
 	// Test successful marshal
 	out, err := finValidIn.Marshal()
@@ -394,7 +394,7 @@ func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 	encExtValid, _ := hex.DecodeString(encExtValidHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (encryptedExtensionsBody{}).Type(), handshakeTypeEncryptedExtensions)
+	assertEquals(t, (encryptedExtensionsBody{}).Type(), HandshakeTypeEncryptedExtensions)
 
 	// Test successful marshal
 	out, err := encExtValidIn.Marshal()
@@ -415,7 +415,7 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	certTooShort, _ := hex.DecodeString(certTooShortHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (certificateBody{}).Type(), handshakeTypeCertificate)
+	assertEquals(t, (certificateBody{}).Type(), HandshakeTypeCertificate)
 
 	// Test successful marshal
 	out, err := certValidIn.Marshal()
@@ -491,7 +491,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	ctx.init(certVerifyCipherSuite, chMessage)
 
 	// Test correctness of handshake type
-	assertEquals(t, (certificateVerifyBody{}).Type(), handshakeTypeCertificateVerify)
+	assertEquals(t, (certificateVerifyBody{}).Type(), HandshakeTypeCertificateVerify)
 
 	// Test successful marshal
 	out, err := certVerifyValidIn.Marshal()
@@ -553,7 +553,7 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 	ticketValid, _ := hex.DecodeString(ticketValidHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (newSessionTicketBody{}).Type(), handshakeTypeNewSessionTicket)
+	assertEquals(t, (newSessionTicketBody{}).Type(), HandshakeTypeNewSessionTicket)
 
 	// Test creation of a new random ticket
 	tkt, err := newSessionTicket(16)
@@ -596,7 +596,7 @@ func TestKeyUpdateMarshalUnmarshal(t *testing.T) {
 	keyUpdateValid, _ := hex.DecodeString(keyUpdateValidHex)
 
 	// Test correctness of handshake type
-	assertEquals(t, (keyUpdateBody{}).Type(), handshakeTypeKeyUpdate)
+	assertEquals(t, (keyUpdateBody{}).Type(), HandshakeTypeKeyUpdate)
 
 	// Test successful marshal
 	out, err := keyUpdateValidIn.Marshal()
