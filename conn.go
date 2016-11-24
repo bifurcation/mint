@@ -21,6 +21,7 @@ type PreSharedKey struct {
 	IsResumption bool
 	Identity     []byte
 	Key          []byte
+	NextProto    string
 }
 
 // Config is the struct used to pass configuration settings to a TLS client or
@@ -60,6 +61,7 @@ type Config struct {
 	SendSessionTickets bool
 	TicketLifetime     uint32
 	TicketLen          int
+	AllowEarlyData     bool
 
 	// Shared fields
 	CipherSuites     []CipherSuite
@@ -67,6 +69,7 @@ type Config struct {
 	SignatureSchemes []SignatureScheme
 	NextProtos       []string
 	PSKs             map[string]PreSharedKey
+	PSKModes         []PSKKeyExchangeMode
 
 	// Hidden fields (used for caching in convenient form)
 	enabledSuite  map[CipherSuite]bool
@@ -99,6 +102,9 @@ func (c *Config) Init(isClient bool) error {
 	}
 	if c.PSKs == nil {
 		c.PSKs = map[string]PreSharedKey{}
+	}
+	if len(c.PSKModes) == 0 {
+		c.PSKModes = defaultPSKModes
 	}
 
 	// If there is no certificate, generate one
@@ -158,6 +164,11 @@ var (
 	}
 
 	defaultTicketLen = 16
+
+	defaultPSKModes = []PSKKeyExchangeMode{
+		PSKModeKE,
+		PSKModeDHEKE,
+	}
 )
 
 type ConnectionState struct {
@@ -491,6 +502,7 @@ func (c *Conn) clientHandshake() error {
 		Groups:           c.config.Groups,
 		SignatureSchemes: c.config.SignatureSchemes,
 		PSKs:             c.config.PSKs,
+		PSKModes:         c.config.PSKModes,
 	}
 	opts := connectionOptions{
 		ServerName: c.config.ServerName,
@@ -634,10 +646,11 @@ func (c *Conn) serverHandshake() error {
 		Groups:           c.config.Groups,
 		SignatureSchemes: c.config.SignatureSchemes,
 		PSKs:             c.config.PSKs,
+		AllowEarlyData:   c.config.AllowEarlyData,
 		NextProtos:       c.config.NextProtos,
 		Certificates:     c.config.Certificates,
 	}
-	shm, serverFirstFlight, acceptEarlyData, err := h.HandleClientHello(chm, caps)
+	shm, serverFirstFlight, err := h.HandleClientHello(chm, caps)
 	if err != nil {
 		return err
 	}
@@ -668,7 +681,7 @@ func (c *Conn) serverHandshake() error {
 	}
 
 	// Handle early data that the client sends
-	if acceptEarlyData {
+	if h.Params.UsingEarlyData {
 		logf(logTypeHandshake, "[server] Processing early data")
 
 		// Compute early handshake / traffic keys from pskSecret
@@ -725,7 +738,7 @@ func (c *Conn) serverHandshake() error {
 	// Even if we reject early data, the client might still send it.  We need
 	// to read past any records that don't decrypt until we hit the next
 	// handshake message.
-	if !acceptEarlyData {
+	if !h.Params.UsingEarlyData {
 		logf(logTypeHandshake, "[server] Rejecting early data; reading past it")
 		for {
 			pt, err := c.in.ReadRecord()

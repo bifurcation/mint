@@ -49,7 +49,7 @@ func assertNotByteEquals(t *testing.T, a []byte, b []byte) {
 
 func assertDeepEquals(t *testing.T, a interface{}, b interface{}) {
 	if !reflect.DeepEqual(a, b) {
-		assert(t, false, fmt.Sprintf("%v != %v", a, b))
+		assert(t, false, fmt.Sprintf("%+v != %+v", a, b))
 	}
 }
 

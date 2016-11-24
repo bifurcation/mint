@@ -429,7 +429,7 @@ func (psk preSharedKeyExtension) HasIdentity(id []byte) ([]byte, bool) {
 //     PskKeyExchangeMode ke_modes<1..255>;
 // } PskKeyExchangeModes;
 type pskKeyExchangeModesExtension struct {
-	KEModes []pskKeyExchangeMode `tls:"head=1,min=1"`
+	KEModes []PSKKeyExchangeMode `tls:"head=1,min=1"`
 }
 
 func (pkem pskKeyExchangeModesExtension) Type() extensionType {

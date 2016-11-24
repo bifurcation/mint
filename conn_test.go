@@ -167,9 +167,10 @@ var (
 	}
 
 	pskConfig = &Config{
-		ServerName:   serverName,
-		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
-		PSKs:         psks,
+		ServerName:     serverName,
+		CipherSuites:   []CipherSuite{TLS_AES_128_GCM_SHA256},
+		PSKs:           psks,
+		AllowEarlyData: true,
 	}
 
 	pskECDHEConfig = &Config{
@@ -277,6 +278,7 @@ func TestBasicFlows(t *testing.T) {
 
 		<-done
 
+		assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
 		assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
 	}
 }
@@ -299,6 +301,9 @@ func TestPSKFlows(t *testing.T) {
 		assertNotError(t, err, "Client failed handshake")
 
 		<-done
+
+		assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
+		assert(t, client.handshake.ConnectionParams().UsingPSK, "Session did not use the provided PSK")
 
 		assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
 	}
@@ -326,6 +331,7 @@ func TestResumption(t *testing.T) {
 	client1.Read(nil)
 	<-done
 
+	assertDeepEquals(t, client1.handshake.ConnectionParams(), server1.handshake.ConnectionParams())
 	assertContextEquals(t, client1.handshake.CryptoContext(), server1.handshake.CryptoContext())
 	assertEquals(t, len(clientConfig.PSKs), 1)
 	assertEquals(t, len(serverConfig.PSKs), 1)
@@ -357,9 +363,8 @@ func TestResumption(t *testing.T) {
 	client2.Read(nil)
 	<-done
 
+	assertDeepEquals(t, client2.handshake.ConnectionParams(), server2.handshake.ConnectionParams())
 	assertContextEquals(t, client2.handshake.CryptoContext(), server2.handshake.CryptoContext())
-
-	// TODO re-enable assertByteEquals(t, client2.handshake.CryptoContext().SS, client1.handshake.CryptoContext().resumptionSecret)
 }
 
 func Test0xRTT(t *testing.T) {
@@ -384,6 +389,8 @@ func Test0xRTT(t *testing.T) {
 	<-done
 
 	assertContextEquals(t, client.handshake.CryptoContext(), server.handshake.CryptoContext())
+	assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
+	assert(t, client.handshake.ConnectionParams().UsingEarlyData, "Session did not negotiate early data")
 	assertByteEquals(t, client.earlyData, server.readBuffer)
 }
 
