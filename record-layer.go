@@ -46,7 +46,7 @@ type RecordLayer struct {
 	cipher   cipher.AEAD // AEAD cipher
 }
 
-func newRecordLayer(conn io.ReadWriter) *RecordLayer {
+func NewRecordLayer(conn io.ReadWriter) *RecordLayer {
 	r := RecordLayer{}
 	r.conn = conn
 	r.ivLength = 0

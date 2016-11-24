@@ -96,7 +96,7 @@ type HandshakeLayer struct {
 	buffer []byte       // Read buffer
 }
 
-func newHandshakeLayer(r *RecordLayer) *HandshakeLayer {
+func NewHandshakeLayer(r *RecordLayer) *HandshakeLayer {
 	h := HandshakeLayer{}
 	h.conn = r
 	h.buffer = []byte{}

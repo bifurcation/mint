@@ -199,10 +199,10 @@ type Conn struct {
 	inMutex, outMutex sync.Mutex
 }
 
-func newConn(conn net.Conn, config *Config, isClient bool) *Conn {
+func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
 	c := &Conn{conn: conn, config: config, isClient: isClient}
-	c.in = newRecordLayer(c.conn)
-	c.out = newRecordLayer(c.conn)
+	c.in = NewRecordLayer(c.conn)
+	c.out = NewRecordLayer(c.conn)
 	return c
 }
 
@@ -493,8 +493,8 @@ func (c *Conn) clientHandshake() error {
 	logf(logTypeHandshake, "Starting clientHandshake")
 
 	h := &ClientHandshake{}
-	hIn := newHandshakeLayer(c.in)
-	hOut := newHandshakeLayer(c.out)
+	hIn := NewHandshakeLayer(c.in)
+	hOut := NewHandshakeLayer(c.out)
 
 	// Generate ClientHello
 	caps := Capabilities{
@@ -628,8 +628,8 @@ func (c *Conn) serverHandshake() error {
 	logf(logTypeHandshake, "Starting serverHandshake")
 
 	h := &ServerHandshake{}
-	hIn := newHandshakeLayer(c.in)
-	hOut := newHandshakeLayer(c.out)
+	hIn := NewHandshakeLayer(c.in)
+	hOut := NewHandshakeLayer(c.out)
 
 	// Read ClientHello and extract extensions
 	ch := new(ClientHelloBody)

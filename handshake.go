@@ -495,14 +495,14 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 		logf(logTypeHandshake, "[server] Client did not send supported_versions")
 		return nil, nil, fmt.Errorf("tls.server: Client did not send supported_versions")
 	}
-	versionOK, _ := versionNegotiation(supportedVersions.Versions, []uint16{supportedVersion})
+	versionOK, _ := VersionNegotiation(supportedVersions.Versions, []uint16{supportedVersion})
 	if !versionOK {
 		logf(logTypeHandshake, "[server] Client does not support the same version")
 		return nil, nil, fmt.Errorf("tls.server: Client does not support the same version")
 	}
 
 	// Figure out if we can do DH
-	canDoDH, dhGroup, dhPub, dhSecret := dhNegotiation(clientKeyShares.Shares, caps.Groups)
+	canDoDH, dhGroup, dhPub, dhSecret := DHNegotiation(clientKeyShares.Shares, caps.Groups)
 
 	// Figure out if we can do PSK
 	canDoPSK := false
@@ -514,7 +514,7 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 		if err != nil {
 			return nil, nil, err
 		}
-		canDoPSK, selectedPSK, psk, ctx, err = pskNegotiation(clientPSK.Identities, clientPSK.Binders, chTrunc, caps.PSKs)
+		canDoPSK, selectedPSK, psk, ctx, err = PSKNegotiation(clientPSK.Identities, clientPSK.Binders, chTrunc, caps.PSKs)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -522,7 +522,7 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 	h.Context = ctx
 
 	// Figure out if we actually should do DH / PSK
-	h.Params.UsingDH, h.Params.UsingPSK = pskModeNegotiation(canDoDH, canDoPSK, clientPSKModes.KEModes)
+	h.Params.UsingDH, h.Params.UsingPSK = PSKModeNegotiation(canDoDH, canDoPSK, clientPSKModes.KEModes)
 
 	// If we've got no entropy to make keys from, fail
 	if !h.Params.UsingDH && !h.Params.UsingPSK {
@@ -544,7 +544,7 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 		}
 
 		// Select a certificate
-		cert, certScheme, err = certificateSelection(string(*serverName), signatureAlgorithms.Algorithms, caps.Certificates)
+		cert, certScheme, err = CertificateSelection(string(*serverName), signatureAlgorithms.Algorithms, caps.Certificates)
 	}
 
 	if !h.Params.UsingDH {
@@ -552,20 +552,20 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 	}
 
 	// Figure out if we're going to do early data
-	h.Params.UsingEarlyData = earlyDataNegotiation(h.Params.UsingPSK, gotEarlyData, caps.AllowEarlyData)
+	h.Params.UsingEarlyData = EarlyDataNegotiation(h.Params.UsingPSK, gotEarlyData, caps.AllowEarlyData)
 
 	if h.Params.UsingEarlyData {
 		h.Context.earlyUpdateWithClientHello(chm)
 	}
 
 	// Select a ciphersuite
-	chosenSuite, err := cipherSuiteNegotiation(psk, ch.CipherSuites, caps.CipherSuites)
+	chosenSuite, err := CipherSuiteNegotiation(psk, ch.CipherSuites, caps.CipherSuites)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Select a next protocol
-	h.Params.NextProto, err = alpnNegotiation(psk, clientALPN.Protocols, caps.NextProtos)
+	h.Params.NextProto, err = ALPNNegotiation(psk, clientALPN.Protocols, caps.NextProtos)
 	if err != nil {
 		return nil, nil, err
 	}

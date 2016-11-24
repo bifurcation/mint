@@ -24,7 +24,7 @@ func TestRekey(t *testing.T) {
 	key, _ := hex.DecodeString(keyHex)
 	iv, _ := hex.DecodeString(ivHex)
 
-	r := newRecordLayer(bytes.NewBuffer(nil))
+	r := NewRecordLayer(bytes.NewBuffer(nil))
 	err := r.Rekey(newAESGCM, key, iv)
 	assertNotError(t, err, "Failed to rekey")
 }
@@ -38,7 +38,7 @@ func TestSequenceNumberRollover(t *testing.T) {
 	key, _ := hex.DecodeString(keyHex)
 	iv, _ := hex.DecodeString(ivHex)
 
-	r := newRecordLayer(bytes.NewBuffer(nil))
+	r := NewRecordLayer(bytes.NewBuffer(nil))
 	r.Rekey(newAESGCM, key, iv)
 
 	for i := 0; i < sequenceNumberLen; i++ {
@@ -51,7 +51,7 @@ func TestReadRecord(t *testing.T) {
 	plaintext, _ := hex.DecodeString(plaintextHex)
 
 	// Test that a known-good frame decodes properly
-	r := newRecordLayer(bytes.NewBuffer(plaintext))
+	r := NewRecordLayer(bytes.NewBuffer(plaintext))
 	pt, err := r.ReadRecord()
 	assertNotError(t, err, "Failed to decode valid plaintext")
 	assertEquals(t, pt.contentType, RecordTypeAlert)
@@ -59,7 +59,7 @@ func TestReadRecord(t *testing.T) {
 
 	// Test failure on unkown record type
 	plaintext[0] = 0xFF
-	r = newRecordLayer(bytes.NewBuffer(plaintext))
+	r = NewRecordLayer(bytes.NewBuffer(plaintext))
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject record with unknown type")
 	plaintext[0] = 0x15
@@ -68,7 +68,7 @@ func TestReadRecord(t *testing.T) {
 	originalAllowWrongVersionNumber := allowWrongVersionNumber
 	allowWrongVersionNumber = false
 	plaintext[2] = 0x02
-	r = newRecordLayer(bytes.NewBuffer(plaintext))
+	r = NewRecordLayer(bytes.NewBuffer(plaintext))
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject record with incorrect version")
 	plaintext[2] = 0x01
@@ -76,18 +76,18 @@ func TestReadRecord(t *testing.T) {
 
 	// Test failure on size too big
 	plaintext[3] = 0xFF
-	r = newRecordLayer(bytes.NewBuffer(plaintext))
+	r = NewRecordLayer(bytes.NewBuffer(plaintext))
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject record exceeding size limit")
 	plaintext[3] = 0x00
 
 	// Test failure on header read failure
-	r = newRecordLayer(bytes.NewBuffer(plaintext[:3]))
+	r = NewRecordLayer(bytes.NewBuffer(plaintext[:3]))
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Didn't fail when unable to read header")
 
 	// Test failure on body read failure
-	r = newRecordLayer(bytes.NewBuffer(plaintext[:7]))
+	r = NewRecordLayer(bytes.NewBuffer(plaintext[:7]))
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Didn't fail when unable to read fragment")
 }
@@ -101,7 +101,7 @@ func TestWriteRecord(t *testing.T) {
 		fragment:    plaintext[5:],
 	}
 	b := bytes.NewBuffer(nil)
-	r := newRecordLayer(b)
+	r := NewRecordLayer(b)
 	err := r.WriteRecord(pt)
 	assertNotError(t, err, "Failed to write valid record")
 	assertByteEquals(t, b.Bytes(), plaintext)
@@ -131,7 +131,7 @@ func TestDecryptRecord(t *testing.T) {
 	ciphertext2, _ := hex.DecodeString(ciphertext2Hex)
 
 	// Test successful decrypt
-	r := newRecordLayer(bytes.NewBuffer(ciphertext1))
+	r := NewRecordLayer(bytes.NewBuffer(ciphertext1))
 	r.Rekey(newAESGCM, key, iv)
 	pt, err := r.ReadRecord()
 	assertNotError(t, err, "Failed to decrypt valid record")
@@ -139,7 +139,7 @@ func TestDecryptRecord(t *testing.T) {
 	assertByteEquals(t, pt.fragment, plaintext[5:])
 
 	// Test successful decrypt after sequence number change
-	r = newRecordLayer(bytes.NewBuffer(ciphertext2))
+	r = NewRecordLayer(bytes.NewBuffer(ciphertext2))
 	r.Rekey(newAESGCM, key, iv)
 	for i := 0; i < sequenceChange; i++ {
 		r.incrementSequenceNumber()
@@ -151,7 +151,7 @@ func TestDecryptRecord(t *testing.T) {
 
 	// Test failure on decrypt failure
 	ciphertext1[7] ^= 0xFF
-	r = newRecordLayer(bytes.NewBuffer(ciphertext1))
+	r = NewRecordLayer(bytes.NewBuffer(ciphertext1))
 	r.Rekey(newAESGCM, key, iv)
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject invalid record")
@@ -168,7 +168,7 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test successful encrypt
 	b := bytes.NewBuffer(nil)
-	r := newRecordLayer(b)
+	r := NewRecordLayer(b)
 	r.Rekey(newAESGCM, key, iv)
 	pt := &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
@@ -180,7 +180,7 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test successful encrypt with padding
 	b.Truncate(0)
-	r = newRecordLayer(b)
+	r = NewRecordLayer(b)
 	r.Rekey(newAESGCM, key, iv)
 	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
@@ -192,7 +192,7 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test successful enc after sequence number change
 	b.Truncate(0)
-	r = newRecordLayer(b)
+	r = NewRecordLayer(b)
 	r.Rekey(newAESGCM, key, iv)
 	for i := 0; i < sequenceChange; i++ {
 		r.incrementSequenceNumber()
@@ -207,7 +207,7 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test failure on size too big after encrypt
 	b.Truncate(0)
-	r = newRecordLayer(b)
+	r = NewRecordLayer(b)
 	r.Rekey(newAESGCM, key, iv)
 	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
@@ -223,8 +223,8 @@ func TestReadWrite(t *testing.T) {
 	plaintext, _ := hex.DecodeString(plaintextHex)
 
 	b := bytes.NewBuffer(nil)
-	out := newRecordLayer(b)
-	in := newRecordLayer(b)
+	out := NewRecordLayer(b)
+	in := NewRecordLayer(b)
 
 	// Unencrypted
 	ptIn := &TLSPlaintext{
@@ -272,7 +272,7 @@ func TestOverSocket(t *testing.T) {
 		assertNotError(t, err, "Unable to accept")
 		defer conn.Close()
 
-		in := newRecordLayer(conn)
+		in := NewRecordLayer(conn)
 		in.Rekey(newAESGCM, key, iv)
 		pt, err := in.ReadRecord()
 		assertNotError(t, err, "Unable to read record")
@@ -284,7 +284,7 @@ func TestOverSocket(t *testing.T) {
 	conn, err := net.Dial("tcp", port)
 	assertNotError(t, err, "Unable to dial")
 
-	out := newRecordLayer(conn)
+	out := NewRecordLayer(conn)
 	out.Rekey(newAESGCM, key, iv)
 	err = out.WriteRecord(&ptIn)
 	assertNotError(t, err, "Unable to write record")
