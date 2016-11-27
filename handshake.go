@@ -19,6 +19,7 @@ type Capabilities struct {
 	NextProtos     []string
 	Certificates   []*Certificate
 	AllowEarlyData bool
+	RequireCookie  bool
 }
 
 type ConnectionOptions struct {
@@ -520,6 +521,10 @@ func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage
 type ServerHandshake struct {
 	Context cryptoContext
 	Params  ConnectionParameters
+
+	cookie            []byte
+	clientHello       *HandshakeMessage
+	helloRetryRequest *HandshakeMessage
 }
 
 func (h *ServerHandshake) IsClient() bool {
@@ -570,6 +575,7 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 	clientEarlyData := &EarlyDataExtension{}
 	clientALPN := new(ALPNExtension)
 	clientPSKModes := new(PSKKeyExchangeModesExtension)
+	clientCookie := new(CookieExtension)
 
 	gotSupportedVersions := ch.Extensions.Find(supportedVersions)
 	gotServerName := ch.Extensions.Find(serverName)
@@ -580,6 +586,7 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 	ch.Extensions.Find(clientPSK)
 	ch.Extensions.Find(clientALPN)
 	ch.Extensions.Find(clientPSKModes)
+	ch.Extensions.Find(clientCookie)
 
 	if gotServerName {
 		h.Params.ServerName = string(*serverName)
@@ -595,6 +602,31 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 	if !versionOK {
 		logf(logTypeHandshake, "[server] Client does not support the same version")
 		return nil, nil, fmt.Errorf("tls.server: Client does not support the same version")
+	}
+
+	// Send a cookie if required
+	if caps.RequireCookie && h.cookie == nil {
+		h.clientHello = chm
+
+		cookie, err := NewCookie()
+		if err != nil {
+			return nil, nil, err
+		}
+		h.cookie = cookie.Cookie
+
+		// Ignoring errors because everything here is newly constructed, so there
+		// shouldn't be marshal errors
+		hrr := &HelloRetryRequestBody{
+			Version: supportedVersion,
+		}
+		hrr.Extensions.Add(cookie)
+		h.helloRetryRequest, _ = HandshakeMessageFromBody(hrr)
+
+		return h.helloRetryRequest, nil, nil
+	}
+
+	if caps.RequireCookie && h.cookie != nil && !bytes.Equal(h.cookie, clientCookie.Cookie) {
+		return nil, nil, fmt.Errorf("tls.server: Client did not return the right cookie")
 	}
 
 	// Figure out if we can do DH
@@ -703,7 +735,7 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 	}
 
 	// Crank up the crypto context
-	err = h.Context.init(sh.CipherSuite, chm, nil, nil)
+	err = h.Context.init(sh.CipherSuite, h.clientHello, h.helloRetryRequest, chm)
 	if err != nil {
 		return nil, nil, err
 	}

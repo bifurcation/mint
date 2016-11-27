@@ -37,7 +37,11 @@ type HandshakeMessage struct {
 // Note: This could be done with the `syntax` module, using the simplified
 // syntax as discussed above.  However, since this is so simple, there's not
 // much benefit to doing so.
-func (hm HandshakeMessage) Marshal() []byte {
+func (hm *HandshakeMessage) Marshal() []byte {
+	if hm == nil {
+		return []byte{}
+	}
+
 	msgLen := len(hm.body)
 	data := make([]byte, 4+len(hm.body))
 	data[0] = byte(hm.msgType)
