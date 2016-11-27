@@ -511,14 +511,29 @@ func (c *Conn) clientHandshake() error {
 		}
 	}
 
-	// Read and Process ServerHello
-	logf(logTypeHandshake, "[client] Awaiting ServerHello")
+	// Read server's response to ClientHello
 	shm, err := hIn.ReadMessage()
 	if err != nil {
-		logf(logTypeHandshake, "[client] Error reading ServerHello")
 		return err
 	}
-	logf(logTypeHandshake, "[client] Received ServerHello")
+
+	// If server sent HelloRetryRequest, retry ClientHello
+	if shm.msgType == HandshakeTypeHelloRetryRequest {
+		chm, err := h.HandleHelloRetryRequest(shm)
+		if err != nil {
+			return err
+		}
+
+		err = hOut.WriteMessage(chm)
+		if err != nil {
+			return err
+		}
+
+		shm, err = hIn.ReadMessage()
+		if err != nil {
+			return err
+		}
+	}
 
 	err = h.HandleServerHello(shm)
 	if err != nil {

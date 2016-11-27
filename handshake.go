@@ -105,8 +105,10 @@ type ClientHandshake struct {
 
 	AuthCertificate func(chain []CertificateEntry) error
 
-	clientHello *HandshakeMessage
-	serverHello *HandshakeMessage
+	clientHello       *HandshakeMessage
+	helloRetryRequest *HandshakeMessage
+	retryClientHello  *HandshakeMessage
+	serverHello       *HandshakeMessage
 }
 
 func (h *ClientHandshake) IsClient() bool {
@@ -284,6 +286,99 @@ func (h *ClientHandshake) CreateClientHello(opts ConnectionOptions, caps Capabil
 	return h.clientHello, nil
 }
 
+func (h *ClientHandshake) HandleHelloRetryRequest(hrrm *HandshakeMessage) (*HandshakeMessage, error) {
+	// Unmarshal the HRR
+	hrr := &HelloRetryRequestBody{}
+	_, err := hrr.Unmarshal(hrrm.body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check that the version sent by the server is the one we support
+	if hrr.Version != supportedVersion {
+		return nil, fmt.Errorf("tls.client: Server sent unsupported version in HRR %x", hrr.Version)
+	}
+
+	// If the HRR has a key_shares extension, we have to abort.  We always send
+	// all supported groups in the first ClientHello, so whatever groups the
+	// server is advertizing here, we don't support
+	serverKeyShares := new(KeyShareExtension)
+	foundKeyShares := hrr.Extensions.Find(serverKeyShares)
+	if foundKeyShares {
+		return nil, fmt.Errorf("tls.client: Server does not have a common DH group")
+	}
+
+	// The only other thing we know how to respond to in an HRR is the Cookie
+	// extension, so if there is either no Cookie extension or anything other
+	// than a Cookie extension, we have to fail.
+	serverCookie := new(CookieExtension)
+	foundCookie := hrr.Extensions.Find(serverCookie)
+	if !foundCookie {
+		return nil, fmt.Errorf("tls.client: Server HRR did not contain a Cookie extension")
+	}
+
+	for _, ext := range hrr.Extensions {
+		if ext.ExtensionType != ExtensionTypeCookie {
+			return nil, fmt.Errorf("tls.client: Server HRR had an unsupported extension")
+		}
+	}
+
+	// Update the ClientHello with the cookie
+	// XXX: Ignoring marshal/unmarshal errors because we should never have
+	// invalid data in these fields
+	ch := &ClientHelloBody{}
+	ch.Unmarshal(h.clientHello.body)
+	ch.Extensions.Add(serverCookie)
+	chm, _ := HandshakeMessageFromBody(ch)
+
+	// Re-compute binder values if necessary
+	var clientPSK PreSharedKeyExtension
+	if ch.Extensions.Find(&clientPSK) {
+		// PSK extension MUST be the last; strip it off
+		extLen := len(ch.Extensions)
+		ch.Extensions = ch.Extensions[:extLen-1]
+
+		keyParams := cipherSuiteMap[h.OfferedPSK.CipherSuite]
+
+		// Add a shim PSK extension to the ClientHello
+		psk := &PreSharedKeyExtension{
+			HandshakeType: HandshakeTypeClientHello,
+			Identities: []PSKIdentity{
+				{Identity: h.OfferedPSK.Identity},
+			},
+			Binders: []PSKBinderEntry{
+				// Note: Stub to get the length fields right
+				{Binder: bytes.Repeat([]byte{0x00}, keyParams.hash.Size())},
+			},
+		}
+		ch.Extensions.Add(psk)
+
+		// Pre-Initialize the crypto context and compute the binder key
+		h.Context.preInit(h.OfferedPSK)
+
+		// Compute the binder value
+		trunc, err := ch.Truncated()
+		if err != nil {
+			return nil, err
+		}
+
+		ctxHash := h.Context.params.hash.New()
+		ctxHash.Write(h.clientHello.Marshal())
+		ctxHash.Write(hrrm.Marshal())
+		ctxHash.Write(trunc)
+
+		binder := h.Context.computeFinishedData(h.Context.binderKey, ctxHash.Sum(nil))
+
+		// Replace the PSK extension
+		psk.Binders[0].Binder = binder
+		ch.Extensions.Add(psk)
+	}
+
+	h.helloRetryRequest = hrrm
+	h.retryClientHello = chm
+	return chm, nil
+}
+
 func (h *ClientHandshake) HandleServerHello(shm *HandshakeMessage) error {
 	// Unmarshal the ServerHello
 	sh := &ServerHelloBody{}
@@ -330,7 +425,7 @@ func (h *ClientHandshake) HandleServerHello(shm *HandshakeMessage) error {
 
 	h.serverHello = shm
 
-	err = h.Context.init(sh.CipherSuite, h.clientHello)
+	err = h.Context.init(sh.CipherSuite, h.clientHello, h.helloRetryRequest, h.retryClientHello)
 	if err != nil {
 		return err
 	}
@@ -608,7 +703,7 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 	}
 
 	// Crank up the crypto context
-	err = h.Context.init(sh.CipherSuite, chm)
+	err = h.Context.init(sh.CipherSuite, chm, nil, nil)
 	if err != nil {
 		return nil, nil, err
 	}

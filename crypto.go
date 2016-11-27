@@ -677,7 +677,7 @@ const (
 //
 // h0 = ""                              -> binder_key
 // h1 = ClientHello                     -> client_early_traffic_secret, early_exporter_secret
-// h2 = h1 + ServerHello                -> client_handshake_traffic_secret, server_handshake_traffic_secret
+// h2 = h1 + HRR? + CH? + ServerHello   -> client_handshake_traffic_secret, server_handshake_traffic_secret
 // h3 = h2 + Server...                  -> ServerFinished
 // h4 = h3 + ServerFinished             -> *_traffic_secret_0, exporter_secret, ClientFinished
 // h5 = h4 + Client...
@@ -701,7 +701,6 @@ type cryptoContext struct {
 	zero   []byte
 
 	handshakeHash hash.Hash
-	h1            []byte // = ClientHello
 	h2            []byte // = h1 + ServerHello
 	h3            []byte // = h2 + Server...
 	h4            []byte // = h3 + ServerFinished
@@ -818,7 +817,7 @@ func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *HandshakeMessage) {
 }
 
 // TODO: Merge with UpdateWithServerHello?
-func (ctx *cryptoContext) init(suite CipherSuite, chm *HandshakeMessage) error {
+func (ctx *cryptoContext) init(suite CipherSuite, chm, hrrm, rechm *HandshakeMessage) error {
 	logf(logTypeCrypto, "Initializing crypto context")
 
 	// Configure based on cipherSuite
@@ -843,12 +842,12 @@ func (ctx *cryptoContext) init(suite CipherSuite, chm *HandshakeMessage) error {
 	logf(logTypeCrypto, "early secret: [%d] %x", len(ctx.earlySecret), ctx.earlySecret)
 
 	// Start up the handshake hash
-	bytes := chm.Marshal()
-	logf(logTypeCrypto, "input to handshake hash [%d]: %x", len(bytes), bytes)
-	ctx.handshakeHash = ctx.params.hash.New()
-	ctx.handshakeHash.Write(bytes)
-	ctx.h1 = ctx.handshakeHash.Sum(nil)
-	logf(logTypeCrypto, "handshake hash 1 [%d]: %x", len(ctx.h1), ctx.h1)
+	for _, msg := range []*HandshakeMessage{chm, hrrm, rechm} {
+		bytes := msg.Marshal()
+		logf(logTypeCrypto, "input to handshake hash [%d]: %x", len(bytes), bytes)
+		ctx.handshakeHash = ctx.params.hash.New()
+		ctx.handshakeHash.Write(bytes)
+	}
 
 	ctx.state = ctxStateClientHello
 	return nil
