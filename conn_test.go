@@ -158,6 +158,12 @@ var (
 		Certificates: certificates,
 	}
 
+	hrrConfig = &Config{
+		ServerName:    serverName,
+		Certificates:  certificates,
+		RequireCookie: true,
+	}
+
 	alpnConfig = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
@@ -215,7 +221,6 @@ func assertContextEquals(t *testing.T, c *cryptoContext, s *cryptoContext) {
 	assertEquals(t, c.params.ivLen, s.params.ivLen)
 	assertByteEquals(t, c.zero, s.zero)
 
-	assertByteEquals(t, c.h1, s.h1)
 	assertByteEquals(t, c.h2, s.h2)
 	assertByteEquals(t, c.h3, s.h3)
 	assertByteEquals(t, c.h4, s.h4)
@@ -258,7 +263,7 @@ func assertContextEquals(t *testing.T, c *cryptoContext, s *cryptoContext) {
 }
 
 func TestBasicFlows(t *testing.T) {
-	for _, conf := range []*Config{basicConfig, alpnConfig, ffdhConfig, x25519Config} {
+	for _, conf := range []*Config{basicConfig, hrrConfig, alpnConfig, ffdhConfig, x25519Config} {
 		cConn, sConn := pipe()
 
 		client := Client(cConn, conf)

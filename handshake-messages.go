@@ -321,10 +321,6 @@ func (cv *CertificateVerifyBody) ComputeContext(ctx cryptoContext, transcript []
 	h := ctx.params.hash.New()
 	handshakeContext := []byte{}
 	for _, msg := range transcript {
-		if msg == nil {
-			err = fmt.Errorf("tls.certverify: Nil message")
-			return
-		}
 		data := msg.Marshal()
 		logf(logTypeHandshake, "Added Message to Handshake Context to be verified: [%d] %x", len(data), data)
 		handshakeContext = append(handshakeContext, data...)

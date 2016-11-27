@@ -842,10 +842,10 @@ func (ctx *cryptoContext) init(suite CipherSuite, chm, hrrm, rechm *HandshakeMes
 	logf(logTypeCrypto, "early secret: [%d] %x", len(ctx.earlySecret), ctx.earlySecret)
 
 	// Start up the handshake hash
+	ctx.handshakeHash = ctx.params.hash.New()
 	for _, msg := range []*HandshakeMessage{chm, hrrm, rechm} {
 		bytes := msg.Marshal()
 		logf(logTypeCrypto, "input to handshake hash [%d]: %x", len(bytes), bytes)
-		ctx.handshakeHash = ctx.params.hash.New()
 		ctx.handshakeHash.Write(bytes)
 	}
 

@@ -300,28 +300,13 @@ func (h *ClientHandshake) HandleHelloRetryRequest(hrrm *HandshakeMessage) (*Hand
 		return nil, fmt.Errorf("tls.client: Server sent unsupported version in HRR %x", hrr.Version)
 	}
 
-	// If the HRR has a key_shares extension, we have to abort.  We always send
-	// all supported groups in the first ClientHello, so whatever groups the
-	// server is advertizing here, we don't support
-	serverKeyShares := new(KeyShareExtension)
-	foundKeyShares := hrr.Extensions.Find(serverKeyShares)
-	if foundKeyShares {
-		return nil, fmt.Errorf("tls.client: Server does not have a common DH group")
-	}
-
-	// The only other thing we know how to respond to in an HRR is the Cookie
+	// The only thing we know how to respond to in an HRR is the Cookie
 	// extension, so if there is either no Cookie extension or anything other
 	// than a Cookie extension, we have to fail.
 	serverCookie := new(CookieExtension)
 	foundCookie := hrr.Extensions.Find(serverCookie)
-	if !foundCookie {
-		return nil, fmt.Errorf("tls.client: Server HRR did not contain a Cookie extension")
-	}
-
-	for _, ext := range hrr.Extensions {
-		if ext.ExtensionType != ExtensionTypeCookie {
-			return nil, fmt.Errorf("tls.client: Server HRR had an unsupported extension")
-		}
+	if !foundCookie || len(hrr.Extensions) != 1 {
+		return nil, fmt.Errorf("tls.client: Server sent unsupported HRR")
 	}
 
 	// Update the ClientHello with the cookie
@@ -479,11 +464,15 @@ func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage
 			return fmt.Errorf("tls.client: No server auth data provided")
 		}
 
-		transcriptForCertVerify := []*HandshakeMessage{h.clientHello, h.serverHello}
+		transcriptForCertVerify := []*HandshakeMessage{h.clientHello, h.helloRetryRequest, h.retryClientHello, h.serverHello}
 		transcriptForCertVerify = append(transcriptForCertVerify, transcript[:certVerifyIndex]...)
 		logf(logTypeHandshake, "[client] Transcript for certVerify")
 		for _, hm := range transcriptForCertVerify {
-			logf(logTypeHandshake, "  [%d] %x", hm.msgType, hm.body)
+			if hm == nil {
+				logf(logTypeHandshake, "  <nil>")
+			} else {
+				logf(logTypeHandshake, "  [%d] %x", hm.msgType, hm.body)
+			}
 		}
 		logf(logTypeHandshake, "===")
 
@@ -638,11 +627,16 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 	var psk *PreSharedKey
 	var ctx cryptoContext
 	if len(clientPSK.Identities) > 0 {
+		chBytes := h.clientHello.Marshal()
+		hrrBytes := h.helloRetryRequest.Marshal()
+
 		chTrunc, err := ch.Truncated()
 		if err != nil {
 			return nil, nil, err
 		}
-		canDoPSK, selectedPSK, psk, ctx, err = PSKNegotiation(clientPSK.Identities, clientPSK.Binders, chTrunc, caps.PSKs)
+
+		context := append(chBytes, append(hrrBytes, chTrunc...)...)
+		canDoPSK, selectedPSK, psk, ctx, err = PSKNegotiation(clientPSK.Identities, clientPSK.Binders, context, caps.PSKs)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -785,7 +779,8 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 
 		certificateVerify := &CertificateVerifyBody{Algorithm: certScheme}
 		logf(logTypeHandshake, "Creating CertVerify: %04x %v", certScheme, h.Context.params.hash)
-		err = certificateVerify.Sign(cert.PrivateKey, []*HandshakeMessage{chm, shm, eem, certm}, h.Context)
+		cvTranscript := []*HandshakeMessage{h.clientHello, h.helloRetryRequest, chm, shm, eem, certm}
+		err = certificateVerify.Sign(cert.PrivateKey, cvTranscript, h.Context)
 		if err != nil {
 			return nil, nil, err
 		}
