@@ -528,7 +528,6 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	chMessage, _ := HandshakeMessageFromBody(&chValidIn)
 	shMessage, _ := HandshakeMessageFromBody(&shValidIn)
 	transcript := []*HandshakeMessage{chMessage, shMessage}
-	nilTranscript := append(transcript, nil)
 
 	privRSA, err := newSigningKey(RSA_PSS_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
@@ -564,11 +563,6 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
 
-	// Test sign failure on handshake marshal failure
-	err = certVerifyValidIn.Sign(privRSA, nilTranscript, ctx)
-	assertError(t, err, "Signed CertificateVerify despite nil message")
-	chValidIn.Extensions = extListValidIn
-
 	// Test sign failure on algorithm
 	originalAlg := certVerifyValidIn.Algorithm
 	certVerifyValidIn.Algorithm = SignatureScheme(0)
@@ -589,10 +583,6 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, ctx)
 	assertError(t, err, "Verified CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.Algorithm = originalAlg
-
-	// Test veirfy failure on nil message
-	err = certVerifyValidIn.Verify(privRSA.Public(), nilTranscript, ctx)
-	assertError(t, err, "Verified CertificateVerify despite nil message")
 }
 
 func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {

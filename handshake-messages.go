@@ -317,7 +317,7 @@ func (cv *CertificateVerifyBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, cv)
 }
 
-func (cv *CertificateVerifyBody) ComputeContext(ctx cryptoContext, transcript []*HandshakeMessage) (hashed []byte, err error) {
+func (cv *CertificateVerifyBody) ComputeContext(ctx cryptoContext, transcript []*HandshakeMessage) (hashed []byte) {
 	h := ctx.params.hash.New()
 	handshakeContext := []byte{}
 	for _, msg := range transcript {
@@ -342,24 +342,16 @@ func (cv *CertificateVerifyBody) EncodeSignatureInput(data []byte) []byte {
 	return sigInput
 }
 
-func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*HandshakeMessage, ctx cryptoContext) error {
-	hashedWithContext, err := cv.ComputeContext(ctx, transcript)
-	if err != nil {
-		return err
-	}
-
+func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*HandshakeMessage, ctx cryptoContext) (err error) {
+	hashedWithContext := cv.ComputeContext(ctx, transcript)
 	sigInput := cv.EncodeSignatureInput(hashedWithContext)
 	cv.Signature, err = sign(cv.Algorithm, privateKey, sigInput)
 	logf(logTypeHandshake, "Signed: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
-	return err
+	return
 }
 
 func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*HandshakeMessage, ctx cryptoContext) error {
-	hashedWithContext, err := cv.ComputeContext(ctx, transcript)
-	if err != nil {
-		return err
-	}
-
+	hashedWithContext := cv.ComputeContext(ctx, transcript)
 	sigInput := cv.EncodeSignatureInput(hashedWithContext)
 	logf(logTypeHandshake, "About to verify: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return verify(cv.Algorithm, publicKey, sigInput, cv.Signature)

@@ -701,11 +701,13 @@ type cryptoContext struct {
 	zero   []byte
 
 	handshakeHash hash.Hash
-	h2            []byte // = h1 + ServerHello
-	h3            []byte // = h2 + Server...
-	h4            []byte // = h3 + ServerFinished
-	h5            []byte // = h4 + Client...
-	h6            []byte // = h5 + ClientFinished
+
+	// h1 = ClientHello
+	h2 []byte // = h1 + HRR? + CH? + ServerHello
+	h3 []byte // = h2 + Server...
+	h4 []byte // = h3 + ServerFinished
+	h5 []byte // = h4 + Client...
+	h6 []byte // = h5 + ClientFinished
 
 	// preInit(PreSharedKey)
 	earlyHash crypto.Hash
