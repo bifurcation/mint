@@ -115,6 +115,27 @@ func (ch ClientHelloBody) Truncated() ([]byte, error) {
 }
 
 // struct {
+//     ProtocolVersion server_version;
+//     Extension extensions<2..2^16-1>;
+// } HelloRetryRequest;
+type HelloRetryRequestBody struct {
+	Version    uint16
+	Extensions ExtensionList `tls:"head=2,min=2"`
+}
+
+func (hrr HelloRetryRequestBody) Type() HandshakeType {
+	return HandshakeTypeHelloRetryRequest
+}
+
+func (hrr HelloRetryRequestBody) Marshal() ([]byte, error) {
+	return syntax.Marshal(hrr)
+}
+
+func (hrr *HelloRetryRequestBody) Unmarshal(data []byte) (int, error) {
+	return syntax.Unmarshal(data, hrr)
+}
+
+// struct {
 //     ProtocolVersion version;
 //     Random random;
 //     CipherSuite cipher_suite;
