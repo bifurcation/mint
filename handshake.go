@@ -16,10 +16,11 @@ type Capabilities struct {
 	PSKModes []PSKKeyExchangeMode
 
 	// For server
-	NextProtos     []string
-	Certificates   []*Certificate
-	AllowEarlyData bool
-	RequireCookie  bool
+	NextProtos        []string
+	Certificates      []*Certificate
+	AllowEarlyData    bool
+	RequireCookie     bool
+	RequireClientAuth bool
 }
 
 type ConnectionOptions struct {
@@ -29,9 +30,10 @@ type ConnectionOptions struct {
 }
 
 type ConnectionParameters struct {
-	UsingPSK       bool
-	UsingDH        bool
-	UsingEarlyData bool
+	UsingPSK        bool
+	UsingDH         bool
+	UsingEarlyData  bool
+	UsingClientAuth bool
 
 	CipherSuite CipherSuite
 	ServerName  string
@@ -511,9 +513,12 @@ type ServerHandshake struct {
 	Context cryptoContext
 	Params  ConnectionParameters
 
+	AuthCertificate func(chain []CertificateEntry) error
+
 	cookie            []byte
 	clientHello       *HandshakeMessage
 	helloRetryRequest *HandshakeMessage
+	transcript        []*HandshakeMessage
 }
 
 func (h *ServerHandshake) IsClient() bool {
@@ -765,6 +770,21 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 
 	// Authenticate with a certificate if required
 	if !h.Params.UsingPSK {
+		var crm *HandshakeMessage
+		if caps.RequireClientAuth {
+			h.Params.UsingClientAuth = true
+
+			// XXX: We don't support sending any constraints besides a list of
+			// supported signature algorithms
+			cr := &CertificateRequestBody{SupportedSignatureAlgorithms: caps.SignatureSchemes}
+			crm, err = HandshakeMessageFromBody(cr)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			transcript = append(transcript, crm)
+		}
+
 		// Create and send Certificate, CertificateVerify
 		certificate := &CertificateBody{
 			CertificateList: make([]CertificateEntry, len(cert.Chain)),
@@ -779,7 +799,7 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 
 		certificateVerify := &CertificateVerifyBody{Algorithm: certScheme}
 		logf(logTypeHandshake, "Creating CertVerify: %04x %v", certScheme, h.Context.params.hash)
-		cvTranscript := []*HandshakeMessage{h.clientHello, h.helloRetryRequest, chm, shm, eem, certm}
+		cvTranscript := []*HandshakeMessage{h.clientHello, h.helloRetryRequest, chm, shm, eem, crm, certm}
 		err = certificateVerify.Sign(cert.PrivateKey, cvTranscript, h.Context)
 		if err != nil {
 			return nil, nil, err
@@ -803,12 +823,49 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 	}
 
 	transcript = append(transcript, fm)
+	h.transcript = []*HandshakeMessage{h.clientHello, h.helloRetryRequest, chm, shm}
+	h.transcript = append(h.transcript, transcript...)
 
 	return shm, transcript, nil
 }
 
 func (h *ServerHandshake) HandleClientSecondFlight(transcript []*HandshakeMessage, finishedMessage *HandshakeMessage) error {
-	// XXX Currently, we don't process anything besides the Finished
+	if h.Params.UsingClientAuth {
+		if len(transcript) != 2 || transcript[0] == nil || transcript[1] == nil {
+			return fmt.Errorf("tls.server: Client returned invalid second flight (with auth)")
+		}
+
+		certm := transcript[0]
+		certvm := transcript[1]
+
+		cert := new(CertificateBody)
+		certVerify := new(CertificateVerifyBody)
+
+		_, err := cert.Unmarshal(certm.body)
+		if err != nil {
+			return err
+		}
+
+		_, err = certVerify.Unmarshal(certvm.body)
+		if err != nil {
+			return err
+		}
+
+		clientPublicKey := cert.CertificateList[0].CertData.PublicKey
+		transcriptForCertVerify := append(h.transcript, certm)
+		if err = certVerify.Verify(clientPublicKey, transcriptForCertVerify, h.Context); err != nil {
+			return err
+		}
+
+		if h.AuthCertificate != nil {
+			err = h.AuthCertificate(cert.CertificateList)
+			if err != nil {
+				return err
+			}
+		}
+	} else if len(transcript) > 0 {
+		return fmt.Errorf("tls.server: Client returned unexpected messages in second flight (no auth)")
+	}
 
 	err := h.Context.updateWithClientSecondFlight(transcript)
 	if err != nil {
