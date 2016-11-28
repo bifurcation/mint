@@ -523,7 +523,8 @@ func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage
 		}
 
 		certificate := &CertificateBody{
-			CertificateList: make([]CertificateEntry, len(cert.Chain)),
+			CertificateRequestContext: certReq.CertificateRequestContext,
+			CertificateList:           make([]CertificateEntry, len(cert.Chain)),
 		}
 		for i, entry := range cert.Chain {
 			certificate.CertificateList[i] = CertificateEntry{CertData: entry}
@@ -570,7 +571,9 @@ type ServerHandshake struct {
 
 	AuthCertificate func(chain []CertificateEntry) error
 
-	cookie            []byte
+	cookie                    []byte
+	certificateRequestContext []byte
+
 	clientHello       *HandshakeMessage
 	helloRetryRequest *HandshakeMessage
 	transcript        []*HandshakeMessage
@@ -905,6 +908,10 @@ func (h *ServerHandshake) HandleClientSecondFlight(transcript []*HandshakeMessag
 		_, err = certVerify.Unmarshal(certvm.body)
 		if err != nil {
 			return err
+		}
+
+		if !bytes.Equal(cert.CertificateRequestContext, h.certificateRequestContext) {
+			return fmt.Errorf("tls.server: Client returned a certificate with incorrect context")
 		}
 
 		clientPublicKey := cert.CertificateList[0].CertData.PublicKey
