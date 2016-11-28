@@ -471,6 +471,7 @@ func (c *Conn) clientHandshake() error {
 		SignatureSchemes: c.config.SignatureSchemes,
 		PSKs:             c.config.PSKs,
 		PSKModes:         c.config.PSKModes,
+		Certificates:     c.config.Certificates,
 	}
 	opts := ConnectionOptions{
 		ServerName: c.config.ServerName,
@@ -635,14 +636,15 @@ func (c *Conn) serverHandshake() error {
 
 	// Create the server's first flight
 	caps := Capabilities{
-		CipherSuites:     c.config.CipherSuites,
-		Groups:           c.config.Groups,
-		SignatureSchemes: c.config.SignatureSchemes,
-		PSKs:             c.config.PSKs,
-		AllowEarlyData:   c.config.AllowEarlyData,
-		RequireCookie:    c.config.RequireCookie,
-		NextProtos:       c.config.NextProtos,
-		Certificates:     c.config.Certificates,
+		CipherSuites:      c.config.CipherSuites,
+		Groups:            c.config.Groups,
+		SignatureSchemes:  c.config.SignatureSchemes,
+		PSKs:              c.config.PSKs,
+		AllowEarlyData:    c.config.AllowEarlyData,
+		RequireCookie:     c.config.RequireCookie,
+		RequireClientAuth: c.config.RequireClientAuth,
+		NextProtos:        c.config.NextProtos,
+		Certificates:      c.config.Certificates,
 	}
 	shm, serverFirstFlight, err := h.HandleClientHello(chm, caps)
 	if err != nil {

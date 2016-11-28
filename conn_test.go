@@ -170,6 +170,12 @@ var (
 		NextProtos:   []string{"http/1.1", "h2"},
 	}
 
+	clientAuthConfig = &Config{
+		ServerName:        serverName,
+		RequireClientAuth: true,
+		Certificates:      certificates,
+	}
+
 	pskConfig = &Config{
 		ServerName:     serverName,
 		CipherSuites:   []CipherSuite{TLS_AES_128_GCM_SHA256},
@@ -284,6 +290,29 @@ func TestBasicFlows(t *testing.T) {
 		assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
 		assertContextEquals(t, client.handshake.cryptoContext(), server.handshake.cryptoContext())
 	}
+}
+
+func TestClientAuth(t *testing.T) {
+	cConn, sConn := pipe()
+
+	client := Client(cConn, clientAuthConfig)
+	server := Server(sConn, clientAuthConfig)
+
+	done := make(chan bool)
+	go func(t *testing.T) {
+		err := server.Handshake()
+		assertNotError(t, err, "Server failed handshake")
+		done <- true
+	}(t)
+
+	err := client.Handshake()
+	assertNotError(t, err, "Client failed handshake")
+
+	<-done
+
+	assertContextEquals(t, client.handshake.cryptoContext(), server.handshake.cryptoContext())
+	assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
+	assert(t, client.handshake.ConnectionParams().UsingClientAuth, "Session did not negotiate client auth")
 }
 
 func TestPSKFlows(t *testing.T) {
