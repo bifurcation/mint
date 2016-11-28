@@ -11,13 +11,13 @@ type Capabilities struct {
 	Groups           []NamedGroup
 	SignatureSchemes []SignatureScheme
 	PSKs             map[string]PreSharedKey
+	Certificates     []*Certificate
 
 	// For client
 	PSKModes []PSKKeyExchangeMode
 
 	// For server
 	NextProtos        []string
-	Certificates      []*Certificate
 	AllowEarlyData    bool
 	RequireCookie     bool
 	RequireClientAuth bool
@@ -106,12 +106,15 @@ type ClientHandshake struct {
 	Context cryptoContext
 	Params  ConnectionParameters
 
+	Certificates    []*Certificate
 	AuthCertificate func(chain []CertificateEntry) error
 
 	clientHello       *HandshakeMessage
 	helloRetryRequest *HandshakeMessage
 	retryClientHello  *HandshakeMessage
 	serverHello       *HandshakeMessage
+	serverFirstFlight []*HandshakeMessage
+	serverFinished    *HandshakeMessage
 }
 
 func (h *ClientHandshake) IsClient() bool {
@@ -286,6 +289,7 @@ func (h *ClientHandshake) CreateClientHello(opts ConnectionOptions, caps Capabil
 		return nil, err
 	}
 
+	h.Certificates = caps.Certificates
 	return h.clientHello, nil
 }
 
@@ -422,10 +426,11 @@ func (h *ClientHandshake) HandleServerHello(shm *HandshakeMessage) error {
 	return nil
 }
 
-func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage, finishedMessage *HandshakeMessage) error {
+func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage, serverFinished *HandshakeMessage) ([]*HandshakeMessage, error) {
 	// Extract messages from sequence
 	var err error
 	var ee *EncryptedExtensionsBody
+	var certReq *CertificateRequestBody
 	var cert *CertificateBody
 	var certVerify *CertificateVerifyBody
 	var certVerifyIndex int
@@ -434,6 +439,9 @@ func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage
 		case HandshakeTypeEncryptedExtensions:
 			ee = new(EncryptedExtensionsBody)
 			_, err = ee.Unmarshal(msg.body)
+		case HandshakeTypeCertificateRequest:
+			certReq = new(CertificateRequestBody)
+			_, err = certReq.Unmarshal(msg.body)
 		case HandshakeTypeCertificate:
 			cert = new(CertificateBody)
 			_, err = cert.Unmarshal(msg.body)
@@ -444,7 +452,7 @@ func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage
 		}
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -463,7 +471,7 @@ func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage
 	if h.PSK == nil {
 
 		if cert == nil || certVerify == nil {
-			return fmt.Errorf("tls.client: No server auth data provided")
+			return nil, fmt.Errorf("tls.client: No server auth data provided")
 		}
 
 		transcriptForCertVerify := []*HandshakeMessage{h.clientHello, h.helloRetryRequest, h.retryClientHello, h.serverHello}
@@ -480,13 +488,13 @@ func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage
 
 		serverPublicKey := cert.CertificateList[0].CertData.PublicKey
 		if err = certVerify.Verify(serverPublicKey, transcriptForCertVerify, h.Context); err != nil {
-			return err
+			return nil, err
 		}
 
 		if h.AuthCertificate != nil {
 			err = h.AuthCertificate(cert.CertificateList)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
@@ -496,15 +504,62 @@ func (h *ClientHandshake) HandleServerFirstFlight(transcript []*HandshakeMessage
 	// Verify server finished
 	sfin := new(FinishedBody)
 	sfin.VerifyDataLen = h.Context.serverFinished.VerifyDataLen
-	_, err = sfin.Unmarshal(finishedMessage.body)
+	_, err = sfin.Unmarshal(serverFinished.body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !bytes.Equal(sfin.VerifyData, h.Context.serverFinished.VerifyData) {
-		return fmt.Errorf("tls.client: Server's Finished failed to verify")
+		return nil, fmt.Errorf("tls.client: Server's Finished failed to verify")
 	}
 
-	return nil
+	// Authenticate if required
+	if certReq != nil {
+		h.Params.UsingClientAuth = true
+
+		// XXX: We ignore the CAs and Extensions fields.  Assuming that's OK by the spec.
+		cert, certScheme, err := CertificateSelection(nil, certReq.SupportedSignatureAlgorithms, h.Certificates)
+		if err != nil {
+			return nil, err
+		}
+
+		certificate := &CertificateBody{
+			CertificateList: make([]CertificateEntry, len(cert.Chain)),
+		}
+		for i, entry := range cert.Chain {
+			certificate.CertificateList[i] = CertificateEntry{CertData: entry}
+		}
+		certm, err := HandshakeMessageFromBody(certificate)
+		if err != nil {
+			return nil, err
+		}
+
+		cvTranscript := []*HandshakeMessage{
+			h.clientHello,
+			h.helloRetryRequest,
+			h.retryClientHello,
+			h.serverHello,
+		}
+		cvTranscript = append(cvTranscript, transcript...)
+		cvTranscript = append(cvTranscript, serverFinished)
+		cvTranscript = append(cvTranscript, certm)
+
+		certificateVerify := &CertificateVerifyBody{Algorithm: certScheme}
+		logf(logTypeHandshake, "Creating CertVerify: %04x %v", certScheme, h.Context.params.hash)
+		err = certificateVerify.Sign(cert.PrivateKey, cvTranscript, h.Context)
+		if err != nil {
+			return nil, err
+		}
+		certvm, err := HandshakeMessageFromBody(certificateVerify)
+		if err != nil {
+			return nil, err
+		}
+
+		return []*HandshakeMessage{certm, certvm}, nil
+	}
+
+	h.serverFirstFlight = transcript
+	h.serverFinished = serverFinished
+	return nil, nil
 }
 
 ///// Server-side handshake logic
@@ -671,7 +726,8 @@ func (h *ServerHandshake) HandleClientHello(chm *HandshakeMessage, caps Capabili
 		}
 
 		// Select a certificate
-		cert, certScheme, err = CertificateSelection(string(*serverName), signatureAlgorithms.Algorithms, caps.Certificates)
+		name := string(*serverName)
+		cert, certScheme, err = CertificateSelection(&name, signatureAlgorithms.Algorithms, caps.Certificates)
 	}
 
 	if !h.Params.UsingDH {

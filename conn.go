@@ -29,18 +29,19 @@ type PreSharedKey struct {
 // but we just throw them all in here.
 type Config struct {
 	// Client fields
-	ServerName      string
-	AuthCertificate func(chain []CertificateEntry) error // TODO(#20) -> Both
+	ServerName string
 
 	// Server fields
-	Certificates       []*Certificate
 	SendSessionTickets bool
 	TicketLifetime     uint32
 	TicketLen          int
 	AllowEarlyData     bool
 	RequireCookie      bool
+	RequireClientAuth  bool
 
 	// Shared fields
+	Certificates     []*Certificate
+	AuthCertificate  func(chain []CertificateEntry) error
 	CipherSuites     []CipherSuite
 	Groups           []NamedGroup
 	SignatureSchemes []SignatureScheme
@@ -575,23 +576,29 @@ func (c *Conn) clientHandshake() error {
 	}
 	logf(logTypeHandshake, "[client] Done reading server's first flight")
 
-	err = h.HandleServerFirstFlight(transcript, finishedMessage)
+	clientSecondFlight, err := h.HandleServerFirstFlight(transcript, finishedMessage)
 	if err != nil {
 		return err
 	}
 
 	// Update the crypto context with the (empty) client second flight
-	err = h.Context.updateWithClientSecondFlight(nil)
+	err = h.Context.updateWithClientSecondFlight(clientSecondFlight)
 	if err != nil {
 		return err
 	}
 
-	// Send client Finished
+	// Send client second flight and Finished
+	for _, msg := range clientSecondFlight {
+		err = hOut.WriteMessage(msg)
+		if err != nil {
+			return err
+		}
+	}
+
 	fm, err := HandshakeMessageFromBody(h.Context.clientFinished)
 	if err != nil {
 		return err
 	}
-
 	err = hOut.WriteMessage(fm)
 	if err != nil {
 		return err
