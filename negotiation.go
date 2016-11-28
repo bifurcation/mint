@@ -97,23 +97,28 @@ func PSKModeNegotiation(canDoDH, canDoPSK bool, modes []PSKKeyExchangeMode) (boo
 	return usingDH, usingPSK
 }
 
-func CertificateSelection(serverName string, signatureSchemes []SignatureScheme, certs []*Certificate) (*Certificate, SignatureScheme, error) {
-	// Select for server name
-	candidatesByName := []*Certificate{}
-	for _, cert := range certs {
-		for _, name := range cert.Chain[0].DNSNames {
-			if len(serverName) > 0 && name == serverName {
-				candidatesByName = append(candidatesByName, cert)
+func CertificateSelection(serverName *string, signatureSchemes []SignatureScheme, certs []*Certificate) (*Certificate, SignatureScheme, error) {
+	// Select for server name if provided
+	candidates := certs
+	if serverName != nil {
+		candidatesByName := []*Certificate{}
+		for _, cert := range certs {
+			for _, name := range cert.Chain[0].DNSNames {
+				if len(*serverName) > 0 && name == *serverName {
+					candidatesByName = append(candidatesByName, cert)
+				}
 			}
 		}
-	}
 
-	if len(candidatesByName) == 0 {
-		return nil, 0, fmt.Errorf("No certificates available for server name")
+		if len(candidatesByName) == 0 {
+			return nil, 0, fmt.Errorf("No certificates available for server name")
+		}
+
+		candidates = candidatesByName
 	}
 
 	// Select for signature scheme
-	for _, cert := range candidatesByName {
+	for _, cert := range candidates {
 		for _, scheme := range signatureSchemes {
 			if !schemeValidForKey(scheme, cert.PrivateKey) {
 				continue

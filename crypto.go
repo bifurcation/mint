@@ -195,14 +195,21 @@ func schemeValidForKey(alg SignatureScheme, key crypto.Signer) bool {
 }
 
 func ffdheKeyShareFromPrime(p *big.Int) (priv, pub *big.Int, err error) {
-	// g = 2 for all ffdhe groups
-	priv, err = rand.Int(prng, p)
-	if err != nil {
-		return
-	}
+	primeLen := len(p.Bytes())
+	for {
+		// g = 2 for all ffdhe groups
+		priv, err = rand.Int(prng, p)
+		if err != nil {
+			return
+		}
 
-	pub = big.NewInt(0)
-	pub.Exp(big.NewInt(2), priv, p)
+		pub = big.NewInt(0)
+		pub.Exp(big.NewInt(2), priv, p)
+
+		if len(pub.Bytes()) == primeLen {
+			return
+		}
+	}
 	return
 }
 

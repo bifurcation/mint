@@ -183,6 +183,27 @@ var (
 	certVerifyValidHex    = "0403000400000000"
 	certVerifyCipherSuite = TLS_AES_128_GCM_SHA256
 
+	// CertificateRequest test cases
+	certReqValidIn = CertificateRequestBody{
+		CertificateRequestContext: []byte{0, 1, 2, 3, 4, 5, 6, 7},
+		SupportedSignatureAlgorithms: []SignatureScheme{
+			ECDSA_P256_SHA256, // 0x0403
+			ECDSA_P384_SHA384, // 0x0503
+		},
+		CertificateAuthorities: []DistinguishedName{
+			{[]byte{0, 1, 2, 3}},
+			{[]byte{4, 5, 6, 7}},
+		},
+		CertificateExtensions: []CertificateExtension{
+			{[]byte{0, 1}, []byte{2, 3}},
+			{[]byte{4, 5}, []byte{6, 7}},
+		},
+	}
+	certReqValidHex = "080001020304050607" + // context
+		"000404030503" + // signature algorithms
+		"000c" + "000400010203" + "000404050607" + // CAs
+		"000e" + "02000100020203" + "02040500020607" // extensionss
+
 	// NewSessionTicket test cases
 	ticketValidHex = "00010203" + "04050607" + "000408090a0b" + "0006eeff00021122"
 	ticketValidIn  = NewSessionTicketBody{
@@ -583,6 +604,26 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, ctx)
 	assertError(t, err, "Verified CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.Algorithm = originalAlg
+}
+
+func TestCertificateRequestMarshalUnmarshal(t *testing.T) {
+	certReqValid, _ := hex.DecodeString(certReqValidHex)
+
+	// Test correctness of handshake type
+	assertEquals(t, (CertificateRequestBody{}).Type(), HandshakeTypeCertificateRequest)
+
+	// Test successful marshal
+	out, err := certReqValidIn.Marshal()
+	assertNotError(t, err, "Failed to marshal a valid CertificateRequest")
+	assertByteEquals(t, out, certReqValid)
+
+	// Test successful unmarshal
+	var cv CertificateRequestBody
+	read, err := cv.Unmarshal(certReqValid)
+	assertNotError(t, err, "Failed to unmarshal a valid CertificateRequest")
+	assertEquals(t, read, len(certReqValid))
+	assertDeepEquals(t, cv, certReqValidIn)
+
 }
 
 func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
