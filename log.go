@@ -59,7 +59,6 @@ func dumpCryptoContext(role string, ctx cryptoContext) {
 	/* Omitted: Params */
 	logf(logTypeCrypto, "[%s] zero:  %x\n", role, ctx.zero)
 
-	logf(logTypeCrypto, "[%s] h1:                 %x\n", role, ctx.h1)
 	logf(logTypeCrypto, "[%s] h2:                 %x\n", role, ctx.h2)
 	logf(logTypeCrypto, "[%s] h3:                 %x\n", role, ctx.h3)
 	logf(logTypeCrypto, "[%s] h4:                 %x\n", role, ctx.h4)

@@ -46,7 +46,7 @@ func DHNegotiation(keyShares []KeyShareEntry, groups []NamedGroup) (bool, NamedG
 	return false, 0, nil, nil
 }
 
-func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, chTrunc []byte, psks map[string]PreSharedKey) (bool, int, *PreSharedKey, cryptoContext, error) {
+func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context []byte, psks map[string]PreSharedKey) (bool, int, *PreSharedKey, cryptoContext, error) {
 	logf(logTypeNegotiation, "Negotiating PSK offered=[%d] supported=[%d]", len(identities), len(psks))
 	for i, id := range identities {
 		for _, key := range psks {
@@ -58,9 +58,12 @@ func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, chTrunc 
 			ctx := cryptoContext{}
 			ctx.preInit(key)
 
-			truncHash := ctx.params.hash.New()
-			truncHash.Write(chTrunc)
-			binder := ctx.computeFinishedData(ctx.binderKey, truncHash.Sum(nil))
+			// context = ClientHello[truncated]
+			// context = ClientHello1 + HelloRetryRequest + ClientHello2[truncated]
+			ctxHash := ctx.params.hash.New()
+			ctxHash.Write(context)
+
+			binder := ctx.computeFinishedData(ctx.binderKey, ctxHash.Sum(nil))
 			if !bytes.Equal(binder, binders[i].Binder) {
 				logf(logTypeNegotiation, "Binder check failed for identity %x", key.Identity)
 				return false, 0, nil, cryptoContext{}, fmt.Errorf("Binder check failed identity %x", key.Identity)

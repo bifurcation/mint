@@ -38,6 +38,7 @@ type Config struct {
 	TicketLifetime     uint32
 	TicketLen          int
 	AllowEarlyData     bool
+	RequireCookie      bool
 
 	// Shared fields
 	CipherSuites     []CipherSuite
@@ -511,14 +512,29 @@ func (c *Conn) clientHandshake() error {
 		}
 	}
 
-	// Read and Process ServerHello
-	logf(logTypeHandshake, "[client] Awaiting ServerHello")
+	// Read server's response to ClientHello
 	shm, err := hIn.ReadMessage()
 	if err != nil {
-		logf(logTypeHandshake, "[client] Error reading ServerHello")
 		return err
 	}
-	logf(logTypeHandshake, "[client] Received ServerHello")
+
+	// If server sent HelloRetryRequest, retry ClientHello
+	if shm.msgType == HandshakeTypeHelloRetryRequest {
+		chm, err := h.HandleHelloRetryRequest(shm)
+		if err != nil {
+			return err
+		}
+
+		err = hOut.WriteMessage(chm)
+		if err != nil {
+			return err
+		}
+
+		shm, err = hIn.ReadMessage()
+		if err != nil {
+			return err
+		}
+	}
 
 	err = h.HandleServerHello(shm)
 	if err != nil {
@@ -617,12 +633,36 @@ func (c *Conn) serverHandshake() error {
 		SignatureSchemes: c.config.SignatureSchemes,
 		PSKs:             c.config.PSKs,
 		AllowEarlyData:   c.config.AllowEarlyData,
+		RequireCookie:    c.config.RequireCookie,
 		NextProtos:       c.config.NextProtos,
 		Certificates:     c.config.Certificates,
 	}
 	shm, serverFirstFlight, err := h.HandleClientHello(chm, caps)
 	if err != nil {
 		return err
+	}
+
+	if shm.msgType == HandshakeTypeHelloRetryRequest {
+		// Send the HRR
+		err = hOut.WriteMessage(shm)
+		if err != nil {
+			logf(logTypeHandshake, "[server] Unable to send HelloRetryRequest %v", err)
+			return err
+		}
+		logf(logTypeHandshake, "[server] Wrote HelloRetryRequest")
+
+		// Read the clientHello and re-handle it
+		chm, err := hIn.ReadMessage()
+		if err != nil {
+			logf(logTypeHandshake, "Unable to read 2nd ClientHello: %v", err)
+			return err
+		}
+		logf(logTypeHandshake, "[server] Read 2nd ClientHello")
+
+		shm, serverFirstFlight, err = h.HandleClientHello(chm, caps)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Write ServerHello and update the crypto context
