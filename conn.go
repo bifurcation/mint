@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -22,6 +23,27 @@ type PreSharedKey struct {
 	Identity     []byte
 	Key          []byte
 	NextProto    string
+}
+
+type PreSharedKeyCache interface {
+	Get(string) (PreSharedKey, bool)
+	Put(string, PreSharedKey)
+	Size() int
+}
+
+type PSKMapCache map[string]PreSharedKey
+
+func (cache PSKMapCache) Get(key string) (psk PreSharedKey, ok bool) {
+	psk, ok = cache[key]
+	return
+}
+
+func (cache *PSKMapCache) Put(key string, psk PreSharedKey) {
+	(*cache)[key] = psk
+}
+
+func (cache PSKMapCache) Size() int {
+	return len(cache)
 }
 
 // Config is the struct used to pass configuration settings to a TLS client or
@@ -46,7 +68,7 @@ type Config struct {
 	Groups           []NamedGroup
 	SignatureSchemes []SignatureScheme
 	NextProtos       []string
-	PSKs             map[string]PreSharedKey
+	PSKs             PreSharedKeyCache
 	PSKModes         []PSKKeyExchangeMode
 
 	// The same config object can be shared among different connections, so it
@@ -71,8 +93,8 @@ func (c *Config) Init(isClient bool) error {
 	if c.TicketLen == 0 {
 		c.TicketLen = defaultTicketLen
 	}
-	if c.PSKs == nil {
-		c.PSKs = map[string]PreSharedKey{}
+	if !reflect.ValueOf(c.PSKs).IsValid() {
+		c.PSKs = &PSKMapCache{}
 	}
 	if len(c.PSKModes) == 0 {
 		c.PSKModes = defaultPSKModes
@@ -102,7 +124,7 @@ func (c *Config) Init(isClient bool) error {
 }
 
 func (c Config) ValidForServer() bool {
-	return (len(c.PSKs) > 0) ||
+	return (reflect.ValueOf(c.PSKs).IsValid() && c.PSKs.Size() > 0) ||
 		(len(c.Certificates) > 0 &&
 			len(c.Certificates[0].Chain) > 0 &&
 			c.Certificates[0].PrivateKey != nil)
@@ -215,7 +237,7 @@ func (c *Conn) extendBuffer(n int) error {
 					}
 
 					logf(logTypeHandshake, "Storing new session ticket with identity [%x]", psk.Identity)
-					c.config.PSKs[c.config.ServerName] = psk
+					c.config.PSKs.Put(c.config.ServerName, psk)
 
 				case HandshakeTypeKeyUpdate:
 					outboundUpdate, err := c.handshake.HandleKeyUpdate(hm)
@@ -828,7 +850,7 @@ func (c *Conn) serverHandshake() error {
 		}
 
 		pskIDHex := hex.EncodeToString(newPSK.Identity)
-		c.config.PSKs[pskIDHex] = newPSK
+		c.config.PSKs.Put(pskIDHex, newPSK)
 
 		err = hOut.WriteMessage(newSessionTicket)
 		if err != nil {

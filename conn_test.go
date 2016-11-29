@@ -151,7 +151,10 @@ var (
 			PrivateKey: serverKey,
 		},
 	}
-	psks = map[string]PreSharedKey{serverName: psk}
+	psks = &PSKMapCache{
+		serverName: psk,
+		"00010203": psk,
+	}
 
 	basicConfig = &Config{
 		ServerName:   serverName,
@@ -365,15 +368,18 @@ func TestResumption(t *testing.T) {
 
 	assertDeepEquals(t, client1.handshake.ConnectionParams(), server1.handshake.ConnectionParams())
 	assertContextEquals(t, client1.handshake.cryptoContext(), server1.handshake.cryptoContext())
-	assertEquals(t, len(clientConfig.PSKs), 1)
-	assertEquals(t, len(serverConfig.PSKs), 1)
+	assertEquals(t, clientConfig.PSKs.Size(), 1)
+	assertEquals(t, serverConfig.PSKs.Size(), 1)
+
+	clientCache := clientConfig.PSKs.(*PSKMapCache)
+	serverCache := serverConfig.PSKs.(*PSKMapCache)
 
 	var serverPSK PreSharedKey
-	for _, key := range serverConfig.PSKs {
+	for _, key := range *serverCache {
 		serverPSK = key
 	}
 	var clientPSK PreSharedKey
-	for _, key := range clientConfig.PSKs {
+	for _, key := range *clientCache {
 		clientPSK = key
 	}
 	assertDeepEquals(t, clientPSK, serverPSK)

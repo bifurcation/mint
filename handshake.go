@@ -10,7 +10,7 @@ type Capabilities struct {
 	CipherSuites     []CipherSuite
 	Groups           []NamedGroup
 	SignatureSchemes []SignatureScheme
-	PSKs             map[string]PreSharedKey
+	PSKs             PreSharedKeyCache
 	Certificates     []*Certificate
 
 	// For client
@@ -222,7 +222,7 @@ func (h *ClientHandshake) CreateClientHello(opts ConnectionOptions, caps Capabil
 	// calculate the PSK binder value
 	var psk *PreSharedKeyExtension
 	var ed *EarlyDataExtension
-	if key, ok := caps.PSKs[opts.ServerName]; ok {
+	if key, ok := caps.PSKs.Get(opts.ServerName); ok {
 		h.OfferedPSK = key
 
 		// Narrow ciphersuites to ones that match PSK hash
