@@ -2,6 +2,7 @@ package mint
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 )
 
@@ -46,32 +47,32 @@ func DHNegotiation(keyShares []KeyShareEntry, groups []NamedGroup) (bool, NamedG
 	return false, 0, nil, nil
 }
 
-func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context []byte, psks map[string]PreSharedKey) (bool, int, *PreSharedKey, cryptoContext, error) {
-	logf(logTypeNegotiation, "Negotiating PSK offered=[%d] supported=[%d]", len(identities), len(psks))
+func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context []byte, psks PreSharedKeyCache) (bool, int, *PreSharedKey, cryptoContext, error) {
+	logf(logTypeNegotiation, "Negotiating PSK offered=[%d] supported=[%d]", len(identities), psks.Size())
 	for i, id := range identities {
-		for _, key := range psks {
-			logf(logTypeNegotiation, "Identity check [%x] <> [%x]", id.Identity, key.Identity)
-			if !bytes.Equal(id.Identity, key.Identity) {
-				continue
-			}
+		identityHex := hex.EncodeToString(id.Identity)
 
-			ctx := cryptoContext{}
-			ctx.preInit(key)
-
-			// context = ClientHello[truncated]
-			// context = ClientHello1 + HelloRetryRequest + ClientHello2[truncated]
-			ctxHash := ctx.params.hash.New()
-			ctxHash.Write(context)
-
-			binder := ctx.computeFinishedData(ctx.binderKey, ctxHash.Sum(nil))
-			if !bytes.Equal(binder, binders[i].Binder) {
-				logf(logTypeNegotiation, "Binder check failed for identity %x", key.Identity)
-				return false, 0, nil, cryptoContext{}, fmt.Errorf("Binder check failed identity %x", key.Identity)
-			}
-
-			logf(logTypeNegotiation, "Using PSK with identity %x", key.Identity)
-			return true, i, &key, ctx, nil
+		psk, ok := psks.Get(identityHex)
+		if !ok {
+			continue
 		}
+
+		ctx := cryptoContext{}
+		ctx.preInit(psk)
+
+		// context = ClientHello[truncated]
+		// context = ClientHello1 + HelloRetryRequest + ClientHello2[truncated]
+		ctxHash := ctx.params.hash.New()
+		ctxHash.Write(context)
+
+		binder := ctx.computeFinishedData(ctx.binderKey, ctxHash.Sum(nil))
+		if !bytes.Equal(binder, binders[i].Binder) {
+			logf(logTypeNegotiation, "Binder check failed for identity %x", psk.Identity)
+			return false, 0, nil, cryptoContext{}, fmt.Errorf("Binder check failed identity %x", psk.Identity)
+		}
+
+		logf(logTypeNegotiation, "Using PSK with identity %x", psk.Identity)
+		return true, i, &psk, ctx, nil
 	}
 
 	logf(logTypeNegotiation, "Failed to find a usable PSK")

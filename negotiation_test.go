@@ -71,8 +71,8 @@ func TestPSKNegotiation(t *testing.T) {
 		{Binder: []byte{}},
 		{Binder: []byte{}},
 	}
-	psks := map[string]PreSharedKey{
-		"example.com": {
+	psks := &PSKMapCache{
+		"04050607": {
 			CipherSuite: TLS_AES_128_GCM_SHA256,
 			Identity:    []byte{4, 5, 6, 7},
 			Key:         []byte{0, 1, 2, 3},
@@ -93,7 +93,7 @@ func TestPSKNegotiation(t *testing.T) {
 	assertError(t, err, "Failed to error on binder failure")
 
 	// Test negotiation failure on no PSK overlap
-	ok, _, _, _, err = PSKNegotiation(identities, binders, chTrunc, map[string]PreSharedKey{})
+	ok, _, _, _, err = PSKNegotiation(identities, binders, chTrunc, &PSKMapCache{})
 	assertEquals(t, ok, false)
 	assertNotError(t, err, "Errored on PSK negotiation failure")
 }
