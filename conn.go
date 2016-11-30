@@ -23,6 +23,9 @@ type PreSharedKey struct {
 	Identity     []byte
 	Key          []byte
 	NextProto    string
+	ReceivedAt   time.Time
+	ExpiresAt    time.Time
+	TicketAgeAdd uint32
 }
 
 type PreSharedKeyCache interface {

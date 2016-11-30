@@ -3,6 +3,7 @@ package mint
 import (
 	"bytes"
 	"fmt"
+	"time"
 )
 
 type Capabilities struct {
@@ -157,6 +158,9 @@ func (h *ClientHandshake) HandleNewSessionTicket(hm *HandshakeMessage) (PreShare
 		IsResumption: true,
 		Identity:     tkt.Ticket,
 		Key:          h.Context.resumptionSecret,
+		ReceivedAt:   time.Now(),
+		ExpiresAt:    time.Now().Add(time.Duration(tkt.TicketLifetime) * time.Second),
+		TicketAgeAdd: tkt.TicketAgeAdd,
 	}
 
 	return psk, nil
@@ -249,7 +253,10 @@ func (h *ClientHandshake) CreateClientHello(opts ConnectionOptions, caps Capabil
 		psk = &PreSharedKeyExtension{
 			HandshakeType: HandshakeTypeClientHello,
 			Identities: []PSKIdentity{
-				{Identity: key.Identity},
+				{
+					Identity:            key.Identity,
+					ObfuscatedTicketAge: uint32(time.Since(key.ReceivedAt)/time.Millisecond) + key.TicketAgeAdd,
+				},
 			},
 			Binders: []PSKBinderEntry{
 				// Note: Stub to get the length fields right
