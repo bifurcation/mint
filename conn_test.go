@@ -371,19 +371,6 @@ func TestResumption(t *testing.T) {
 	assertEquals(t, clientConfig.PSKs.Size(), 1)
 	assertEquals(t, serverConfig.PSKs.Size(), 1)
 
-	clientCache := clientConfig.PSKs.(*PSKMapCache)
-	serverCache := serverConfig.PSKs.(*PSKMapCache)
-
-	var serverPSK PreSharedKey
-	for _, key := range *serverCache {
-		serverPSK = key
-	}
-	var clientPSK PreSharedKey
-	for _, key := range *clientCache {
-		clientPSK = key
-	}
-	assertDeepEquals(t, clientPSK, serverPSK)
-
 	// Phase 2: Verify that the session ticket gets used as a PSK
 	cConn2, sConn2 := pipe()
 	client2 := Client(cConn2, &clientConfig)
