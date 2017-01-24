@@ -969,6 +969,7 @@ func (h *ServerHandshake) CreateNewSessionTicket(length int, lifetime uint32) (P
 		IsResumption: true,
 		Identity:     tkt.Ticket,
 		Key:          h.Context.resumptionSecret,
+		NextProto:    h.Params.NextProto,
 	}
 
 	tktm, err := HandshakeMessageFromBody(tkt)
