@@ -31,19 +31,19 @@ func assertNotNil(t *testing.T, x interface{}, msg string) {
 
 func assertEquals(t *testing.T, a interface{}, b interface{}) {
 	if a != b {
-		assert(t, false, fmt.Sprintf("%v != %v", a, b))
+		assert(t, false, fmt.Sprintf("%+v != %+v", a, b))
 	}
 }
 
 func assertByteEquals(t *testing.T, a []byte, b []byte) {
 	if !bytes.Equal(a, b) {
-		assert(t, false, fmt.Sprintf("%v != %v", hex.EncodeToString(a), hex.EncodeToString(b)))
+		assert(t, false, fmt.Sprintf("%+v != %+v", hex.EncodeToString(a), hex.EncodeToString(b)))
 	}
 }
 
 func assertNotByteEquals(t *testing.T, a []byte, b []byte) {
 	if bytes.Equal(a, b) {
-		assert(t, false, fmt.Sprintf("%v == %v", hex.EncodeToString(a), hex.EncodeToString(b)))
+		assert(t, false, fmt.Sprintf("%+v == %+v", hex.EncodeToString(a), hex.EncodeToString(b)))
 	}
 }
 
