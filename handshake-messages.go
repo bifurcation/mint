@@ -454,3 +454,18 @@ func (ku KeyUpdateBody) Marshal() ([]byte, error) {
 func (ku *KeyUpdateBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, ku)
 }
+
+// struct {} EndOfEarlyData;
+type EndOfEarlyDataBody struct{}
+
+func (eoed EndOfEarlyDataBody) Type() HandshakeType {
+	return HandshakeTypeEndOfEarlyData
+}
+
+func (eoed EndOfEarlyDataBody) Marshal() ([]byte, error) {
+	return []byte{}, nil
+}
+
+func (eoed *EndOfEarlyDataBody) Unmarshal(data []byte) (int, error) {
+	return 0, nil
+}

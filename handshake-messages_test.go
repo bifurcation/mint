@@ -230,6 +230,10 @@ var (
 	keyUpdateValidIn  = KeyUpdateBody{
 		KeyUpdateRequest: KeyUpdateRequested,
 	}
+
+	// EndOfEarlyData test cases
+	endOfEarlyDataValidHex = ""
+	endOfEarlyDataValidIn  = EndOfEarlyDataBody{}
 )
 
 func TestHandshakeMessageTypes(t *testing.T) {
@@ -686,4 +690,23 @@ func TestKeyUpdateMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Failed to unmarshal a valid KeyUpdate")
 	assertEquals(t, read, len(keyUpdateValid))
 	assertDeepEquals(t, ku, keyUpdateValidIn)
+}
+
+func TestEndOfEarlyDataMarshalUnmarshal(t *testing.T) {
+	endOfEarlyDataValid, _ := hex.DecodeString(endOfEarlyDataValidHex)
+
+	// Test correctness of handshake type
+	assertEquals(t, (EndOfEarlyDataBody{}).Type(), HandshakeTypeEndOfEarlyData)
+
+	// Test successful marshal
+	out, err := endOfEarlyDataValidIn.Marshal()
+	assertNotError(t, err, "Failed to marshal a valid KeyUpdate")
+	assertByteEquals(t, out, endOfEarlyDataValid)
+
+	// Test successful unmarshal
+	var eoed EndOfEarlyDataBody
+	read, err := eoed.Unmarshal(endOfEarlyDataValid)
+	assertNotError(t, err, "Failed to unmarshal a valid KeyUpdate")
+	assertEquals(t, read, len(endOfEarlyDataValid))
+	assertDeepEquals(t, eoed, endOfEarlyDataValidIn)
 }

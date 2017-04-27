@@ -39,6 +39,7 @@ const (
 	AlertInappropriateFallback  Alert = 86
 	AlertUserCanceled           Alert = 90
 	AlertNoRenegotiation        Alert = 100
+	AlertNoAlert                Alert = 0xFF
 )
 
 var alertText = map[Alert]string{

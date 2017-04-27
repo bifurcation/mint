@@ -25,6 +25,7 @@ const (
 	HandshakeTypeClientHello         HandshakeType = 1
 	HandshakeTypeServerHello         HandshakeType = 2
 	HandshakeTypeNewSessionTicket    HandshakeType = 4
+	HandshakeTypeEndOfEarlyData      HandshakeType = 5
 	HandshakeTypeHelloRetryRequest   HandshakeType = 6
 	HandshakeTypeEncryptedExtensions HandshakeType = 8
 	HandshakeTypeCertificate         HandshakeType = 11
