@@ -40,8 +40,8 @@ var (
 		"0006000100020003" + "0100" + extListOverflowOuterHex
 
 	// ClientHello truncation test cases
-	chTruncPSKData, _ = hex.DecodeString(pskClientHex)
-	chTruncHex        = "01000062" + "0303" + hex.EncodeToString(helloRandom[:]) +
+	chTruncPSKData = unhex(pskClientHex)
+	chTruncHex     = "01000062" + "0303" + hex.EncodeToString(helloRandom[:]) +
 		"00" + "0006000100020003" + "0100" + "00330029002f000a00040102030405060708"
 	chTruncValid = ClientHelloBody{
 		Random:       helloRandom,
@@ -142,10 +142,10 @@ var (
 		"470030440220718254f2b3c1cc0fa4c53bf43182f8acbc19" +
 		"04e45ee1a3abdc8bc50a155712b4022010664cc29b80fae9" +
 		"150027726da5b144df764a76007eee2a52b6ae0c995395fb"
-	cert1Bytes, _ = hex.DecodeString(cert1Hex)
-	cert2Bytes, _ = hex.DecodeString(cert2Hex)
-	cert1, _      = x509.ParseCertificate(cert1Bytes)
-	cert2, _      = x509.ParseCertificate(cert2Bytes)
+	cert1Bytes = unhex(cert1Hex)
+	cert2Bytes = unhex(cert2Hex)
+	cert1, _   = x509.ParseCertificate(cert1Bytes)
+	cert2, _   = x509.ParseCertificate(cert2Bytes)
 
 	certValidIn = CertificateBody{
 		CertificateRequestContext: []byte{0, 0, 0, 0},
@@ -246,8 +246,8 @@ func TestHandshakeMessageTypes(t *testing.T) {
 }
 
 func TestClientHelloMarshalUnmarshal(t *testing.T) {
-	chValid, _ := hex.DecodeString(chValidHex)
-	chOverflow, _ := hex.DecodeString(chOverflowHex)
+	chValid := unhex(chValidHex)
+	chOverflow := unhex(chOverflowHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (ClientHelloBody{}).Type(), HandshakeTypeClientHello)
@@ -328,7 +328,7 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 }
 
 func TestClientHelloTruncate(t *testing.T) {
-	chTrunc, _ := hex.DecodeString(chTruncHex)
+	chTrunc := unhex(chTruncHex)
 
 	// Test success
 	trunc, err := chTruncValid.Truncated()
@@ -353,8 +353,8 @@ func TestClientHelloTruncate(t *testing.T) {
 }
 
 func TestHelloRetryRequestMarshalUnmarshal(t *testing.T) {
-	hrrValid, _ := hex.DecodeString(hrrValidHex)
-	hrrEmpty, _ := hex.DecodeString(hrrEmptyHex)
+	hrrValid := unhex(hrrValidHex)
+	hrrEmpty := unhex(hrrEmptyHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (HelloRetryRequestBody{}).Type(), HandshakeTypeHelloRetryRequest)
@@ -381,9 +381,9 @@ func TestHelloRetryRequestMarshalUnmarshal(t *testing.T) {
 }
 
 func TestServerHelloMarshalUnmarshal(t *testing.T) {
-	shValid, _ := hex.DecodeString(shValidHex)
-	shEmpty, _ := hex.DecodeString(shEmptyHex)
-	shOverflow, _ := hex.DecodeString(shOverflowHex)
+	shValid := unhex(shValidHex)
+	shEmpty := unhex(shEmptyHex)
+	shOverflow := unhex(shOverflowHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (ServerHelloBody{}).Type(), HandshakeTypeServerHello)
@@ -429,7 +429,7 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 }
 
 func TestFinishedMarshalUnmarshal(t *testing.T) {
-	finValid, _ := hex.DecodeString(finValidHex)
+	finValid := unhex(finValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (FinishedBody{}).Type(), HandshakeTypeFinished)
@@ -462,7 +462,7 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 
 // This one is a little brief because it is just an extensionList
 func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
-	encExtValid, _ := hex.DecodeString(encExtValidHex)
+	encExtValid := unhex(encExtValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (EncryptedExtensionsBody{}).Type(), HandshakeTypeEncryptedExtensions)
@@ -482,8 +482,8 @@ func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 
 func TestCertificateMarshalUnmarshal(t *testing.T) {
 	// Create a couple of certificates and manually encode
-	certValid, _ := hex.DecodeString(certValidHex)
-	certTooShort, _ := hex.DecodeString(certTooShortHex)
+	certValid := unhex(certValidHex)
+	certTooShort := unhex(certTooShortHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (CertificateBody{}).Type(), HandshakeTypeCertificate)
@@ -548,7 +548,7 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 }
 
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
-	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
+	certVerifyValid := unhex(certVerifyValidHex)
 
 	chMessage, _ := HandshakeMessageFromBody(&chValidIn)
 	shMessage, _ := HandshakeMessageFromBody(&shValidIn)
@@ -611,7 +611,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 }
 
 func TestCertificateRequestMarshalUnmarshal(t *testing.T) {
-	certReqValid, _ := hex.DecodeString(certReqValidHex)
+	certReqValid := unhex(certReqValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (CertificateRequestBody{}).Type(), HandshakeTypeCertificateRequest)
@@ -631,7 +631,7 @@ func TestCertificateRequestMarshalUnmarshal(t *testing.T) {
 }
 
 func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
-	ticketValid, _ := hex.DecodeString(ticketValidHex)
+	ticketValid := unhex(ticketValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (NewSessionTicketBody{}).Type(), HandshakeTypeNewSessionTicket)
@@ -674,7 +674,7 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 }
 
 func TestKeyUpdateMarshalUnmarshal(t *testing.T) {
-	keyUpdateValid, _ := hex.DecodeString(keyUpdateValidHex)
+	keyUpdateValid := unhex(keyUpdateValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (KeyUpdateBody{}).Type(), HandshakeTypeKeyUpdate)
@@ -693,7 +693,7 @@ func TestKeyUpdateMarshalUnmarshal(t *testing.T) {
 }
 
 func TestEndOfEarlyDataMarshalUnmarshal(t *testing.T) {
-	endOfEarlyDataValid, _ := hex.DecodeString(endOfEarlyDataValidHex)
+	endOfEarlyDataValid := unhex(endOfEarlyDataValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (EndOfEarlyDataBody{}).Type(), HandshakeTypeEndOfEarlyData)

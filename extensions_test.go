@@ -40,10 +40,10 @@ var (
 	extListOverflowInnerHex = "0012000a0005f0f1f2f3f4000a0010f0f1f2f3f4"
 
 	// Add/Find test cases
-	keyShareServerRaw, _  = hex.DecodeString(keyShareServerHex)
-	keyShareClientRaw, _  = hex.DecodeString(keyShareClientHex)
-	keyShareInvalidRaw, _ = hex.DecodeString(keyShareInvalidHex)
-	extListKeyShareIn     = ExtensionList{
+	keyShareServerRaw  = unhex(keyShareServerHex)
+	keyShareClientRaw  = unhex(keyShareClientHex)
+	keyShareInvalidRaw = unhex(keyShareInvalidHex)
+	extListKeyShareIn  = ExtensionList{
 		Extension{
 			ExtensionType: ExtensionTypeKeyShare,
 			ExtensionData: keyShareServerRaw,
@@ -223,8 +223,7 @@ var validExtensionTestCases = map[ExtensionType]struct {
 
 func TestExtensionBodyMarshalUnmarshal(t *testing.T) {
 	for extType, test := range validExtensionTestCases {
-		marshaled, err := hex.DecodeString(test.marshaledHex)
-		assertNotError(t, err, "Malformed test case for extension type")
+		marshaled := unhex(test.marshaledHex)
 
 		// Test extension type
 		assertEquals(t, test.unmarshaled.Type(), extType)
@@ -243,10 +242,10 @@ func TestExtensionBodyMarshalUnmarshal(t *testing.T) {
 }
 
 func TestExtensionMarshalUnmarshal(t *testing.T) {
-	extValid, _ := hex.DecodeString(extValidHex)
-	extEmpty, _ := hex.DecodeString(extEmptyHex)
-	extNoHeader, _ := hex.DecodeString(extNoHeaderHex)
-	extNoData, _ := hex.DecodeString(extNoDataHex)
+	extValid := unhex(extValidHex)
+	extEmpty := unhex(extEmptyHex)
+	extNoHeader := unhex(extNoHeaderHex)
+	extNoData := unhex(extNoDataHex)
 
 	// Test successful marshal
 	out, err := extValidIn.Marshal()
@@ -284,11 +283,11 @@ func TestExtensionMarshalUnmarshal(t *testing.T) {
 }
 
 func TestExtensionListMarshalUnmarshal(t *testing.T) {
-	extListValid, _ := hex.DecodeString(extListValidHex)
-	extListEmpty, _ := hex.DecodeString(extListEmptyHex)
-	extListNoHeader, _ := hex.DecodeString(extListNoHeaderHex)
-	extListOverflowOuter, _ := hex.DecodeString(extListOverflowOuterHex)
-	extListOverflowInner, _ := hex.DecodeString(extListOverflowInnerHex)
+	extListValid := unhex(extListValidHex)
+	extListEmpty := unhex(extListEmptyHex)
+	extListNoHeader := unhex(extListNoHeaderHex)
+	extListOverflowOuter := unhex(extListOverflowOuterHex)
+	extListOverflowInner := unhex(extListOverflowInnerHex)
 
 	// Test successful marshal
 	out, err := extListValidIn.Marshal()
@@ -370,7 +369,7 @@ func TestExtensionFind(t *testing.T) {
 
 func TestServerNameMarshalUnmarshal(t *testing.T) {
 	serverNameHex := validExtensionTestCases[ExtensionTypeServerName].marshaledHex
-	serverName, _ := hex.DecodeString(serverNameHex)
+	serverName := unhex(serverNameHex)
 
 	// Test unmarshal failure on underlying unmarshal failure
 	var sni ServerNameExtension
@@ -385,10 +384,10 @@ func TestServerNameMarshalUnmarshal(t *testing.T) {
 }
 
 func TestKeyShareMarshalUnmarshal(t *testing.T) {
-	keyShareClient, _ := hex.DecodeString(keyShareClientHex)
-	keyShareHelloRetry, _ := hex.DecodeString(keyShareHelloRetryHex)
-	keyShareServer, _ := hex.DecodeString(keyShareServerHex)
-	keyShareInvalid, _ := hex.DecodeString(keyShareInvalidHex)
+	keyShareClient := unhex(keyShareClientHex)
+	keyShareHelloRetry := unhex(keyShareHelloRetryHex)
+	keyShareServer := unhex(keyShareServerHex)
+	keyShareInvalid := unhex(keyShareInvalidHex)
 
 	// Test extension type
 	assertEquals(t, KeyShareExtension{}.Type(), ExtensionTypeKeyShare)
@@ -484,9 +483,9 @@ func TestKeyShareMarshalUnmarshal(t *testing.T) {
 }
 
 func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
-	pskClient, _ := hex.DecodeString(pskClientHex)
-	pskClientUnbalanced, _ := hex.DecodeString(pskClientUnbalancedHex)
-	pskServer, _ := hex.DecodeString(pskServerHex)
+	pskClient := unhex(pskClientHex)
+	pskClientUnbalanced := unhex(pskClientUnbalancedHex)
+	pskServer := unhex(pskServerHex)
 
 	// Test extension type
 	assertEquals(t, PreSharedKeyExtension{}.Type(), ExtensionTypePreSharedKey)
@@ -559,7 +558,7 @@ func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
 
 func TestALPNMarshalUnmarshal(t *testing.T) {
 	alpnHex := validExtensionTestCases[ExtensionTypeALPN].marshaledHex
-	alpn, _ := hex.DecodeString(alpnHex)
+	alpn := unhex(alpnHex)
 
 	// Test unmarshal failure on underlying unmarshal failure
 	ext := &ALPNExtension{}

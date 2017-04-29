@@ -3,7 +3,6 @@ package mint
 import (
 	"bytes"
 	"crypto/x509"
-	"encoding/hex"
 	"io"
 	"net"
 	"sync"
@@ -98,8 +97,8 @@ var (
 		"1e0d164633bea4346dc0c8081172d67ee7bca4bd5463cc147d8c062ebb31be6e9c39518c" +
 		"37f5607a2d6f36114800f6c6f509893fa352a468b30ad874ae56db769f1786567e9c96c1" +
 		"6b4a4b2a25dda3"
-	serverCertDER, _ = hex.DecodeString(serverCertHex)
-	serverCert, _    = x509.ParseCertificate(serverCertDER)
+	serverCertDER = unhex(serverCertHex)
+	serverCert, _ = x509.ParseCertificate(serverCertDER)
 
 	// The corresponding private key
 	serverKeyHex = "308204a40201000282010100a558ff3c12b8c4906b7f638878c71963ac95548c5d36975b" +
@@ -136,8 +135,8 @@ var (
 		"cb27a591f69752d1d6ebe21291aec29b301efe47eced0187125f741ce52b3826beac3778" +
 		"f3560448e91644fd52460f8c3afa1596c01e6cd2c37120d8122c09edf326988b48d98c27" +
 		"f788eb83"
-	serverKeyDER, _ = hex.DecodeString(serverKeyHex)
-	serverKey, _    = x509.ParsePKCS1PrivateKey(serverKeyDER)
+	serverKeyDER = unhex(serverKeyHex)
+	serverKey, _ = x509.ParsePKCS1PrivateKey(serverKeyDER)
 
 	psk = PreSharedKey{
 		CipherSuite:  TLS_AES_128_GCM_SHA256,

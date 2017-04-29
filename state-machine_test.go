@@ -1,8 +1,6 @@
 package mint
 
 import (
-	"encoding/hex"
-	"fmt"
 	"testing"
 )
 
@@ -32,8 +30,6 @@ func TestClientStateStart(t *testing.T) {
 	assertEquals(t, toSend[0].Type(), HandshakeTypeClientHello)
 	assertEquals(t, alert, AlertNoAlert)
 
-	fmt.Printf("%+v\n", toSend[0].(*ClientHelloBody))
-
 	// TODO: Test success (with PSK)
 	// TODO: Test success (with PSK and early data)
 	// TODO: Test success with cookie / HRR (if we go that way, vs. WAIT_SH -> WAIT_SH)
@@ -58,9 +54,9 @@ func TestClientStateWaitSH(t *testing.T) {
 		"76e29b9a1f558263d3120ed0ee73e84f6f05e7346538f84253cbfa7331cf8f2" +
 		"32d5677b6c36ec9a6ff43bb2a628e940c79af2000a000400020017000d00040" +
 		"0020403002d00020101001000050003026832"
-	clientHelloBody, _ := hex.DecodeString(clientHelloBodyHex)
+	clientHelloBody := unhex(clientHelloBodyHex)
 	dhPrivateKeyHex := "51720e0c02e4e59baea5a80ee897968eb543b5fa4de895cc6226c663685bac78"
-	dhPrivateKey, _ := hex.DecodeString(dhPrivateKeyHex)
+	dhPrivateKey := unhex(dhPrivateKeyHex)
 
 	state := ClientStateWaitSH{
 		state: &connectionState{
@@ -356,8 +352,6 @@ func TestServerStateNegotiated(t *testing.T) {
 	assertEquals(t, toSend[4].Type(), HandshakeTypeCertificateVerify)
 	assertEquals(t, toSend[5].Type(), HandshakeTypeFinished)
 	assertEquals(t, alert, AlertNoAlert)
-
-	fmt.Printf("!!! %+v\n", toSend[0])
 
 	// Test success (0xRTT)
 	connState2 := initState

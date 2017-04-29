@@ -98,8 +98,8 @@ func TestNewKeyShare(t *testing.T) {
 }
 
 func TestKeyAgreement(t *testing.T) {
-	shortKeyPub, _ := hex.DecodeString(shortKeyPubHex)
-	shortKeyPriv, _ := hex.DecodeString(shortKeyPrivHex)
+	shortKeyPub := unhex(shortKeyPubHex)
+	shortKeyPriv := unhex(shortKeyPrivHex)
 
 	// Test success cases
 	for _, group := range dhGroups {
@@ -320,15 +320,15 @@ func TestSignVerify(t *testing.T) {
 
 func TestHKDF(t *testing.T) {
 	hash := crypto.SHA256
-	hkdfInput, _ := hex.DecodeString(hkdfInputHex)
-	hkdfSalt, _ := hex.DecodeString(hkdfSaltHex)
-	hkdfInfo, _ := hex.DecodeString(hkdfInfoHex)
-	hkdfExtractOutput, _ := hex.DecodeString(hkdfExtractOutputHex)
-	hkdfExtractZeroOutput, _ := hex.DecodeString(hkdfExtractZeroOutputHex)
-	hkdfExpandOutput, _ := hex.DecodeString(hkdfExpandOutputHex)
-	hkdfHash, _ := hex.DecodeString(hkdfHashHex)
-	hkdfEncodedLabel, _ := hex.DecodeString(hkdfEncodedLabelHex)
-	hkdfExpandLabelOutput, _ := hex.DecodeString(hkdfExpandLabelOutputHex)
+	hkdfInput := unhex(hkdfInputHex)
+	hkdfSalt := unhex(hkdfSaltHex)
+	hkdfInfo := unhex(hkdfInfoHex)
+	hkdfExtractOutput := unhex(hkdfExtractOutputHex)
+	hkdfExtractZeroOutput := unhex(hkdfExtractZeroOutputHex)
+	hkdfExpandOutput := unhex(hkdfExpandOutputHex)
+	hkdfHash := unhex(hkdfHashHex)
+	hkdfEncodedLabel := unhex(hkdfEncodedLabelHex)
+	hkdfExpandLabelOutput := unhex(hkdfExpandLabelOutputHex)
 
 	// Test hkdfExtract is correct with salt
 	out := hkdfExtract(hash, hkdfSalt, hkdfInput)

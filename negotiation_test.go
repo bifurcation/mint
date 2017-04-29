@@ -2,7 +2,6 @@ package mint
 
 import (
 	"bytes"
-	"encoding/hex"
 	"testing"
 )
 
@@ -56,8 +55,8 @@ func TestDHNegotiation(t *testing.T) {
 }
 
 func TestPSKNegotiation(t *testing.T) {
-	chTrunc, _ := hex.DecodeString("0001020304050607")
-	binderValue, _ := hex.DecodeString("9c4bfad67420fbc3f03809744929f9f3d21030fd15e886881bbe21b7ca28ee16")
+	chTrunc := unhex("0001020304050607")
+	binderValue := unhex("9c4bfad67420fbc3f03809744929f9f3d21030fd15e886881bbe21b7ca28ee16")
 
 	identities := []PSKIdentity{
 		{Identity: []byte{0, 1, 2, 3}},
