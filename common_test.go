@@ -8,6 +8,14 @@ import (
 	"testing"
 )
 
+func unhex(h string) []byte {
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
 func assert(t *testing.T, test bool, msg string) {
 	if !test {
 		t.Fatalf(msg)
