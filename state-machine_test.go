@@ -1,15 +1,73 @@
 package mint
 
 import (
+	"fmt"
 	"testing"
 )
+
+func TestStateMachineIntegration(t *testing.T) {
+	caps := Capabilities{
+		Groups:           []NamedGroup{P256},
+		SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+		PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+		CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+		PSKs:             &PSKMapCache{},
+		Certificates:     certificates,
+	}
+	clientConnState := &connectionState{
+		Caps: caps,
+		Opts: ConnectionOptions{
+			ServerName: "example.com",
+			NextProtos: []string{"h2"},
+		},
+	}
+	serverConnState := &connectionState{
+		Caps: caps,
+	}
+
+	var clientState, serverState State
+	clientState = ClientStateStart{state: clientConnState}
+	serverState = ServerStateStart{state: serverConnState}
+
+	// Create the ClientHello
+	clientState, toSend, alert := clientState.Next(nil)
+	assertEquals(t, alert, AlertNoAlert)
+	assertEquals(t, len(toSend), 1)
+
+	fmt.Printf("\n\n\n^^^Client     ServerVVV\n\n\n")
+
+	// Send the ClientHello to the server
+	serverState, toSend, alert = serverState.Next(toSend[0])
+	assertEquals(t, alert, AlertNoAlert)
+	assert(t, len(toSend) >= 1, "No messages returned")
+
+	fmt.Printf("\n\n\n^^^Server     ClientVVV\n\n\n")
+
+	// Send the ServerHello to the client
+	clientState, toSend, alert = clientState.Next(toSend[0])
+	assertEquals(t, alert, AlertNoAlert)
+	assertEquals(t, len(toSend), 0)
+
+	// Compare states as of ServerHello
+	assertDeepEquals(t, clientConnState.Params, serverConnState.Params)
+	assertEquals(t, clientConnState.Context.suite, serverConnState.Context.suite)
+	assertByteEquals(t, clientConnState.Context.h2, serverConnState.Context.h2)
+	assertByteEquals(t, clientConnState.Context.dhSecret, serverConnState.Context.dhSecret)
+	assertByteEquals(t, clientConnState.Context.handshakeSecret, serverConnState.Context.handshakeSecret)
+	assertByteEquals(t, clientConnState.Context.clientHandshakeTrafficSecret, serverConnState.Context.clientHandshakeTrafficSecret)
+	assertByteEquals(t, clientConnState.Context.serverHandshakeTrafficSecret, serverConnState.Context.serverHandshakeTrafficSecret)
+	assertByteEquals(t, clientConnState.Context.masterSecret, serverConnState.Context.masterSecret)
+	assertByteEquals(t, clientConnState.Context.clientFinishedKey, serverConnState.Context.clientFinishedKey)
+	assertByteEquals(t, serverConnState.Context.serverFinishedKey, serverConnState.Context.serverFinishedKey)
+
+}
 
 func TestClientStateStart(t *testing.T) {
 	state := ClientStateStart{
 		state: &connectionState{
 			Caps: Capabilities{
 				Groups:           []NamedGroup{P256},
-				SignatureSchemes: []SignatureScheme{ECDSA_P256_SHA256},
+				SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 				PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
 				CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
 				PSKs:             &PSKMapCache{},
@@ -420,7 +478,6 @@ func TestServerStateWaitCert(t *testing.T) {
 	state := ServerStateWaitCert{state: &connectionState{}}
 
 	// Test success (normal)
-	state.CertificateEmpty = false
 	nextState, toSend, alert := state.Next(&CertificateBody{})
 	_, stateTypeOK := nextState.(ServerStateWaitCV)
 	t.Logf("%+v", nextState)
@@ -429,8 +486,11 @@ func TestServerStateWaitCert(t *testing.T) {
 	assertEquals(t, alert, AlertNoAlert)
 
 	// Test success (empty certificate)
-	state.CertificateEmpty = true
-	nextState, toSend, alert = state.Next(&CertificateBody{})
+	nextState, toSend, alert = state.Next(&CertificateBody{
+		CertificateList: []CertificateEntry{
+			CertificateEntry{},
+		},
+	})
 	_, stateTypeOK = nextState.(ServerStateWaitFinished)
 	t.Logf("%+v", nextState)
 	assert(t, stateTypeOK, "Incorrect next state type")

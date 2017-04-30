@@ -871,7 +871,9 @@ func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret 
 
 	// Update the handshake hash
 	bytes := shm.Marshal()
-	logf(logTypeCrypto, "input to handshake hash [%d]: %x", len(bytes), bytes)
+	temp := ctx.handshakeHash.Sum(nil)
+	logf(logTypeCrypto, "handshake hash pre-input [%d]: %x", len(temp), temp)
+	logf(logTypeCrypto, "input to handshake hash  [%d]: %x", len(bytes), bytes)
 	ctx.handshakeHash.Write(bytes)
 	ctx.h2 = ctx.handshakeHash.Sum(nil)
 	logf(logTypeCrypto, "handshake hash 2 [%d]: %x", len(ctx.h2), ctx.h2)

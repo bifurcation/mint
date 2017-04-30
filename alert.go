@@ -82,6 +82,7 @@ var alertText = map[Alert]string{
 	AlertUnknownPSKIdentity:          "unknown PSK identity",
 	AlertNoApplicationProtocol:       "no application protocol",
 	AlertNoRenegotiation:             "no renegotiation",
+	AlertNoAlert:                     "no alert",
 }
 
 func (e Alert) String() string {

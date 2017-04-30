@@ -18,26 +18,31 @@ type connectionState struct {
 	Params  ConnectionParameters
 	Context cryptoContext
 
+	AuthCertificate func(chain []CertificateEntry) error
+
 	// Client semi-transient state
-	OfferedDH         map[NamedGroup][]byte
-	OfferedPSK        PreSharedKey
-	PSK               []byte
-	clientHello       *HandshakeMessage
-	helloRetryRequest *HandshakeMessage
-	retryClientHello  *HandshakeMessage
-	serverHello       *HandshakeMessage
-	serverFirstFlight []*HandshakeMessage
-	serverFinished    *HandshakeMessage
+	OfferedDH                map[NamedGroup][]byte
+	OfferedPSK               PreSharedKey
+	PSK                      []byte
+	clientHello              *HandshakeMessage
+	helloRetryRequest        *HandshakeMessage
+	retryClientHello         *HandshakeMessage
+	serverHello              *HandshakeMessage
+	serverFirstFlight        []*HandshakeMessage
+	serverFinished           *HandshakeMessage
+	serverCertificate        *CertificateBody
+	serverCertificateRequest *CertificateRequestBody
 
 	// Server semi-transient state
-	cookie      []byte
-	cert        *Certificate
-	certScheme  SignatureScheme
-	transcript  []*HandshakeMessage
-	dhGroup     NamedGroup
-	dhPublic    []byte
-	dhSecret    []byte
-	selectedPSK int
+	cookie             []byte
+	cert               *Certificate
+	certScheme         SignatureScheme
+	dhGroup            NamedGroup
+	dhPublic           []byte
+	dhSecret           []byte
+	selectedPSK        int
+	clientSecondFlight []*HandshakeMessage
+	clientCertificate  *CertificateBody
 }
 
 // Client State Machine
@@ -78,6 +83,7 @@ type ClientStateStart struct {
 
 func (state ClientStateStart) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
 	if hm != nil {
+		logf(logTypeHandshake, "[ClientStateStart] Unexpected non-nil message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
@@ -90,6 +96,7 @@ func (state ClientStateStart) Next(hm HandshakeMessageBody) (State, []HandshakeM
 	for i, group := range state.state.Caps.Groups {
 		pub, priv, err := newKeyShare(group)
 		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error generating key share [%v]", err)
 			return nil, nil, AlertInternalError
 		}
 
@@ -119,11 +126,13 @@ func (state ClientStateStart) Next(hm HandshakeMessageBody) (State, []HandshakeM
 	}
 	_, err := prng.Read(ch.Random[:])
 	if err != nil {
+		logf(logTypeHandshake, "[ClientStateStart] Error creating ClientHello random [%v]", err)
 		return nil, nil, AlertInternalError
 	}
 	for _, ext := range []ExtensionBody{&sv, &sni, &ks, &sg, &sa, &kem} {
 		err := ch.Extensions.Add(ext)
 		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error adding extension type=[%v] [%v]", ext.Type(), err)
 			return nil, nil, AlertInternalError
 		}
 	}
@@ -132,6 +141,7 @@ func (state ClientStateStart) Next(hm HandshakeMessageBody) (State, []HandshakeM
 		// values are never reported as nil
 		err := ch.Extensions.Add(alpn)
 		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error adding ALPN extension [%v]", err)
 			return nil, nil, AlertInternalError
 		}
 	}
@@ -146,6 +156,7 @@ func (state ClientStateStart) Next(hm HandshakeMessageBody) (State, []HandshakeM
 		// Narrow ciphersuites to ones that match PSK hash
 		keyParams, ok := cipherSuiteMap[key.CipherSuite]
 		if !ok {
+			logf(logTypeHandshake, "[ClientStateStart] PSK for unknown ciphersuite")
 			return nil, nil, AlertInternalError
 		}
 
@@ -182,6 +193,7 @@ func (state ClientStateStart) Next(hm HandshakeMessageBody) (State, []HandshakeM
 		// Compute the binder value
 		trunc, err := ch.Truncated()
 		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error marshaling truncated ClientHello [%v]", err)
 			return nil, nil, AlertInternalError
 		}
 
@@ -199,11 +211,13 @@ func (state ClientStateStart) Next(hm HandshakeMessageBody) (State, []HandshakeM
 		state.state.clientHello, _ = HandshakeMessageFromBody(ch)
 		state.state.Context.earlyUpdateWithClientHello(state.state.clientHello)
 	} else if len(state.state.Opts.EarlyData) > 0 {
+		logf(logTypeHandshake, "[ClientStateWaitSH] Early data without PSK")
 		return nil, nil, AlertInternalError
 	}
 
 	state.state.clientHello, err = HandshakeMessageFromBody(ch)
 	if err != nil {
+		logf(logTypeHandshake, "[ClientStateStart] Error marshaling ClientHello [%v]", err)
 		return nil, nil, AlertInternalError
 	}
 
@@ -219,11 +233,12 @@ type ClientStateWaitSH struct {
 
 func (state ClientStateWaitSH) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
 	if hm == nil {
+		logf(logTypeHandshake, "[ClientStateWaitSH] Unexpected nil message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	switch hm.Type() {
-	case HandshakeTypeHelloRetryRequest:
+	switch body := hm.(type) {
+	case *HelloRetryRequestBody:
 		// TODO: Process HRR
 		// XXX: Go via ClientStateStart or just directly back to ClientStateWaitSH?
 		// return ClientStateStart{state: state.state}.Next(nil)
@@ -232,11 +247,10 @@ func (state ClientStateWaitSH) Next(hm HandshakeMessageBody) (State, []Handshake
 		toSend := []HandshakeMessageBody{&ClientHelloBody{}}
 		return nextState, toSend, AlertNoAlert
 
-	case HandshakeTypeServerHello:
-		sh := hm.(*ServerHelloBody)
-
+	case *ServerHelloBody:
 		// Check that the version sent by the server is the one we support
-		if sh.Version != supportedVersion {
+		if body.Version != supportedVersion {
+			logf(logTypeHandshake, "[ClientStateWaitSH] Unsupported version [%v]", body.Version)
 			return nil, nil, AlertProtocolVersion
 		}
 
@@ -245,9 +259,9 @@ func (state ClientStateWaitSH) Next(hm HandshakeMessageBody) (State, []Handshake
 		serverKeyShare := KeyShareExtension{HandshakeType: HandshakeTypeServerHello}
 		serverEarlyData := EarlyDataExtension{}
 
-		foundPSK := sh.Extensions.Find(&serverPSK)
-		foundKeyShare := sh.Extensions.Find(&serverKeyShare)
-		state.state.Params.UsingEarlyData = sh.Extensions.Find(&serverEarlyData)
+		foundPSK := body.Extensions.Find(&serverPSK)
+		foundKeyShare := body.Extensions.Find(&serverKeyShare)
+		state.state.Params.UsingEarlyData = body.Extensions.Find(&serverEarlyData)
 
 		if foundPSK && (serverPSK.SelectedIdentity == 0) {
 			state.state.PSK = state.state.OfferedPSK.Key
@@ -262,25 +276,28 @@ func (state ClientStateWaitSH) Next(hm HandshakeMessageBody) (State, []Handshake
 			sks := serverKeyShare.Shares[0]
 			priv, ok := state.state.OfferedDH[sks.Group]
 			if !ok {
+				logf(logTypeHandshake, "[ClientStateWaitSH] Key share for unknown group")
 				return nil, nil, AlertIllegalParameter
 			}
 
 			state.state.Params.UsingDH = true
 			dhSecret, _ = keyAgreement(sks.Group, sks.KeyExchange, priv)
-			logf(logTypeHandshake, "[client] got key share extension")
 		}
 
 		// We just unmarshaled this, so it should re-marshal
-		state.state.serverHello, _ = HandshakeMessageFromBody(sh)
+		state.state.serverHello, _ = HandshakeMessageFromBody(body)
 
-		err := state.state.Context.init(sh.CipherSuite,
+		state.state.Params.CipherSuite = body.CipherSuite
+		err := state.state.Context.init(body.CipherSuite,
 			state.state.clientHello,
 			state.state.helloRetryRequest,
 			state.state.retryClientHello)
 		if err != nil {
+			logf(logTypeHandshake, "[ClientStateWaitSH] Error initializing crypto context [%v]", err)
 			return nil, nil, AlertInternalError
 		}
 
+		state.state.Context.init(body.CipherSuite, state.state.clientHello, state.state.helloRetryRequest, state.state.retryClientHello)
 		state.state.Context.updateWithServerHello(state.state.serverHello, dhSecret)
 
 		logf(logTypeHandshake, "[ClientStateWaitSH] -> [ClientStateWaitEE]")
@@ -288,6 +305,7 @@ func (state ClientStateWaitSH) Next(hm HandshakeMessageBody) (State, []Handshake
 		return nextState, nil, AlertNoAlert
 	}
 
+	logf(logTypeHandshake, "[ClientStateWaitSH] Unexpected message")
 	return nil, nil, AlertUnexpectedMessage
 }
 
@@ -296,11 +314,12 @@ type ClientStateWaitEE struct {
 }
 
 func (state ClientStateWaitEE) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
-	if hm == nil || hm.Type() != HandshakeTypeEncryptedExtensions {
+	ee, ok := hm.(*EncryptedExtensionsBody)
+	if hm == nil || !ok {
+		logf(logTypeHandshake, "[ClientStateWaitEE] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	ee := hm.(*EncryptedExtensionsBody)
 	serverALPN := ALPNExtension{}
 	serverEarlyData := EarlyDataExtension{}
 
@@ -312,11 +331,16 @@ func (state ClientStateWaitEE) Next(hm HandshakeMessageBody) (State, []Handshake
 	}
 
 	if state.state.Params.UsingPSK {
+		logf(logTypeHandshake, "[ClientStateWaitEE] -> [ClientStateWaitFinished]")
 		nextState := ClientStateWaitFinished{state: state.state}
 		return nextState, nil, AlertNoAlert
 	}
 
-	logf(logTypeHandshake, "[ClientStateWaitSH] -> [ClientStateWaitCertCR]")
+	// XXX: Ignoring error
+	eem, _ := HandshakeMessageFromBody(ee)
+	state.state.serverFirstFlight = []*HandshakeMessage{eem}
+
+	logf(logTypeHandshake, "[ClientStateWaitEE] -> [ClientStateWaitCertCR]")
 	nextState := ClientStateWaitCertCR{state: state.state}
 	return nextState, nil, AlertNoAlert
 }
@@ -327,17 +351,28 @@ type ClientStateWaitCertCR struct {
 
 func (state ClientStateWaitCertCR) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
 	if hm == nil {
+		logf(logTypeHandshake, "[ClientStateWaitCertCR] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	switch hm.Type() {
-	case HandshakeTypeCertificate:
-		// TODO: Process Certificate
+	switch body := hm.(type) {
+	case *CertificateBody:
+		// XXX: Ignoring error
+		certm, _ := HandshakeMessageFromBody(body)
+		state.state.serverCertificate = body
+		state.state.serverFirstFlight = append(state.state.serverFirstFlight, certm)
+
+		logf(logTypeHandshake, "[ClientStateWaitCertCR] -> [ClientStateWaitCV]")
 		nextState := ClientStateWaitCV{state: state.state}
 		return nextState, nil, AlertNoAlert
 
-	case HandshakeTypeCertificateRequest:
-		// TODO: Process CertificateRequest
+	case *CertificateRequestBody:
+		certreqm, _ := HandshakeMessageFromBody(body)
+		state.state.Params.UsingClientAuth = true
+		state.state.serverCertificateRequest = body
+		state.state.serverFirstFlight = append(state.state.serverFirstFlight, certreqm)
+
+		logf(logTypeHandshake, "[ClientStateWaitCertCR] -> [ClientStateWaitCert]")
 		nextState := ClientStateWaitCert{state: state.state}
 		return nextState, nil, AlertNoAlert
 	}
@@ -350,12 +385,18 @@ type ClientStateWaitCert struct {
 }
 
 func (state ClientStateWaitCert) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
-	if hm == nil || hm.Type() != HandshakeTypeCertificate {
+	cert, ok := hm.(*CertificateBody)
+	if hm == nil || !ok {
+		logf(logTypeHandshake, "[ClientStateWaitCert] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	// TODO: Process Certificate
+	// XXX: Ignoring error
+	certm, _ := HandshakeMessageFromBody(cert)
+	state.state.serverCertificate = cert
+	state.state.serverFirstFlight = append(state.state.serverFirstFlight, certm)
 
+	logf(logTypeHandshake, "[ClientStateWaitCert] -> [ClientStateWaitCV]")
 	nextState := ClientStateWaitCV{state: state.state}
 	return nextState, nil, AlertNoAlert
 }
@@ -365,12 +406,40 @@ type ClientStateWaitCV struct {
 }
 
 func (state ClientStateWaitCV) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
-	if hm == nil || hm.Type() != HandshakeTypeCertificateVerify {
+	certVerify, ok := hm.(*CertificateVerifyBody)
+	if hm == nil || !ok {
+		logf(logTypeHandshake, "[ClientStateWaitCV] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	// TODO: Process CertificateVerify
+	cvTranscript := []*HandshakeMessage{
+		state.state.clientHello,
+		state.state.helloRetryRequest,
+		state.state.retryClientHello,
+		state.state.serverHello,
+	}
+	cvTranscript = append(cvTranscript, state.state.serverFirstFlight...)
 
+	serverPublicKey := state.state.serverCertificate.CertificateList[0].CertData.PublicKey
+	if err := certVerify.Verify(serverPublicKey, cvTranscript, state.state.Context); err != nil {
+		return nil, nil, AlertHandshakeFailure
+	}
+
+	if state.state.AuthCertificate != nil {
+		err := state.state.AuthCertificate(state.state.serverCertificate.CertificateList)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateWaitCV] Application rejected server certificate")
+			return nil, nil, AlertBadCertificate
+		}
+	} else {
+		logf(logTypeHandshake, "[ClientStateWaitCV] WARNING: No verification of server certificate")
+	}
+
+	// XXX: Ignoring error
+	certvm, _ := HandshakeMessageFromBody(certVerify)
+	state.state.serverFirstFlight = append(state.state.serverFirstFlight, certvm)
+
+	logf(logTypeHandshake, "[ClientStateWaitCV] -> [ClientStateWaitFinished]")
 	nextState := ClientStateWaitFinished{state: state.state}
 	return nextState, nil, AlertNoAlert
 }
@@ -380,19 +449,47 @@ type ClientStateWaitFinished struct {
 }
 
 func (state ClientStateWaitFinished) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
-	if hm == nil || hm.Type() != HandshakeTypeFinished {
+	fin, ok := hm.(*FinishedBody)
+	if hm == nil || !ok {
+		logf(logTypeHandshake, "[ClientStateWaitFinished] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	// TODO: Verify Finished
-
-	nextState := StateConnected{state: state.state}
-	toSend := []HandshakeMessageBody{
-		&EndOfEarlyDataBody{},
-		&CertificateBody{},
-		&CertificateVerifyBody{},
-		&ClientHelloBody{},
+	// Verify server's Finished
+	if !bytes.Equal(fin.VerifyData, state.state.Context.serverFinished.VerifyData) {
+		logf(logTypeHandshake, "[ClientStateWaitFinished] Server's Finished failed to verify")
+		return nil, nil, AlertHandshakeFailure
 	}
+
+	finm, _ := HandshakeMessageFromBody(fin)
+	state.state.serverFirstFlight = append(state.state.serverFirstFlight, finm)
+	state.state.Context.updateWithServerFirstFlight(state.state.serverFirstFlight)
+
+	// Assemble client's second flight
+	toSend := []HandshakeMessageBody{}
+
+	if state.state.Params.UsingEarlyData {
+		toSend = append(toSend, &EndOfEarlyDataBody{})
+	}
+
+	if state.state.Params.UsingClientAuth {
+		// TODO send Certificate, CertificateVerify
+	}
+
+	secondFlight := make([]*HandshakeMessage, len(toSend))
+	for i, body := range toSend {
+		secondFlight[i], _ = HandshakeMessageFromBody(body)
+	}
+	err := state.state.Context.updateWithClientSecondFlight(secondFlight)
+	if err != nil {
+		logf(logTypeHandshake, "[ClientStateWaitFinished] Error updating crypto context with client second flight [%v]", err)
+		return nil, nil, AlertInternalError
+	}
+
+	toSend = append(toSend, state.state.Context.clientFinished)
+
+	logf(logTypeHandshake, "[ClientStateWaitFinished] -> [StateConnected]")
+	nextState := StateConnected{state: state.state}
 	return nextState, toSend, AlertNoAlert
 }
 
@@ -442,13 +539,13 @@ type ServerStateStart struct {
 }
 
 func (state ServerStateStart) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
-	if hm == nil || hm.Type() != HandshakeTypeClientHello {
+	ch, ok := hm.(*ClientHelloBody)
+	if hm == nil || !ok {
 		logf(logTypeHandshake, "[ServerStateStart] unexpected message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	// This message was presumably just unmarshaled, so it should re-marshal
-	ch := hm.(*ClientHelloBody)
+	// XXX: This message was presumably just unmarshaled, so it should re-marshal
 	state.state.clientHello, _ = HandshakeMessageFromBody(ch)
 
 	supportedVersions := new(SupportedVersionsExtension)
@@ -656,7 +753,7 @@ func (state ServerStateNegotiated) Next(hm HandshakeMessageBody) (State, []Hands
 	}
 
 	// Crank up the crypto context
-	err = state.state.Context.init(sh.CipherSuite, state.state.clientHello, state.state.helloRetryRequest, state.state.clientHello)
+	err = state.state.Context.init(sh.CipherSuite, state.state.clientHello, state.state.helloRetryRequest, state.state.retryClientHello)
 	if err != nil {
 		logf(logTypeHandshake, "[ServerStateNegotiated] Error initializing crypto context [%v]", err)
 		return nil, nil, AlertInternalError
@@ -696,26 +793,26 @@ func (state ServerStateNegotiated) Next(hm HandshakeMessageBody) (State, []Hands
 	toSend = append(toSend, ee)
 	transcript := []*HandshakeMessage{eem}
 
-	// Send a CertificateRequest message if we want client auth
-	var crm *HandshakeMessage
-	if state.state.Caps.RequireClientAuth {
-		state.state.Params.UsingClientAuth = true
-
-		// XXX: We don't support sending any constraints besides a list of
-		// supported signature algorithms
-		cr := &CertificateRequestBody{SupportedSignatureAlgorithms: state.state.Caps.SignatureSchemes}
-		crm, err = HandshakeMessageFromBody(cr)
-		if err != nil {
-			logf(logTypeHandshake, "[ServerStateNegotiated] Error marshaling CertificateRequest [%v]", err)
-			return nil, nil, AlertInternalError
-		}
-
-		toSend = append(toSend, cr)
-		transcript = append(transcript, crm)
-	}
-
 	// Authenticate with a certificate if required
 	if !state.state.Params.UsingPSK {
+		// Send a CertificateRequest message if we want client auth
+		if state.state.Caps.RequireClientAuth {
+			state.state.Params.UsingClientAuth = true
+
+			// XXX: We don't support sending any constraints besides a list of
+			// supported signature algorithms
+			cr := &CertificateRequestBody{SupportedSignatureAlgorithms: state.state.Caps.SignatureSchemes}
+			crm, err := HandshakeMessageFromBody(cr)
+			if err != nil {
+				logf(logTypeHandshake, "[ServerStateNegotiated] Error marshaling CertificateRequest [%v]", err)
+				return nil, nil, AlertInternalError
+			}
+			state.state.serverCertificateRequest = cr
+
+			toSend = append(toSend, cr)
+			transcript = append(transcript, crm)
+		}
+
 		// Create and send Certificate, CertificateVerify
 		certificate := &CertificateBody{
 			CertificateList: make([]CertificateEntry, len(state.state.cert.Chain)),
@@ -729,10 +826,14 @@ func (state ServerStateNegotiated) Next(hm HandshakeMessageBody) (State, []Hands
 			return nil, nil, AlertInternalError
 		}
 
+		toSend = append(toSend, certificate)
+		transcript = append(transcript, certm)
+
 		certificateVerify := &CertificateVerifyBody{Algorithm: state.state.certScheme}
 		logf(logTypeHandshake, "Creating CertVerify: %04x %v", state.state.certScheme, state.state.Context.params.hash)
-		// XXX: This will fail with client auth
-		cvTranscript := []*HandshakeMessage{state.state.clientHello, state.state.helloRetryRequest, state.state.clientHello, shm, eem, crm, certm}
+
+		cvTranscript := []*HandshakeMessage{state.state.clientHello, state.state.helloRetryRequest, state.state.retryClientHello, shm}
+		cvTranscript = append(cvTranscript, transcript...)
 		err = certificateVerify.Sign(state.state.cert.PrivateKey, cvTranscript, state.state.Context)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateNegotiated] Error signing CertificateVerify [%v]", err)
@@ -745,7 +846,7 @@ func (state ServerStateNegotiated) Next(hm HandshakeMessageBody) (State, []Hands
 		}
 
 		toSend = append(toSend, []HandshakeMessageBody{certificate, certificateVerify}...)
-		transcript = append(transcript, []*HandshakeMessage{certm, certvm}...)
+		transcript = append(transcript, certvm)
 	}
 
 	// Crank the crypto context
@@ -754,16 +855,15 @@ func (state ServerStateNegotiated) Next(hm HandshakeMessageBody) (State, []Hands
 		logf(logTypeHandshake, "[ServerStateNegotiated] Error updating crypto context with server's first flight [%v]", err)
 		return nil, nil, AlertInternalError
 	}
-	fm, err := HandshakeMessageFromBody(state.state.Context.serverFinished)
-	if err != nil {
-		logf(logTypeHandshake, "[ServerStateNegotiated] Error marshaling Finished message [%v]", err)
-		return nil, nil, AlertInternalError
-	}
 
-	toSend = append(toSend, state.state.Context.serverFinished)
-	transcript = append(transcript, fm)
-	state.state.transcript = []*HandshakeMessage{state.state.clientHello, state.state.helloRetryRequest, state.state.retryClientHello, shm}
-	state.state.transcript = append(state.state.transcript, transcript...)
+	fin := state.state.Context.serverFinished
+	finm, _ := HandshakeMessageFromBody(fin)
+	state.state.serverFirstFlight = append(state.state.serverFirstFlight, finm)
+
+	toSend = append(toSend, fin)
+	transcript = append(transcript, finm)
+
+	state.state.serverFirstFlight = transcript
 
 	if state.state.Params.UsingEarlyData {
 		logf(logTypeHandshake, "[ServerStateNegotiated] -> [ServerStateWaitEOED]")
@@ -783,11 +883,12 @@ type ServerStateWaitEOED struct {
 }
 
 func (state ServerStateWaitEOED) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
-	if hm == nil || hm.Type() != HandshakeTypeEndOfEarlyData {
+	_, ok := hm.(*EndOfEarlyDataBody)
+	if hm == nil || !ok {
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	// TODO: Rekey to handshake keys
+	// XXX: Is there anything to do here?
 
 	logf(logTypeHandshake, "[ServerStateWaitEOED] -> [ServerStateWaitFlight2]")
 	return ServerStateWaitFlight2{state: state.state}.Next(nil)
@@ -802,6 +903,8 @@ func (state ServerStateWaitFlight2) Next(hm HandshakeMessageBody) (State, []Hand
 		return nil, nil, AlertUnexpectedMessage
 	}
 
+	state.state.clientSecondFlight = []*HandshakeMessage{}
+
 	if state.state.Params.UsingClientAuth {
 		logf(logTypeHandshake, "[ServerStateWaitEOED] -> [ServerStateWaitCert]")
 		nextState := ServerStateWaitCert{state: state.state}
@@ -814,22 +917,25 @@ func (state ServerStateWaitFlight2) Next(hm HandshakeMessageBody) (State, []Hand
 }
 
 type ServerStateWaitCert struct {
-	CertificateEmpty bool
-	state            *connectionState
+	state *connectionState
 }
 
 func (state ServerStateWaitCert) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
-	if hm == nil || hm.Type() != HandshakeTypeCertificate {
+	cert, ok := hm.(*CertificateBody)
+	if hm == nil || !ok {
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	// TODO
+	certm, _ := HandshakeMessageFromBody(cert)
+	state.state.clientSecondFlight = append(state.state.clientSecondFlight, certm)
 
-	if state.CertificateEmpty {
+	if len(cert.CertificateList) == 0 {
 		logf(logTypeHandshake, "[ServerStateWaitCert] -> [ServerStateWaitFinished]")
 		nextState := ServerStateWaitFinished{state: state.state}
 		return nextState, nil, AlertNoAlert
 	}
+
+	state.state.clientCertificate = cert
 
 	logf(logTypeHandshake, "[ServerStateWaitCert] -> [ServerStateWaitCV]")
 	nextState := ServerStateWaitCV{state: state.state}
@@ -841,11 +947,38 @@ type ServerStateWaitCV struct {
 }
 
 func (state ServerStateWaitCV) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
-	if hm == nil || hm.Type() != HandshakeTypeCertificateVerify {
+	certVerify, ok := hm.(*CertificateVerifyBody)
+	if hm == nil || !ok {
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	// TODO
+	cvTranscript := []*HandshakeMessage{
+		state.state.clientHello,
+		state.state.helloRetryRequest,
+		state.state.retryClientHello,
+		state.state.serverHello,
+	}
+	cvTranscript = append(cvTranscript, state.state.serverFirstFlight...)
+	cvTranscript = append(cvTranscript, state.state.clientSecondFlight...)
+
+	serverPublicKey := state.state.serverCertificate.CertificateList[0].CertData.PublicKey
+	if err := certVerify.Verify(serverPublicKey, cvTranscript, state.state.Context); err != nil {
+		logf(logTypeHandshake, "[ServerStateWaitCV] Failure in client auth verification [%v]", err)
+		return nil, nil, AlertHandshakeFailure
+	}
+
+	if state.state.AuthCertificate != nil {
+		err := state.state.AuthCertificate(state.state.serverCertificate.CertificateList)
+		if err != nil {
+			logf(logTypeHandshake, "[ServerStateWaitCV] Application rejected client certificate")
+			return nil, nil, AlertBadCertificate
+		}
+	} else {
+		logf(logTypeHandshake, "[ServerStateWaitCV] WARNING: No verification of client certificate")
+	}
+
+	certvm, _ := HandshakeMessageFromBody(certVerify)
+	state.state.clientSecondFlight = append(state.state.clientSecondFlight, certvm)
 
 	logf(logTypeHandshake, "[ServerStateWaitCV] -> [ServerStateWaitFinished]")
 	nextState := ServerStateWaitFinished{state: state.state}
@@ -857,11 +990,23 @@ type ServerStateWaitFinished struct {
 }
 
 func (state ServerStateWaitFinished) Next(hm HandshakeMessageBody) (State, []HandshakeMessageBody, Alert) {
-	if hm == nil || hm.Type() != HandshakeTypeFinished {
+	fin, ok := hm.(*FinishedBody)
+	if hm == nil || !ok {
+		logf(logTypeHandshake, "[ClientStateWaitFinished] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	// TODO: Verify Finished
+	err := state.state.Context.updateWithClientSecondFlight(state.state.clientSecondFlight)
+	if err != nil {
+		logf(logTypeHandshake, "[ClientStateWaitFinished] Error updating crypto context with client second flight [%v]", err)
+		return nil, nil, AlertInternalError
+	}
+
+	// Verify client's Finished
+	if !bytes.Equal(fin.VerifyData, state.state.Context.serverFinished.VerifyData) {
+		logf(logTypeHandshake, "[ClientStateWaitFinished] Server's Finished failed to verify")
+		return nil, nil, AlertHandshakeFailure
+	}
 
 	logf(logTypeHandshake, "[ServerStateWaitFinished] -> [StateConnected]")
 	nextState := StateConnected{state: state.state}
@@ -879,12 +1024,12 @@ func (state StateConnected) Next(hm HandshakeMessageBody) (State, []HandshakeMes
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	switch hm.Type() {
-	case HandshakeTypeKeyUpdate:
+	switch hm.(type) {
+	case *KeyUpdateBody:
 		// TODO: Handle KeyUpdate
 		return state, nil, AlertNoAlert
-	case HandshakeTypeNewSessionTicket:
-		// TODO: Handle KeyUpdate
+	case *NewSessionTicketBody:
+		// TODO: Handle NewSessionTicket
 		return state, nil, AlertNoAlert
 	}
 
