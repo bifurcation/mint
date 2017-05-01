@@ -47,7 +47,7 @@ const (
 	AlertBadCertificateHashValue     Alert = 114
 	AlertUnknownPSKIdentity          Alert = 115
 	AlertNoApplicationProtocol       Alert = 120
-	AlertNoAlert                     Alert = 0xFF
+	AlertNoAlert                     Alert = 255
 )
 
 var alertText = map[Alert]string{

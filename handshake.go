@@ -30,10 +30,11 @@ type ConnectionOptions struct {
 }
 
 type ConnectionParameters struct {
-	UsingPSK        bool
-	UsingDH         bool
-	UsingEarlyData  bool
-	UsingClientAuth bool
+	UsingPSK               bool
+	UsingDH                bool
+	ClientSendingEarlyData bool
+	UsingEarlyData         bool
+	UsingClientAuth        bool
 
 	CipherSuite CipherSuite
 	ServerName  string
