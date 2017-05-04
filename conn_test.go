@@ -3,6 +3,7 @@ package mint
 import (
 	"bytes"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -280,17 +281,17 @@ func TestBasicFlows(t *testing.T) {
 		done := make(chan bool)
 		go func(t *testing.T) {
 			err := server.Handshake()
-			assertNotError(t, err, "Server failed handshake")
+			assertNotError(t, err, fmt.Sprintf("Server failed handshake: %v", err))
 			done <- true
 		}(t)
 
 		err := client.Handshake()
-		assertNotError(t, err, "Client failed handshake")
+		assertNotError(t, err, fmt.Sprintf("Client failed handshake: %v", err))
 
 		<-done
 
-		assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
-		assertContextEquals(t, client.handshake.cryptoContext(), server.handshake.cryptoContext())
+		assertDeepEquals(t, &client.state.state.Params, &server.state.state.Params)
+		assertContextEquals(t, &client.state.state.Context, &server.state.state.Context)
 	}
 }
 
@@ -312,9 +313,9 @@ func TestClientAuth(t *testing.T) {
 
 	<-done
 
-	assertContextEquals(t, client.handshake.cryptoContext(), server.handshake.cryptoContext())
-	assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
-	assert(t, client.handshake.ConnectionParams().UsingClientAuth, "Session did not negotiate client auth")
+	assertDeepEquals(t, &client.state.state.Params, &server.state.state.Params)
+	assertContextEquals(t, &client.state.state.Context, &server.state.state.Context)
+	assert(t, client.state.state.Params.UsingClientAuth, "Session did not negotiate client auth")
 }
 
 func TestPSKFlows(t *testing.T) {
@@ -336,72 +337,75 @@ func TestPSKFlows(t *testing.T) {
 
 		<-done
 
-		assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
-		assert(t, client.handshake.ConnectionParams().UsingPSK, "Session did not use the provided PSK")
-
-		assertContextEquals(t, client.handshake.cryptoContext(), server.handshake.cryptoContext())
+		assertDeepEquals(t, &client.state.state.Params, &server.state.state.Params)
+		assertContextEquals(t, &client.state.state.Context, &server.state.state.Context)
+		assert(t, client.state.state.Params.UsingPSK, "Session did not use the provided PSK")
 	}
 }
 
 func TestResumption(t *testing.T) {
-	// Phase 1: Verify that the session ticket gets sent and stored
-	clientConfig := *resumptionConfig
-	serverConfig := *resumptionConfig
+	/*
+		XXX: Disabled until NewSessionTicket is re-enabled
 
-	cConn1, sConn1 := pipe()
-	client1 := Client(cConn1, &clientConfig)
-	server1 := Server(sConn1, &serverConfig)
+		// Phase 1: Verify that the session ticket gets sent and stored
+		clientConfig := *resumptionConfig
+		serverConfig := *resumptionConfig
 
-	done := make(chan bool)
-	go func(t *testing.T) {
-		err := server1.Handshake()
-		assertNotError(t, err, "Server failed handshake")
-		done <- true
-	}(t)
+		cConn1, sConn1 := pipe()
+		client1 := Client(cConn1, &clientConfig)
+		server1 := Server(sConn1, &serverConfig)
 
-	err := client1.Handshake()
-	assertNotError(t, err, "Client failed handshake")
+		done := make(chan bool)
+		go func(t *testing.T) {
+			err := server1.Handshake()
+			assertNotError(t, err, "Server failed handshake")
+			done <- true
+		}(t)
 
-	client1.Read(nil)
-	<-done
+		err := client1.Handshake()
+		assertNotError(t, err, "Client failed handshake")
 
-	assertDeepEquals(t, client1.handshake.ConnectionParams(), server1.handshake.ConnectionParams())
-	assertContextEquals(t, client1.handshake.cryptoContext(), server1.handshake.cryptoContext())
-	assertEquals(t, clientConfig.PSKs.Size(), 1)
-	assertEquals(t, serverConfig.PSKs.Size(), 1)
+		client1.Read(nil)
+		<-done
 
-	clientCache := clientConfig.PSKs.(*PSKMapCache)
-	serverCache := serverConfig.PSKs.(*PSKMapCache)
+		assertDeepEquals(t, &client1.state.state.Params, &server1.state.state.Params)
+		assertContextEquals(t, &client1.state.state.Context, &server1.state.state.Context)
+		assertEquals(t, clientConfig.PSKs.Size(), 1)
+		assertEquals(t, serverConfig.PSKs.Size(), 1)
 
-	var serverPSK PreSharedKey
-	for _, key := range *serverCache {
-		serverPSK = key
-	}
-	var clientPSK PreSharedKey
-	for _, key := range *clientCache {
-		clientPSK = key
-	}
-	assertDeepEquals(t, clientPSK, serverPSK)
+		clientCache := clientConfig.PSKs.(*PSKMapCache)
+		serverCache := serverConfig.PSKs.(*PSKMapCache)
 
-	// Phase 2: Verify that the session ticket gets used as a PSK
-	cConn2, sConn2 := pipe()
-	client2 := Client(cConn2, &clientConfig)
-	server2 := Server(sConn2, &serverConfig)
+		var serverPSK PreSharedKey
+		for _, key := range *serverCache {
+			serverPSK = key
+		}
+		var clientPSK PreSharedKey
+		for _, key := range *clientCache {
+			clientPSK = key
+		}
+		assertDeepEquals(t, clientPSK, serverPSK)
 
-	go func(t *testing.T) {
-		err := server2.Handshake()
-		assertNotError(t, err, "Server failed second handshake")
-		done <- true
-	}(t)
+		// Phase 2: Verify that the session ticket gets used as a PSK
+		cConn2, sConn2 := pipe()
+		client2 := Client(cConn2, &clientConfig)
+		server2 := Server(sConn2, &serverConfig)
 
-	err = client2.Handshake()
-	assertNotError(t, err, "Client failed second handshake")
+		go func(t *testing.T) {
+			err := server2.Handshake()
+			assertNotError(t, err, "Server failed second handshake")
+			done <- true
+		}(t)
 
-	client2.Read(nil)
-	<-done
+		err = client2.Handshake()
+		assertNotError(t, err, "Client failed second handshake")
 
-	assertDeepEquals(t, client2.handshake.ConnectionParams(), server2.handshake.ConnectionParams())
-	assertContextEquals(t, client2.handshake.cryptoContext(), server2.handshake.cryptoContext())
+		client2.Read(nil)
+		<-done
+
+		assertDeepEquals(t, &client2.state.state.Params, &server2.state.state.Params)
+		assertContextEquals(t, &client2.state.state.Context, &server2.state.state.Context)
+	*/
 }
 
 func Test0xRTT(t *testing.T) {
@@ -425,9 +429,9 @@ func Test0xRTT(t *testing.T) {
 
 	<-done
 
-	assertContextEquals(t, client.handshake.cryptoContext(), server.handshake.cryptoContext())
-	assertDeepEquals(t, client.handshake.ConnectionParams(), server.handshake.ConnectionParams())
-	assert(t, client.handshake.ConnectionParams().UsingEarlyData, "Session did not negotiate early data")
+	assertDeepEquals(t, &client.state.state.Params, &server.state.state.Params)
+	assertContextEquals(t, &client.state.state.Context, &server.state.state.Context)
+	assert(t, client.state.state.Params.UsingEarlyData, "Session did not negotiate early data")
 	assertByteEquals(t, client.earlyData, server.readBuffer)
 }
 
@@ -501,8 +505,8 @@ func TestKeyUpdate(t *testing.T) {
 	assertNotError(t, err, "Client failed handshake")
 	<-s2c
 
-	clientContext0 := *client.handshake.cryptoContext()
-	serverContext0 := *server.handshake.cryptoContext()
+	clientContext0 := client.state.state.Context
+	serverContext0 := server.state.state.Context
 	assertContextEquals(t, &clientContext0, &serverContext0)
 
 	// Null read to trigger key update
@@ -510,8 +514,8 @@ func TestKeyUpdate(t *testing.T) {
 	<-s2c
 	client.Read(zeroBuf)
 
-	clientContext1 := *client.handshake.cryptoContext()
-	serverContext1 := *server.handshake.cryptoContext()
+	clientContext1 := client.state.state.Context
+	serverContext1 := server.state.state.Context
 	assertContextEquals(t, &clientContext1, &serverContext1)
 	assertNotByteEquals(t, clientContext0.serverTrafficKeys.key, clientContext1.serverTrafficKeys.key)
 	assertNotByteEquals(t, clientContext0.serverTrafficKeys.iv, clientContext1.serverTrafficKeys.iv)
@@ -523,8 +527,8 @@ func TestKeyUpdate(t *testing.T) {
 	c2s <- true
 	<-s2c
 
-	clientContext2 := *client.handshake.cryptoContext()
-	serverContext2 := *server.handshake.cryptoContext()
+	clientContext2 := client.state.state.Context
+	serverContext2 := server.state.state.Context
 	assertContextEquals(t, &clientContext2, &serverContext2)
 	assertByteEquals(t, clientContext1.serverTrafficKeys.key, clientContext2.serverTrafficKeys.key)
 	assertByteEquals(t, clientContext1.serverTrafficKeys.iv, clientContext2.serverTrafficKeys.iv)
@@ -537,8 +541,8 @@ func TestKeyUpdate(t *testing.T) {
 	<-s2c
 	client.Read(zeroBuf)
 
-	clientContext3 := *client.handshake.cryptoContext()
-	serverContext3 := *server.handshake.cryptoContext()
+	clientContext3 := client.state.state.Context
+	serverContext3 := server.state.state.Context
 	assertContextEquals(t, &clientContext3, &serverContext3)
 	assertNotByteEquals(t, clientContext2.serverTrafficKeys.key, clientContext3.serverTrafficKeys.key)
 	assertNotByteEquals(t, clientContext2.serverTrafficKeys.iv, clientContext3.serverTrafficKeys.iv)

@@ -11,8 +11,8 @@ var (
 	stateMachineIntegrationCases = map[string]struct {
 		clientConnState     *connectionState
 		serverConnState     *connectionState
-		clientStateSequence []State
-		serverStateSequence []State
+		clientStateSequence []HandshakeState
+		serverStateSequence []HandshakeState
 	}{
 		"normal": {
 			clientConnState: &connectionState{
@@ -38,7 +38,7 @@ var (
 					Certificates:     certificates,
 				},
 			},
-			clientStateSequence: []State{
+			clientStateSequence: []HandshakeState{
 				ClientStateStart{},
 				ClientStateWaitSH{},
 				ClientStateWaitEE{},
@@ -47,13 +47,55 @@ var (
 				ClientStateWaitFinished{},
 				StateConnected{},
 			},
-			serverStateSequence: []State{
+			serverStateSequence: []HandshakeState{
 				ServerStateStart{},
 				ServerStateWaitFinished{},
 				StateConnected{},
 			},
 		},
-		// TODO: Normal with HRR
+
+		"helloRetryRequest": {
+			clientConnState: &connectionState{
+				Caps: Capabilities{
+					Groups:           []NamedGroup{P256},
+					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:             &PSKMapCache{},
+				},
+				Opts: ConnectionOptions{
+					ServerName: "example.com",
+					NextProtos: []string{"h2"},
+				},
+			},
+			serverConnState: &connectionState{
+				Caps: Capabilities{
+					Groups:           []NamedGroup{P256},
+					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:             &PSKMapCache{},
+					Certificates:     certificates,
+					RequireCookie:    true,
+				},
+			},
+			clientStateSequence: []HandshakeState{
+				ClientStateStart{},
+				ClientStateWaitSH{},
+				ClientStateWaitSH{},
+				ClientStateWaitEE{},
+				ClientStateWaitCertCR{},
+				ClientStateWaitCV{},
+				ClientStateWaitFinished{},
+				StateConnected{},
+			},
+			serverStateSequence: []HandshakeState{
+				ServerStateStart{},
+				ServerStateStart{},
+				ServerStateWaitFinished{},
+				StateConnected{},
+			},
+		},
 
 		// PSK case, no early data
 		"psk": {
@@ -84,14 +126,14 @@ var (
 					Certificates: certificates,
 				},
 			},
-			clientStateSequence: []State{
+			clientStateSequence: []HandshakeState{
 				ClientStateStart{},
 				ClientStateWaitSH{},
 				ClientStateWaitEE{},
 				ClientStateWaitFinished{},
 				StateConnected{},
 			},
-			serverStateSequence: []State{
+			serverStateSequence: []HandshakeState{
 				ServerStateStart{},
 				ServerStateWaitFinished{},
 				StateConnected{},
@@ -128,14 +170,14 @@ var (
 					Certificates: certificates,
 				},
 			},
-			clientStateSequence: []State{
+			clientStateSequence: []HandshakeState{
 				ClientStateStart{},
 				ClientStateWaitSH{},
 				ClientStateWaitEE{},
 				ClientStateWaitFinished{},
 				StateConnected{},
 			},
-			serverStateSequence: []State{
+			serverStateSequence: []HandshakeState{
 				ServerStateStart{},
 				ServerStateWaitEOED{},
 				ServerStateWaitFinished{},
@@ -170,7 +212,7 @@ var (
 					Certificates:     certificates,
 				},
 			},
-			clientStateSequence: []State{
+			clientStateSequence: []HandshakeState{
 				ClientStateStart{},
 				ClientStateWaitSH{},
 				ClientStateWaitEE{},
@@ -179,7 +221,7 @@ var (
 				ClientStateWaitFinished{},
 				StateConnected{},
 			},
-			serverStateSequence: []State{
+			serverStateSequence: []HandshakeState{
 				ServerStateStart{},
 				ServerStateWaitFinished{},
 				StateConnected{},
@@ -213,7 +255,7 @@ var (
 					RequireClientAuth: true,
 				},
 			},
-			clientStateSequence: []State{
+			clientStateSequence: []HandshakeState{
 				ClientStateStart{},
 				ClientStateWaitSH{},
 				ClientStateWaitEE{},
@@ -222,7 +264,7 @@ var (
 				ClientStateWaitFinished{},
 				StateConnected{},
 			},
-			serverStateSequence: []State{
+			serverStateSequence: []HandshakeState{
 				ServerStateStart{},
 				ServerStateWaitCert{},
 				ServerStateWaitCV{},
@@ -231,7 +273,48 @@ var (
 			},
 		},
 
-		// TODO: Client auth, no certificate found
+		// Client auth, no certificate found
+		"clientAuthNoCertificate": {
+			clientConnState: &connectionState{
+				Caps: Capabilities{
+					Groups:           []NamedGroup{P256},
+					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:             &PSKMapCache{},
+				},
+				Opts: ConnectionOptions{
+					ServerName: "example.com",
+					NextProtos: []string{"h2"},
+				},
+			},
+			serverConnState: &connectionState{
+				Caps: Capabilities{
+					Groups:            []NamedGroup{P256},
+					SignatureSchemes:  []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:          []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:      []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:              &PSKMapCache{},
+					Certificates:      certificates,
+					RequireClientAuth: true,
+				},
+			},
+			clientStateSequence: []HandshakeState{
+				ClientStateStart{},
+				ClientStateWaitSH{},
+				ClientStateWaitEE{},
+				ClientStateWaitCertCR{},
+				ClientStateWaitCV{},
+				ClientStateWaitFinished{},
+				StateConnected{},
+			},
+			serverStateSequence: []HandshakeState{
+				ServerStateStart{},
+				ServerStateWaitCert{},
+				ServerStateWaitFinished{},
+				StateConnected{},
+			},
+		},
 	}
 )
 
@@ -239,20 +322,20 @@ func TestStateMachineIntegration(t *testing.T) {
 	for caseName, params := range stateMachineIntegrationCases {
 		t.Logf("=== Integration Test (%s) ===", caseName)
 
-		var clientState, serverState State
+		var clientState, serverState HandshakeState
 		clientState = ClientStateStart{state: params.clientConnState}
 		serverState = ServerStateStart{state: params.serverConnState}
 		t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
 		t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
 
-		clientStateSequence := []State{clientState}
-		serverStateSequence := []State{serverState}
+		clientStateSequence := []HandshakeState{clientState}
+		serverStateSequence := []HandshakeState{serverState}
 
 		// Create the ClientHello
 		clientState, clientToSend, alert := clientState.Next(nil)
+		assertEquals(t, alert, AlertNoAlert)
 		t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
 		clientStateSequence = append(clientStateSequence, clientState)
-		assertEquals(t, alert, AlertNoAlert)
 		assertEquals(t, len(clientToSend), 1)
 
 		for {
@@ -264,8 +347,8 @@ func TestStateMachineIntegration(t *testing.T) {
 			for _, body := range clientToSend {
 				t.Logf("C->S: %d", body.Type())
 				serverState, serverResponses, alert = serverState.Next(body)
-				serverStateSequence = append(serverStateSequence, serverState)
 				assert(t, alert == AlertNoAlert, fmt.Sprintf("Alert from server [%v]", alert))
+				serverStateSequence = append(serverStateSequence, serverState)
 				t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
 				serverToSend = append(serverToSend, serverResponses...)
 			}
@@ -275,8 +358,8 @@ func TestStateMachineIntegration(t *testing.T) {
 			for _, body := range serverToSend {
 				t.Logf("S->C: %d", body.Type())
 				clientState, clientResponses, alert = clientState.Next(body)
-				clientStateSequence = append(clientStateSequence, clientState)
 				assert(t, alert == AlertNoAlert, fmt.Sprintf("Alert from client [%v]", alert))
+				clientStateSequence = append(clientStateSequence, clientState)
 				t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
 				clientToSend = append(clientToSend, clientResponses...)
 			}
@@ -334,10 +417,10 @@ func TestClientStateStart(t *testing.T) {
 	// Test success (first try)
 	// TODO: Verify that the returned ClientHello has the right contents
 	nextState, toSend, alert := state.Next(nil)
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ClientStateWaitSH{})
 	assertEquals(t, len(toSend), 1)
 	assertEquals(t, toSend[0].Type(), HandshakeTypeClientHello)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// TODO: Test success (with PSK)
 	// TODO: Test success (with PSK and early data)
@@ -406,17 +489,26 @@ func TestClientStateWaitSH(t *testing.T) {
 	copy(sh.Random[:], shRandom)
 
 	// Test success (HelloRetryRequest)
-	nextState, toSend, alert := state.Next(&HelloRetryRequestBody{})
+	nextState, toSend, alert := state.Next(&HelloRetryRequestBody{
+		Version:     supportedVersion,
+		CipherSuite: TLS_AES_128_GCM_SHA256,
+		Extensions: []Extension{
+			{
+				ExtensionType: ExtensionTypeCookie,
+				ExtensionData: unhex("000401020304"),
+			},
+		},
+	})
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ClientStateWaitSH{})
 	assertEquals(t, len(toSend), 1)
 	assertEquals(t, toSend[0].Type(), HandshakeTypeClientHello)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test success (ServerHello)
 	nextState, toSend, alert = state.Next(sh)
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ClientStateWaitEE{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// TODO: Test with various negotiation cases
 
@@ -444,16 +536,16 @@ func TestClientStateWaitEE(t *testing.T) {
 	state := ClientStateWaitEE{state: &connState1}
 	state.state.Params.UsingPSK = true
 	nextState, toSend, alert := state.Next(ee)
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ClientStateWaitFinished{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test success (no PSK)
 	state.state.Params.UsingPSK = false
 	nextState, toSend, alert = state.Next(ee)
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ClientStateWaitCertCR{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test unexpected message
 	_, _, alert = state.Next(&ClientHelloBody{})
@@ -465,15 +557,15 @@ func TestClientStateWaitCertCR(t *testing.T) {
 
 	// Test success (Certificate)
 	nextState, toSend, alert := state.Next(&CertificateBody{})
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ClientStateWaitCV{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test success (CertificateRequest)
 	nextState, toSend, alert = state.Next(&CertificateRequestBody{})
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ClientStateWaitCert{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test nil message
 	_, _, alert = state.Next(nil)
@@ -489,9 +581,9 @@ func TestClientStateWaitCert(t *testing.T) {
 
 	// Test success
 	nextState, toSend, alert := state.Next(&CertificateBody{})
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ClientStateWaitCV{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test unexpected message
 	_, _, alert = state.Next(&ClientHelloBody{})
@@ -504,9 +596,9 @@ func TestClientStateWaitCV(t *testing.T) {
 	// Test success
 	// XXX: Disabled until we can get all the parameters created
 	//nextState, toSend, alert := state.Next(&CertificateVerifyBody{})
+	//assertEquals(t, alert, AlertNoAlert)
 	//assertSameType(t, nextState, ClientStateWaitFinished{})
 	//assertEquals(t, len(toSend), 0)
-	//assertEquals(t, alert, AlertNoAlert)
 
 	// Test unexpected message
 	_, _, alert := state.Next(&ClientHelloBody{})
@@ -519,8 +611,8 @@ func TestClientStateWaitFinished(t *testing.T) {
 	// Test success
 	// XXX: Disabled until we can get all the parameters created
 	//nextState, _, alert := state.Next(&FinishedBody{})
-	//assertSameType(t, nextState, StateConnected{})
 	//assertEquals(t, alert, AlertNoAlert)
+	//assertSameType(t, nextState, StateConnected{})
 
 	// Test unexpected message
 	_, _, alert := state.Next(&ClientHelloBody{})
@@ -588,18 +680,18 @@ func TestServerStateStart(t *testing.T) {
 	//	-> ServerStateWaitFinished{}
 	state.state.Caps.RequireCookie = false
 	nextState, toSend, alert := state.Next(ch)
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ServerStateWaitFinished{})
 	assert(t, len(toSend) >= 1, "No messages provided to send")
-	assertEquals(t, alert, AlertNoAlert)
 	// TODO: Verify that parameters are negotiated as expected
 
 	// Test success (HelloRetryRequest)
 	state.state.Caps.RequireCookie = true
 	nextState, toSend, alert = state.Next(ch)
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ServerStateStart{})
 	assertEquals(t, len(toSend), 1)
 	assertEquals(t, toSend[0].Type(), HandshakeTypeHelloRetryRequest)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test unexpected message
 	_, _, alert = state.Next(&ServerHelloBody{})
@@ -627,9 +719,9 @@ func TestServerStateNegotiated(t *testing.T) {
 			"9ad689c09cebb6f181ca2f26993ecdbf13aab10b04d6f8d16836b6050d90a126c5"),
 		dhSecret: unhex("0000000000000000000000000000000000000000000000000000000000000000"),
 
-		clientHello:       &HandshakeMessage{msgType: HandshakeTypeClientHello, body: []byte{}},
+		firstClientHello:  &HandshakeMessage{msgType: HandshakeTypeMessageHash, body: []byte{}},
 		helloRetryRequest: &HandshakeMessage{msgType: HandshakeTypeHelloRetryRequest, body: []byte{}},
-		retryClientHello:  &HandshakeMessage{msgType: HandshakeTypeClientHello, body: []byte{}},
+		clientHello:       &HandshakeMessage{msgType: HandshakeTypeClientHello, body: []byte{}},
 	}
 
 	// Test success (normal)
@@ -639,8 +731,9 @@ func TestServerStateNegotiated(t *testing.T) {
 	//	-> ServerStateWaitCert{}
 	connState1 := initState
 	state := ServerStateNegotiated{state: &connState1}
-	state.state.Params.UsingEarlyData = false
+	state.state.Params.ClientSendingEarlyData = false
 	nextState, toSend, alert := state.Next(nil)
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ServerStateWaitCert{})
 	assertEquals(t, len(toSend), 6)
 	assertEquals(t, toSend[0].Type(), HandshakeTypeServerHello)
@@ -649,13 +742,13 @@ func TestServerStateNegotiated(t *testing.T) {
 	assertEquals(t, toSend[3].Type(), HandshakeTypeCertificate)
 	assertEquals(t, toSend[4].Type(), HandshakeTypeCertificateVerify)
 	assertEquals(t, toSend[5].Type(), HandshakeTypeFinished)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test success (0xRTT)
 	connState2 := initState
 	state = ServerStateNegotiated{state: &connState2}
-	state.state.Params.UsingEarlyData = true
+	state.state.Params.ClientSendingEarlyData = true
 	nextState, toSend, alert = state.Next(nil)
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ServerStateWaitEOED{})
 	assertEquals(t, len(toSend), 6)
 	assertEquals(t, toSend[0].Type(), HandshakeTypeServerHello)
@@ -664,7 +757,6 @@ func TestServerStateNegotiated(t *testing.T) {
 	assertEquals(t, toSend[3].Type(), HandshakeTypeCertificate)
 	assertEquals(t, toSend[4].Type(), HandshakeTypeCertificateVerify)
 	assertEquals(t, toSend[5].Type(), HandshakeTypeFinished)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test unexpected message
 	_, _, alert = state.Next(&ServerHelloBody{})
@@ -676,9 +768,9 @@ func TestServerStateWaitEOED(t *testing.T) {
 
 	// Test success
 	nextState, toSend, alert := state.Next(&EndOfEarlyDataBody{})
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ServerStateWaitFinished{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test unexpected message
 	_, _, alert = state.Next(&ServerHelloBody{})
@@ -691,16 +783,16 @@ func TestServerStateWaitFlight2(t *testing.T) {
 	// Test success (normal)
 	state.state.Params.UsingClientAuth = false
 	nextState, toSend, alert := state.Next(nil)
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ServerStateWaitFinished{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test success (client auth)
 	state.state.Params.UsingClientAuth = true
 	nextState, toSend, alert = state.Next(nil)
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ServerStateWaitCert{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test unexpected message
 	_, _, alert = state.Next(&ServerHelloBody{})
@@ -716,15 +808,15 @@ func TestServerStateWaitCert(t *testing.T) {
 			CertificateEntry{CertData: &x509.Certificate{}},
 		},
 	})
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ServerStateWaitCV{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test success (empty certificate)
 	nextState, toSend, alert = state.Next(&CertificateBody{})
+	assertEquals(t, alert, AlertNoAlert)
 	assertSameType(t, nextState, ServerStateWaitFinished{})
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test unexpected message
 	_, _, alert = state.Next(&ServerHelloBody{})
@@ -737,9 +829,9 @@ func TestServerStateWaitCV(t *testing.T) {
 	// Test success
 	// XXX: Disabled until we can get the parameters created
 	//nextState, toSend, alert := state.Next(&CertificateVerifyBody{})
+	//assertEquals(t, alert, AlertNoAlert)
 	//assertSameType(t, nextState, ServerStateWaitFinished{})
 	//assertEquals(t, len(toSend), 0)
-	//assertEquals(t, alert, AlertNoAlert)
 
 	// Test unexpected message
 	_, _, alert := state.Next(&ServerHelloBody{})
@@ -752,9 +844,9 @@ func TestServerStateWaitFinished(t *testing.T) {
 	// Test success
 	// XXX: Disabled until we can get the parameters created
 	//nextState, toSend, alert := state.Next(&FinishedBody{})
+	//assertEquals(t, alert, AlertNoAlert)
 	//assertSameType(t, nextState, StateConnected{})
 	//assertEquals(t, len(toSend), 0)
-	//assertEquals(t, alert, AlertNoAlert)
 
 	// Test unexpected message
 	_, _, alert := state.Next(&ServerHelloBody{})
@@ -768,15 +860,15 @@ func TestConnectedState(t *testing.T) {
 
 	// TODO: Test KeyUpdate
 	nextState, toSend, alert := state.Next(&KeyUpdateBody{})
+	assertEquals(t, alert, AlertNoAlert)
 	assertEquals(t, nextState, state)
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// TODO: Test NewSessionTicket
 	nextState, toSend, alert = state.Next(&NewSessionTicketBody{})
+	assertEquals(t, alert, AlertNoAlert)
 	assertEquals(t, nextState, state)
 	assertEquals(t, len(toSend), 0)
-	assertEquals(t, alert, AlertNoAlert)
 
 	// Test nil message
 	_, _, alert = state.Next(nil)

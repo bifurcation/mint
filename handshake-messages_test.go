@@ -76,12 +76,13 @@ var (
 
 	// HelloRetryRequest test cases
 	hrrValidIn = HelloRetryRequestBody{
-		Version:    supportedVersion,
-		Extensions: extListValidIn,
+		Version:     supportedVersion,
+		CipherSuite: 0x0001,
+		Extensions:  extListValidIn,
 	}
 	hrrEmptyIn  = HelloRetryRequestBody{}
-	hrrValidHex = supportedVersionHex + extListValidHex
-	hrrEmptyHex = supportedVersionHex + "0000"
+	hrrValidHex = supportedVersionHex + "0001" + extListValidHex
+	hrrEmptyHex = supportedVersionHex + "0001" + "0000"
 
 	// ServerHello test cases
 	shValidIn = ServerHelloBody{

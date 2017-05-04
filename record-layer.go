@@ -110,7 +110,8 @@ func (r *RecordLayer) encrypt(pt *TLSPlaintext, padLen int) *TLSPlaintext {
 
 func (r *RecordLayer) decrypt(pt *TLSPlaintext) (*TLSPlaintext, int, error) {
 	if len(pt.fragment) < r.cipher.Overhead() {
-		return nil, 0, DecryptError("tls.record.decrypt: Record too short")
+		msg := fmt.Sprintf("tls.record.decrypt: Record too short [%d] < [%d]", len(pt.fragment), r.cipher.Overhead())
+		return nil, 0, DecryptError(msg)
 	}
 
 	decryptLen := len(pt.fragment) - r.cipher.Overhead()

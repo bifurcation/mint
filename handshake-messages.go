@@ -116,11 +116,13 @@ func (ch ClientHelloBody) Truncated() ([]byte, error) {
 
 // struct {
 //     ProtocolVersion server_version;
+//     CipherSuite	cipher_suite;
 //     Extension extensions<2..2^16-1>;
 // } HelloRetryRequest;
 type HelloRetryRequestBody struct {
-	Version    uint16
-	Extensions ExtensionList `tls:"head=2,min=2"`
+	Version     uint16
+	CipherSuite CipherSuite
+	Extensions  ExtensionList `tls:"head=2,min=2"`
 }
 
 func (hrr HelloRetryRequestBody) Type() HandshakeType {
