@@ -177,7 +177,7 @@ type Conn struct {
 	conn     net.Conn
 	isClient bool
 
-	earlyData []byte
+	EarlyData []byte
 
 	state             StateConnected
 	handshakeMutex    sync.Mutex
@@ -478,10 +478,37 @@ func (c *Conn) followInstruction(instrGeneric HandshakeInstruction) Alert {
 		}
 
 	case SendEarlyData:
-		// TODO
+		logf(logTypeHandshake, "Sending early data...")
+		_, err := c.Write(c.EarlyData)
+		if err != nil {
+			logf(logTypeHandshake, "Error writing early data: %v", err)
+			return AlertInternalError
+		}
 
 	case ReadEarlyData:
-		// TODO: Needs something like "NextRecordType"
+		logf(logTypeHandshake, "Sending early data...")
+		t, err := c.in.PeekRecordType()
+		if err != nil {
+			logf(logTypeHandshake, "Error reading record type: %v", err)
+			return AlertInternalError
+		}
+
+		for t == RecordTypeApplicationData {
+			// Read a record into the buffer
+			pt, err := c.in.ReadRecord()
+			if err != nil {
+				logf(logTypeHandshake, "Error reading early data record: %v", err)
+				return AlertInternalError
+			}
+
+			c.readBuffer = append(c.EarlyData, pt.fragment...)
+
+			t, err = c.in.PeekRecordType()
+			if err != nil {
+				logf(logTypeHandshake, "Error reading record type: %v", err)
+				return AlertInternalError
+			}
+		}
 
 	default:
 		logf(logTypeHandshake, "Unknown instruction type")
@@ -510,27 +537,13 @@ func (c *Conn) Handshake() Alert {
 		return AlertInternalError
 	}
 
-	/*
-		if c.isClient {
-			c.handshakeAlert = c.clientHandshake()
-		} else {
-			c.handshakeAlert = c.serverHandshake()
-		}
-		c.handshakeComplete = (c.handshakeAlert == AlertNoAlert)
-
-		if c.handshakeAlert != AlertNoAlert {
-			logf(logTypeHandshake, "Handshake failed: %v", c.handshakeAlert)
-			c.sendAlert(AlertHandshakeFailure)
-			c.conn.Close()
-		}
-	*/
-
 	// Set things up
 	caps := Capabilities{
 		CipherSuites:      c.config.CipherSuites,
 		Groups:            c.config.Groups,
 		SignatureSchemes:  c.config.SignatureSchemes,
 		PSKs:              c.config.PSKs,
+		PSKModes:          c.config.PSKModes,
 		AllowEarlyData:    c.config.AllowEarlyData,
 		RequireCookie:     c.config.RequireCookie,
 		RequireClientAuth: c.config.RequireClientAuth,
@@ -540,7 +553,6 @@ func (c *Conn) Handshake() Alert {
 	opts := ConnectionOptions{
 		ServerName: c.config.ServerName,
 		NextProtos: c.config.NextProtos,
-		EarlyData:  c.earlyData,
 	}
 	connState := connectionState{
 		Caps: caps,

@@ -420,7 +420,7 @@ func Test0xRTT(t *testing.T) {
 	cConn, sConn := pipe()
 
 	client := Client(cConn, conf)
-	client.earlyData = []byte("hello 0xRTT world!")
+	client.EarlyData = []byte("hello 0xRTT world!")
 
 	server := Server(sConn, conf)
 
@@ -439,7 +439,7 @@ func Test0xRTT(t *testing.T) {
 	assertDeepEquals(t, &client.state.state.Params, &server.state.state.Params)
 	assertContextEquals(t, &client.state.state.Context, &server.state.state.Context)
 	assert(t, client.state.state.Params.UsingEarlyData, "Session did not negotiate early data")
-	assertByteEquals(t, client.earlyData, server.readBuffer)
+	assertByteEquals(t, client.EarlyData, server.EarlyData)
 }
 
 func Test0xRTTFailure(t *testing.T) {
@@ -459,7 +459,7 @@ func Test0xRTTFailure(t *testing.T) {
 	cConn, sConn := pipe()
 
 	client := Client(cConn, clientConfig)
-	client.earlyData = []byte("hello 0xRTT world!")
+	client.EarlyData = []byte("hello 0xRTT world!")
 
 	server := Server(sConn, serverConfig)
 

@@ -2,7 +2,6 @@ package mint
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 )
 
@@ -1096,8 +1095,6 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 		}
 		cvTranscript = append(cvTranscript, transcript...)
 
-		fmt.Printf("client transcript: %+v\n", cvTranscript)
-
 		err = certificateVerify.Sign(state.state.cert.PrivateKey, cvTranscript, state.state.Context)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateNegotiated] Error signing CertificateVerify [%v]", err)
@@ -1251,8 +1248,6 @@ func (state ServerStateWaitCV) Next(hm *HandshakeMessage) (HandshakeState, []Han
 	}
 	cvTranscript = append(cvTranscript, state.state.serverFirstFlight...)
 	cvTranscript = append(cvTranscript, state.state.clientSecondFlight...)
-
-	fmt.Printf("server transcript: %+v\n", cvTranscript)
 
 	clientPublicKey := state.state.clientCertificate.CertificateList[0].CertData.PublicKey
 	if err := certVerify.Verify(clientPublicKey, cvTranscript, state.state.Context); err != nil {
