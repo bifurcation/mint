@@ -3,7 +3,6 @@ package mint
 import (
 	"bytes"
 	"crypto/x509"
-	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -222,7 +221,13 @@ var (
 	}
 )
 
-func assertContextEquals(t *testing.T, c *cryptoContext, s *cryptoContext) {
+func assertKeySetEquals(t *testing.T, k1, k2 keySet) {
+	// Assume cipher is the same
+	assertByteEquals(t, k1.iv, k2.iv)
+	assertByteEquals(t, k1.key, k2.key)
+}
+
+func assertContextEquals(t *testing.T, c, s *cryptoContext) {
 	assertEquals(t, c.suite, s.suite)
 	// XXX: Figure out a way to compare ciphers?
 	assertEquals(t, c.params.hash, s.params.hash)
@@ -246,15 +251,15 @@ func assertContextEquals(t *testing.T, c *cryptoContext, s *cryptoContext) {
 	if c.earlyTrafficSecret != nil && s.earlyTrafficSecret != nil {
 		assertByteEquals(t, c.earlyTrafficSecret, s.earlyTrafficSecret)
 		assertByteEquals(t, c.earlyExporterSecret, s.earlyExporterSecret)
-		assertDeepEquals(t, c.clientEarlyTrafficKeys, s.clientEarlyTrafficKeys)
+		assertKeySetEquals(t, c.clientEarlyTrafficKeys, s.clientEarlyTrafficKeys)
 	}
 
 	assertByteEquals(t, c.dhSecret, s.dhSecret)
 	assertByteEquals(t, c.handshakeSecret, s.handshakeSecret)
 	assertByteEquals(t, c.clientHandshakeTrafficSecret, s.clientHandshakeTrafficSecret)
 	assertByteEquals(t, c.serverHandshakeTrafficSecret, s.serverHandshakeTrafficSecret)
-	assertDeepEquals(t, c.clientHandshakeKeys, s.clientHandshakeKeys)
-	assertDeepEquals(t, c.serverHandshakeKeys, s.serverHandshakeKeys)
+	assertKeySetEquals(t, c.clientHandshakeKeys, s.clientHandshakeKeys)
+	assertKeySetEquals(t, c.serverHandshakeKeys, s.serverHandshakeKeys)
 
 	assertByteEquals(t, c.serverFinishedKey, s.serverFinishedKey)
 	assertByteEquals(t, c.serverFinishedData, s.serverFinishedData)
@@ -265,8 +270,8 @@ func assertContextEquals(t *testing.T, c *cryptoContext, s *cryptoContext) {
 	assertByteEquals(t, c.masterSecret, s.masterSecret)
 	assertByteEquals(t, c.clientTrafficSecret, s.clientTrafficSecret)
 	assertByteEquals(t, c.serverTrafficSecret, s.serverTrafficSecret)
-	assertDeepEquals(t, c.clientTrafficKeys, s.clientTrafficKeys)
-	assertDeepEquals(t, c.serverTrafficKeys, s.serverTrafficKeys)
+	assertKeySetEquals(t, c.clientTrafficKeys, s.clientTrafficKeys)
+	assertKeySetEquals(t, c.serverTrafficKeys, s.serverTrafficKeys)
 	assertByteEquals(t, c.exporterSecret, s.exporterSecret)
 	assertByteEquals(t, c.resumptionSecret, s.resumptionSecret)
 }
@@ -278,15 +283,17 @@ func TestBasicFlows(t *testing.T) {
 		client := Client(cConn, conf)
 		server := Server(sConn, conf)
 
+		var clientAlert, serverAlert Alert
+
 		done := make(chan bool)
 		go func(t *testing.T) {
-			err := server.Handshake()
-			assertNotError(t, err, fmt.Sprintf("Server failed handshake: %v", err))
+			serverAlert = server.Handshake()
+			assertEquals(t, serverAlert, AlertNoAlert)
 			done <- true
 		}(t)
 
-		err := client.Handshake()
-		assertNotError(t, err, fmt.Sprintf("Client failed handshake: %v", err))
+		clientAlert = client.Handshake()
+		assertEquals(t, clientAlert, AlertNoAlert)
 
 		<-done
 
@@ -480,13 +487,13 @@ func TestKeyUpdate(t *testing.T) {
 	c2s := make(chan bool)
 	s2c := make(chan bool)
 	go func(t *testing.T) {
-		err := server.Handshake()
-		assertNotError(t, err, "Server failed handshake")
+		alert := server.Handshake()
+		assertEquals(t, alert, AlertNoAlert)
 		s2c <- true
 
 		// Test server-initiated KeyUpdate
 		<-c2s
-		err = server.SendKeyUpdate(false)
+		err := server.SendKeyUpdate(false)
 		assertNotError(t, err, "Key update send failed")
 		s2c <- true
 

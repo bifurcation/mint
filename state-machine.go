@@ -146,7 +146,6 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	sni := ServerNameExtension(state.state.Opts.ServerName)
 	sg := SupportedGroupsExtension{Groups: state.state.Caps.Groups}
 	sa := SignatureAlgorithmsExtension{Algorithms: state.state.Caps.SignatureSchemes}
-	kem := PSKKeyExchangeModesExtension{KEModes: state.state.Caps.PSKModes}
 
 	state.state.Params.ServerName = state.state.Opts.ServerName
 
@@ -165,7 +164,7 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		logf(logTypeHandshake, "[ClientStateStart] Error creating ClientHello random [%v]", err)
 		return nil, nil, AlertInternalError
 	}
-	for _, ext := range []ExtensionBody{&sv, &sni, &ks, &sg, &sa, &kem} {
+	for _, ext := range []ExtensionBody{&sv, &sni, &ks, &sg, &sa} {
 		err := ch.Extensions.Add(ext)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateStart] Error adding extension type=[%v] [%v]", ext.Type(), err)
@@ -216,6 +215,18 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 			state.state.Params.ClientSendingEarlyData = true
 			ed = &EarlyDataExtension{}
 			ch.Extensions.Add(ed)
+		}
+
+		// Signal supported PSK key exchange modes
+		if len(state.state.Caps.PSKModes) == 0 {
+			logf(logTypeHandshake, "PSK selected, but no PSKModes")
+			return nil, nil, AlertInternalError
+		}
+		kem := &PSKKeyExchangeModesExtension{KEModes: state.state.Caps.PSKModes}
+		err = ch.Extensions.Add(kem)
+		if err != nil {
+			logf(logTypeHandshake, "Error adding PSKKeyExchangeModes extension: %v", err)
+			return nil, nil, AlertInternalError
 		}
 
 		// Add the shim PSK extension to the ClientHello
@@ -269,6 +280,12 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	nextState := ClientStateWaitSH{state: state.state}
 	toSend := []HandshakeInstruction{
 		SendHandshakeMessage{state.state.clientHello},
+	}
+	if state.state.Params.ClientSendingEarlyData {
+		toSend = append(toSend, []HandshakeInstruction{
+			RekeyOut{state.state.Context.clientEarlyTrafficKeys},
+			SendEarlyData{},
+		}...)
 	}
 	return nextState, toSend, AlertNoAlert
 }
@@ -410,7 +427,6 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 		nextState := ClientStateWaitEE{state: state.state}
 		toSend := []HandshakeInstruction{
 			RekeyIn{KeySet: state.state.Context.serverHandshakeKeys},
-			RekeyOut{KeySet: state.state.Context.clientEarlyTrafficKeys},
 			SendEarlyData{},
 		}
 		return nextState, toSend, AlertNoAlert
@@ -1026,8 +1042,11 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 	toSend := []HandshakeInstruction{
 		SendHandshakeMessage{state.state.serverHello},
 		RekeyOut{state.state.Context.serverHandshakeKeys},
-		RekeyIn{state.state.Context.clientEarlyTrafficKeys},
 		SendHandshakeMessage{eem},
+	}
+
+	if state.state.Params.ClientSendingEarlyData {
+		toSend = append(toSend, RekeyIn{state.state.Context.clientEarlyTrafficKeys})
 	}
 
 	// Authenticate with a certificate if required

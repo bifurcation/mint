@@ -186,12 +186,15 @@ type Conn struct {
 
 	readBuffer []byte
 	in, out    *RecordLayer
+	hIn, hOut  *HandshakeLayer
 }
 
 func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
 	c := &Conn{conn: conn, config: config, isClient: isClient}
 	c.in = NewRecordLayer(c.conn)
 	c.out = NewRecordLayer(c.conn)
+	c.hIn = NewHandshakeLayer(c.in)
+	c.hOut = NewHandshakeLayer(c.out)
 	return c
 }
 
@@ -323,8 +326,8 @@ func (c *Conn) extendBuffer(n int) error {
 // Read application data until the buffer is full.  Handshake and alert records
 // are consumed by the Conn object directly.
 func (c *Conn) Read(buffer []byte) (int, error) {
-	if err := c.Handshake(); err != nil {
-		return 0, err
+	if alert := c.Handshake(); alert != AlertNoAlert {
+		return 0, alert
 	}
 
 	// Lock the input channel
@@ -449,80 +452,156 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
+func (c *Conn) followInstruction(instrGeneric HandshakeInstruction) Alert {
+	switch instr := instrGeneric.(type) {
+	case SendHandshakeMessage:
+		err := c.hOut.WriteMessage(instr.Message)
+		if err != nil {
+			logf(logTypeHandshake, "Error writing handshake message: %v", err)
+			return AlertInternalError
+		}
+
+	case RekeyIn:
+		logf(logTypeHandshake, "Rekeying in to: %+v", instr.KeySet)
+		err := c.in.Rekey(instr.KeySet.cipher, instr.KeySet.key, instr.KeySet.iv)
+		if err != nil {
+			logf(logTypeHandshake, "Unable to rekey inbound: %v", err)
+			return AlertInternalError
+		}
+
+	case RekeyOut:
+		logf(logTypeHandshake, "Rekeying out to: %+v", instr.KeySet)
+		err := c.out.Rekey(instr.KeySet.cipher, instr.KeySet.key, instr.KeySet.iv)
+		if err != nil {
+			logf(logTypeHandshake, "Unable to rekey outbound: %v", err)
+			return AlertInternalError
+		}
+
+	case SendEarlyData:
+		// TODO
+
+	case ReadEarlyData:
+		// TODO: Needs something like "NextRecordType"
+
+	default:
+		logf(logTypeHandshake, "Unknown instruction type")
+		return AlertInternalError
+	}
+
+	return AlertNoAlert
+}
+
 // Handshake causes a TLS handshake on the connection.  The `isClient` member
 // determines whether a client or server handshake is performed.  If a
 // handshake has already been performed, then its result will be returned.
-func (c *Conn) Handshake() error {
+func (c *Conn) Handshake() Alert {
 	// TODO Lock handshakeMutex
 	// TODO Remove CloseNotify hack
 	if c.handshakeAlert != AlertNoAlert && c.handshakeAlert != AlertCloseNotify {
 		logf(logTypeHandshake, "Pre-existing handshake error: %v", c.handshakeAlert)
-		return fmt.Errorf("Alert during handshake: %v", c.handshakeAlert)
+		return c.handshakeAlert
 	}
 	if c.handshakeComplete {
-		return nil
+		return AlertNoAlert
 	}
 
 	if err := c.config.Init(c.isClient); err != nil {
-		return err
-	}
-
-	if c.isClient {
-		c.handshakeAlert = c.clientHandshake()
-	} else {
-		c.handshakeAlert = c.serverHandshake()
-	}
-	c.handshakeComplete = (c.handshakeAlert == AlertNoAlert)
-
-	if c.handshakeAlert != AlertNoAlert {
-		logf(logTypeHandshake, "Handshake failed: %v", c.handshakeAlert)
-		c.sendAlert(AlertHandshakeFailure)
-		c.conn.Close()
+		logf(logTypeHandshake, "Error initializing config: %v", err)
+		return AlertInternalError
 	}
 
 	/*
-		// Set things up
-		caps := Capabilities{
-			CipherSuites:     c.config.CipherSuites,
-			Groups:           c.config.Groups,
-			SignatureSchemes: c.config.SignatureSchemes,
-			PSKs:             c.config.PSKs,
-			PSKModes:         c.config.PSKModes,
-			Certificates:     c.config.Certificates,
-		}
-		opts := ConnectionOptions{
-			ServerName: c.config.ServerName,
-			NextProtos: c.config.NextProtos,
-			EarlyData:  c.earlyData,
-		}
-		connState := connectionState{
-			Caps: caps,
-			Opts: opts,
-		}
-
-		// TODO: Start up the handshake state
-		var state State
-		var toSend []HandshakeMessageBody
-		var alert Alert
 		if c.isClient {
-			state, toSend, alert = ClientStateStart{state: connState}.Next(nil)
-			// if alert != AlertNoAlert { return an error }
-			// TODO: Write ClientHello or fail on alert
+			c.handshakeAlert = c.clientHandshake()
 		} else {
-			state = ServerStateStart{state: connState}
+			c.handshakeAlert = c.serverHandshake()
 		}
+		c.handshakeComplete = (c.handshakeAlert == AlertNoAlert)
 
-		// XXX: How to deal with rekeys?
-		// XXX: How to deal with early data?
-		for state.Type() != StateTypeConnected {
-			// Read a handshake message
-			// state, toSend, alert = state.Next(msg)
-			// if alert != AlertNoAlert { send alert and return an error }
-			// for _, body := range toSend { send body }
+		if c.handshakeAlert != AlertNoAlert {
+			logf(logTypeHandshake, "Handshake failed: %v", c.handshakeAlert)
+			c.sendAlert(AlertHandshakeFailure)
+			c.conn.Close()
 		}
 	*/
 
-	return nil
+	// Set things up
+	caps := Capabilities{
+		CipherSuites:      c.config.CipherSuites,
+		Groups:            c.config.Groups,
+		SignatureSchemes:  c.config.SignatureSchemes,
+		PSKs:              c.config.PSKs,
+		AllowEarlyData:    c.config.AllowEarlyData,
+		RequireCookie:     c.config.RequireCookie,
+		RequireClientAuth: c.config.RequireClientAuth,
+		NextProtos:        c.config.NextProtos,
+		Certificates:      c.config.Certificates,
+	}
+	opts := ConnectionOptions{
+		ServerName: c.config.ServerName,
+		NextProtos: c.config.NextProtos,
+		EarlyData:  c.earlyData,
+	}
+	connState := connectionState{
+		Caps: caps,
+		Opts: opts,
+	}
+
+	var state HandshakeState
+	var instructions []HandshakeInstruction
+	var alert Alert
+	connected := false
+
+	if c.isClient {
+		state, instructions, alert = ClientStateStart{state: &connState}.Next(nil)
+		if alert != AlertNoAlert {
+			logf(logTypeHandshake, "Error initializing client state: %v", alert)
+			return alert
+		}
+
+		for _, instr := range instructions {
+			alert = c.followInstruction(instr)
+			if alert != AlertNoAlert {
+				logf(logTypeHandshake, "Error following instructions: %v", alert)
+				return alert
+			}
+		}
+
+		_, connected = state.(StateConnected)
+	} else {
+		state = ServerStateStart{state: &connState}
+	}
+
+	for !connected {
+		// Read a handshake message
+		hm, err := c.hIn.ReadMessage()
+		if err != nil {
+			logf(logTypeHandshake, "Error reading message: %v", err)
+			return AlertInternalError
+		}
+		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
+
+		// Advance the state machine
+		state, instructions, alert = state.Next(hm)
+
+		if alert != AlertNoAlert {
+			logf(logTypeHandshake, "Error in state transition: %v", alert)
+			return alert
+		}
+
+		for _, instr := range instructions {
+			alert = c.followInstruction(instr)
+			if alert != AlertNoAlert {
+				logf(logTypeHandshake, "Error following instructions: %v", alert)
+				return alert
+			}
+		}
+
+		_, connected = state.(StateConnected)
+	}
+
+	c.state = state.(StateConnected)
+	return AlertNoAlert
 }
 
 func (c *Conn) clientHandshake() Alert {

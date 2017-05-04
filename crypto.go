@@ -580,8 +580,9 @@ const (
 )
 
 type keySet struct {
-	key []byte
-	iv  []byte
+	cipher aeadFactory
+	key    []byte
+	iv     []byte
 }
 
 // Sine the steps have to be performed linearly (except for early data), we use
@@ -768,8 +769,9 @@ func (ctx cryptoContext) makeTrafficKeys(secret []byte) keySet {
 	logf(logTypeCrypto, "making traffic keys: secret=%x", secret)
 	H := ctx.params.hash
 	return keySet{
-		key: hkdfExpandLabel(H, secret, "key", []byte{}, ctx.params.keyLen),
-		iv:  hkdfExpandLabel(H, secret, "iv", []byte{}, ctx.params.ivLen),
+		cipher: ctx.params.cipher,
+		key:    hkdfExpandLabel(H, secret, "key", []byte{}, ctx.params.keyLen),
+		iv:     hkdfExpandLabel(H, secret, "iv", []byte{}, ctx.params.ivLen),
 	}
 }
 
