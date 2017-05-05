@@ -16,11 +16,15 @@ type SendEarlyData struct{}
 
 type ReadEarlyData struct{}
 
+type ReadPastEarlyData struct{}
+
 type RekeyIn struct {
+	Label  string
 	KeySet keySet
 }
 
 type RekeyOut struct {
+	Label  string
 	KeySet keySet
 }
 
@@ -213,7 +217,11 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		if len(state.state.Opts.EarlyData) > 0 {
 			state.state.Params.ClientSendingEarlyData = true
 			ed = &EarlyDataExtension{}
-			ch.Extensions.Add(ed)
+			err = ch.Extensions.Add(ed)
+			if err != nil {
+				logf(logTypeHandshake, "Error adding early data extension: %v", err)
+				return nil, nil, AlertInternalError
+			}
 		}
 
 		// Signal supported PSK key exchange modes
@@ -282,7 +290,7 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	}
 	if state.state.Params.ClientSendingEarlyData {
 		toSend = append(toSend, []HandshakeInstruction{
-			RekeyOut{state.state.Context.clientEarlyTrafficKeys},
+			RekeyOut{Label: "early", KeySet: state.state.Context.clientEarlyTrafficKeys},
 			SendEarlyData{},
 		}...)
 	}
@@ -425,8 +433,7 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 		logf(logTypeHandshake, "[ClientStateWaitSH] -> [ClientStateWaitEE]")
 		nextState := ClientStateWaitEE{state: state.state}
 		toSend := []HandshakeInstruction{
-			RekeyIn{KeySet: state.state.Context.serverHandshakeKeys},
-			SendEarlyData{},
+			RekeyIn{Label: "handshake", KeySet: state.state.Context.serverHandshakeKeys},
 		}
 		return nextState, toSend, AlertNoAlert
 	}
@@ -623,7 +630,7 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 		state.state.clientSecondFlight = append(state.state.clientSecondFlight, eoedm)
 	}
 
-	toSend = append(toSend, RekeyOut{state.state.Context.clientHandshakeKeys})
+	toSend = append(toSend, RekeyOut{Label: "handshake", KeySet: state.state.Context.clientHandshakeKeys})
 
 	if state.state.Params.UsingClientAuth {
 		// Select a certificate
@@ -696,8 +703,8 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 
 	toSend = append(toSend, []HandshakeInstruction{
 		SendHandshakeMessage{finm},
-		RekeyIn{state.state.Context.serverTrafficKeys},
-		RekeyOut{state.state.Context.clientTrafficKeys},
+		RekeyIn{Label: "application", KeySet: state.state.Context.serverTrafficKeys},
+		RekeyOut{Label: "application", KeySet: state.state.Context.clientTrafficKeys},
 	}...)
 
 	logf(logTypeHandshake, "[ClientStateWaitFinished] -> [StateConnected]")
@@ -1040,12 +1047,8 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 	transcript := []*HandshakeMessage{eem}
 	toSend := []HandshakeInstruction{
 		SendHandshakeMessage{state.state.serverHello},
-		RekeyOut{state.state.Context.serverHandshakeKeys},
+		RekeyOut{Label: "handshake", KeySet: state.state.Context.serverHandshakeKeys},
 		SendHandshakeMessage{eem},
-	}
-
-	if state.state.Params.ClientSendingEarlyData {
-		toSend = append(toSend, RekeyIn{state.state.Context.clientEarlyTrafficKeys})
 	}
 
 	// Authenticate with a certificate if required
@@ -1124,21 +1127,32 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 	transcript = append(transcript, finm)
 	toSend = append(toSend, []HandshakeInstruction{
 		SendHandshakeMessage{finm},
-		RekeyOut{state.state.Context.serverTrafficKeys},
+		RekeyOut{Label: "application", KeySet: state.state.Context.serverTrafficKeys},
 	}...)
 
 	state.state.serverFirstFlight = transcript
 	state.state.clientSecondFlight = []*HandshakeMessage{}
 
-	if state.state.Params.ClientSendingEarlyData {
+	if state.state.Params.UsingEarlyData {
 		logf(logTypeHandshake, "[ServerStateNegotiated] -> [ServerStateWaitEOED]")
 		nextState := ServerStateWaitEOED{state: state.state}
-		toSend = append(toSend, RekeyIn{state.state.Context.clientEarlyTrafficKeys})
+		toSend = append(toSend, []HandshakeInstruction{
+			RekeyIn{Label: "early", KeySet: state.state.Context.clientEarlyTrafficKeys},
+			ReadEarlyData{},
+		}...)
 		return nextState, toSend, AlertNoAlert
+	} else if state.state.Params.ClientSendingEarlyData {
+		// XXX: We need a synthetic EOED to make the transcripts line up.  Perhaps
+		// this is a bug in the spec?
+		eoedm, _ := HandshakeMessageFromBody(&EndOfEarlyDataBody{})
+		state.state.clientSecondFlight = append(state.state.clientSecondFlight, eoedm)
 	}
 
 	logf(logTypeHandshake, "[ServerStateNegotiated] -> [ServerStateWaitFlight2]")
-	toSend = append(toSend, RekeyIn{state.state.Context.clientHandshakeKeys})
+	toSend = append(toSend, []HandshakeInstruction{
+		RekeyIn{Label: "handshake", KeySet: state.state.Context.clientHandshakeKeys},
+		ReadPastEarlyData{},
+	}...)
 	nextState, moreToSend, alert := ServerStateWaitFlight2{state: state.state}.Next(nil)
 	toSend = append(toSend, moreToSend...)
 	return nextState, toSend, alert
@@ -1163,7 +1177,7 @@ func (state ServerStateWaitEOED) Next(hm *HandshakeMessage) (HandshakeState, []H
 
 	logf(logTypeHandshake, "[ServerStateWaitEOED] -> [ServerStateWaitFlight2]")
 	toSend := []HandshakeInstruction{
-		RekeyIn{state.state.Context.clientHandshakeKeys},
+		RekeyIn{Label: "handshake", KeySet: state.state.Context.clientHandshakeKeys},
 	}
 	nextState, moreToSend, alert := ServerStateWaitFlight2{state: state.state}.Next(nil)
 	toSend = append(toSend, moreToSend...)
@@ -1304,7 +1318,7 @@ func (state ServerStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 	logf(logTypeHandshake, "[ServerStateWaitFinished] -> [StateConnected]")
 	nextState := StateConnected{state: state.state}
 	toSend := []HandshakeInstruction{
-		RekeyIn{state.state.Context.clientTrafficKeys},
+		RekeyIn{Label: "application", KeySet: state.state.Context.clientTrafficKeys},
 	}
 	return nextState, toSend, AlertNoAlert
 }

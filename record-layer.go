@@ -39,6 +39,7 @@ type RecordLayer struct {
 	conn         io.ReadWriter // The underlying connection
 	nextData     []byte        // The next record to send
 	cachedRecord *TLSPlaintext // Last record read, cached to enable "peek"
+	cachedError  error         // Error on the last record read
 
 	ivLength int         // Length of the seq and nonce fields
 	seq      []byte      // Zero-padded sequence number
@@ -175,19 +176,17 @@ func (r *RecordLayer) PeekRecordType() (RecordType, error) {
 
 func (r *RecordLayer) ReadRecord() (*TLSPlaintext, error) {
 	pt, err := r.nextRecord()
-	if err != nil {
-		return nil, err
-	}
 
 	// Consume the cached record if there was one
 	r.cachedRecord = nil
+	r.cachedError = nil
 
-	return pt, nil
+	return pt, err
 }
 
 func (r *RecordLayer) nextRecord() (*TLSPlaintext, error) {
 	if r.cachedRecord != nil {
-		return r.cachedRecord, nil
+		return r.cachedRecord, r.cachedError
 	}
 
 	pt := &TLSPlaintext{}

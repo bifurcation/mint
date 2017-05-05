@@ -453,65 +453,84 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *Conn) followInstruction(instrGeneric HandshakeInstruction) Alert {
+	label := "[server]"
+	if c.isClient {
+		label = "[client]"
+	}
+
 	switch instr := instrGeneric.(type) {
 	case SendHandshakeMessage:
 		err := c.hOut.WriteMessage(instr.Message)
 		if err != nil {
-			logf(logTypeHandshake, "Error writing handshake message: %v", err)
+			logf(logTypeHandshake, "%s Error writing handshake message: %v", label, err)
 			return AlertInternalError
 		}
 
 	case RekeyIn:
-		logf(logTypeHandshake, "Rekeying in to: %+v", instr.KeySet)
+		logf(logTypeHandshake, "%s Rekeying in to %s: %+v", label, instr.Label, instr.KeySet)
 		err := c.in.Rekey(instr.KeySet.cipher, instr.KeySet.key, instr.KeySet.iv)
 		if err != nil {
-			logf(logTypeHandshake, "Unable to rekey inbound: %v", err)
+			logf(logTypeHandshake, "%s Unable to rekey inbound: %v", label, err)
 			return AlertInternalError
 		}
 
 	case RekeyOut:
-		logf(logTypeHandshake, "Rekeying out to: %+v", instr.KeySet)
+		logf(logTypeHandshake, "%s Rekeying out to %s: %+v", label, instr.Label, instr.KeySet)
 		err := c.out.Rekey(instr.KeySet.cipher, instr.KeySet.key, instr.KeySet.iv)
 		if err != nil {
-			logf(logTypeHandshake, "Unable to rekey outbound: %v", err)
+			logf(logTypeHandshake, "%s Unable to rekey outbound: %v", label, err)
 			return AlertInternalError
 		}
 
 	case SendEarlyData:
-		logf(logTypeHandshake, "Sending early data...")
+		logf(logTypeHandshake, "%s Sending early data...", label)
 		_, err := c.Write(c.EarlyData)
 		if err != nil {
-			logf(logTypeHandshake, "Error writing early data: %v", err)
+			logf(logTypeHandshake, "%s Error writing early data: %v", label, err)
 			return AlertInternalError
 		}
 
+	case ReadPastEarlyData:
+		logf(logTypeHandshake, "%s Reading past early data...", label)
+		// Scan past all records that fail to decrypt
+		_, err := c.in.PeekRecordType()
+		_, ok := err.(DecryptError)
+		for ok {
+			c.in.ReadRecord()
+			_, err = c.in.PeekRecordType()
+			_, ok = err.(DecryptError)
+		}
+
 	case ReadEarlyData:
-		logf(logTypeHandshake, "Sending early data...")
+		logf(logTypeHandshake, "%s Reading early data...", label)
 		t, err := c.in.PeekRecordType()
 		if err != nil {
-			logf(logTypeHandshake, "Error reading record type: %v", err)
+			logf(logTypeHandshake, "%s Error reading record type: %v", label, err)
 			return AlertInternalError
 		}
+		logf(logTypeHandshake, "%s Got record type: %v", label, t)
 
 		for t == RecordTypeApplicationData {
 			// Read a record into the buffer
 			pt, err := c.in.ReadRecord()
 			if err != nil {
-				logf(logTypeHandshake, "Error reading early data record: %v", err)
+				logf(logTypeHandshake, "%s Error reading early data record: %v", label, err)
 				return AlertInternalError
 			}
 
-			c.readBuffer = append(c.EarlyData, pt.fragment...)
+			logf(logTypeHandshake, "%s Read early data: %x", label, pt.fragment)
+			c.EarlyData = append(c.EarlyData, pt.fragment...)
 
 			t, err = c.in.PeekRecordType()
 			if err != nil {
-				logf(logTypeHandshake, "Error reading record type: %v", err)
+				logf(logTypeHandshake, "%s Error reading record type: %v", label, err)
 				return AlertInternalError
 			}
+			logf(logTypeHandshake, "%s Got record type: %v", label, t)
 		}
 
 	default:
-		logf(logTypeHandshake, "Unknown instruction type")
+		logf(logTypeHandshake, "%s Unknown instruction type", label)
 		return AlertInternalError
 	}
 
@@ -553,6 +572,7 @@ func (c *Conn) Handshake() Alert {
 	opts := ConnectionOptions{
 		ServerName: c.config.ServerName,
 		NextProtos: c.config.NextProtos,
+		EarlyData:  c.EarlyData,
 	}
 	connState := connectionState{
 		Caps: caps,

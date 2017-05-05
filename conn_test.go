@@ -308,15 +308,17 @@ func TestClientAuth(t *testing.T) {
 	client := Client(cConn, clientAuthConfig)
 	server := Server(sConn, clientAuthConfig)
 
+	var clientAlert, serverAlert Alert
+
 	done := make(chan bool)
 	go func(t *testing.T) {
-		err := server.Handshake()
-		assertNotError(t, err, "Server failed handshake")
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
 		done <- true
 	}(t)
 
-	err := client.Handshake()
-	assertNotError(t, err, "Client failed handshake")
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
 
 	<-done
 
@@ -332,15 +334,17 @@ func TestPSKFlows(t *testing.T) {
 		client := Client(cConn, conf)
 		server := Server(sConn, conf)
 
+		var clientAlert, serverAlert Alert
+
 		done := make(chan bool)
 		go func(t *testing.T) {
-			err := server.Handshake()
-			assertNotError(t, err, "Server failed handshake")
+			serverAlert = server.Handshake()
+			assertEquals(t, serverAlert, AlertNoAlert)
 			done <- true
 		}(t)
 
-		err := client.Handshake()
-		assertNotError(t, err, "Client failed handshake")
+		clientAlert = client.Handshake()
+		assertEquals(t, clientAlert, AlertNoAlert)
 
 		<-done
 
@@ -426,13 +430,13 @@ func Test0xRTT(t *testing.T) {
 
 	done := make(chan bool)
 	go func(t *testing.T) {
-		err := server.Handshake()
-		assertNotError(t, err, "Server failed handshake")
+		alert := server.Handshake()
+		assertEquals(t, alert, AlertNoAlert)
 		done <- true
 	}(t)
 
-	err := client.Handshake()
-	assertNotError(t, err, "Client failed handshake")
+	alert := client.Handshake()
+	assertEquals(t, alert, AlertNoAlert)
 
 	<-done
 
@@ -465,13 +469,13 @@ func Test0xRTTFailure(t *testing.T) {
 
 	done := make(chan bool)
 	go func(t *testing.T) {
-		err := server.Handshake()
-		assertNotError(t, err, "Server failed handshake")
+		alert := server.Handshake()
+		assertEquals(t, alert, AlertNoAlert)
 		done <- true
 	}(t)
 
-	err := client.Handshake()
-	assertNotError(t, err, "Client failed handshake")
+	alert := client.Handshake()
+	assertEquals(t, alert, AlertNoAlert)
 
 	<-done
 }
@@ -508,8 +512,8 @@ func TestKeyUpdate(t *testing.T) {
 		s2c <- true
 	}(t)
 
-	err := client.Handshake()
-	assertNotError(t, err, "Client failed handshake")
+	alert := client.Handshake()
+	assertEquals(t, alert, AlertNoAlert)
 	<-s2c
 
 	clientContext0 := client.state.state.Context
