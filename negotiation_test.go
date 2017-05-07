@@ -56,7 +56,7 @@ func TestDHNegotiation(t *testing.T) {
 
 func TestPSKNegotiation(t *testing.T) {
 	chTrunc := unhex("0001020304050607")
-	binderValue := unhex("9c4bfad67420fbc3f03809744929f9f3d21030fd15e886881bbe21b7ca28ee16")
+	binderValue := unhex("c08bdc9ee53d56d23b906f7eafe8e73cfa6eeed1dcce6d1513f666f8404123ed")
 
 	identities := []PSKIdentity{
 		{Identity: []byte{0, 1, 2, 3}},

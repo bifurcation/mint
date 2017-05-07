@@ -68,7 +68,7 @@ func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context 
 
 		binder := ctx.computeFinishedData(ctx.binderKey, ctxHash.Sum(nil))
 		if !bytes.Equal(binder, binders[i].Binder) {
-			logf(logTypeNegotiation, "Binder check failed for identity %x", psk.Identity)
+			logf(logTypeNegotiation, "Binder check failed for identity %x; [%x] != [%x]", psk.Identity, binder, binders[i].Binder)
 			return false, 0, nil, cryptoContext{}, fmt.Errorf("Binder check failed identity %x", psk.Identity)
 		}
 
