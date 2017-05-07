@@ -513,6 +513,7 @@ func TestKeyUpdate(t *testing.T) {
 	}(t)
 
 	alert := client.Handshake()
+	client.Read(zeroBuf)
 	assertEquals(t, alert, AlertNoAlert)
 	<-s2c
 

@@ -623,7 +623,10 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 	toSend := []HandshakeInstruction{}
 	state.state.clientSecondFlight = []*HandshakeMessage{}
 
-	if state.state.Params.ClientSendingEarlyData {
+	if state.state.Params.UsingEarlyData {
+		// Note: We only send EOED if the server is actually going to use the early
+		// data.  Otherwise, it will never see it, and the transcripts will
+		// mismatch.
 		// EOED marshal is infallible
 		eoedm, _ := HandshakeMessageFromBody(&EndOfEarlyDataBody{})
 		toSend = append(toSend, SendHandshakeMessage{eoedm})
@@ -708,7 +711,10 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 	}...)
 
 	logf(logTypeHandshake, "[ClientStateWaitFinished] -> [StateConnected]")
-	nextState := StateConnected{state: state.state}
+	nextState := StateConnected{
+		state:    state.state,
+		isClient: true,
+	}
 	return nextState, toSend, AlertNoAlert
 }
 
@@ -1141,11 +1147,6 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 			ReadEarlyData{},
 		}...)
 		return nextState, toSend, AlertNoAlert
-	} else if state.state.Params.ClientSendingEarlyData {
-		// XXX: We need a synthetic EOED to make the transcripts line up.  Perhaps
-		// this is a bug in the spec?
-		eoedm, _ := HandshakeMessageFromBody(&EndOfEarlyDataBody{})
-		state.state.clientSecondFlight = append(state.state.clientSecondFlight, eoedm)
 	}
 
 	logf(logTypeHandshake, "[ServerStateNegotiated] -> [ServerStateWaitFlight2]")
@@ -1316,7 +1317,10 @@ func (state ServerStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 	}
 
 	logf(logTypeHandshake, "[ServerStateWaitFinished] -> [StateConnected]")
-	nextState := StateConnected{state: state.state}
+	nextState := StateConnected{
+		state:    state.state,
+		isClient: false,
+	}
 	toSend := []HandshakeInstruction{
 		RekeyIn{Label: "application", KeySet: state.state.Context.clientTrafficKeys},
 	}
@@ -1326,7 +1330,68 @@ func (state ServerStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 // Connected state is symmetric between client and server (NB: Might need a
 // notation as to which role is being played)
 type StateConnected struct {
-	state *connectionState
+	state    *connectionState
+	isClient bool
+}
+
+func (state *StateConnected) KeyUpdate(request KeyUpdateRequest) ([]HandshakeInstruction, Alert) {
+	err := state.state.Context.updateKeys(state.isClient)
+	if err != nil {
+		logf(logTypeHandshake, "[StateConnected] Error updating outbound keys: %v", err)
+		return nil, AlertInternalError
+	}
+
+	keySet := state.state.Context.clientTrafficKeys
+	if !state.isClient {
+		keySet = state.state.Context.serverTrafficKeys
+	}
+
+	kum, err := HandshakeMessageFromBody(&KeyUpdateBody{KeyUpdateRequest: request})
+	if err != nil {
+		logf(logTypeHandshake, "[StateConnected] Error marshaling key update message: %v", err)
+		return nil, AlertInternalError
+	}
+
+	toSend := []HandshakeInstruction{
+		SendHandshakeMessage{kum},
+		RekeyOut{Label: "update", KeySet: keySet},
+	}
+	return toSend, AlertNoAlert
+}
+
+func (state *StateConnected) NewSessionTicket(length int, lifetime, earlyDataLifetime uint32) ([]HandshakeInstruction, Alert) {
+	tkt, err := NewSessionTicket(length)
+	if err != nil {
+		logf(logTypeHandshake, "[StateConnected] Error generating NewSessionTicket: %v", err)
+		return nil, AlertInternalError
+	}
+
+	tkt.TicketLifetime = lifetime
+
+	err = tkt.Extensions.Add(&TicketEarlyDataInfoExtension{earlyDataLifetime})
+	if err != nil {
+		logf(logTypeHandshake, "[StateConnected] Error adding extension to NewSessionTicket: %v", err)
+		return nil, AlertInternalError
+	}
+
+	newPSK := PreSharedKey{
+		CipherSuite:  state.state.Context.suite,
+		IsResumption: true,
+		Identity:     tkt.Ticket,
+		Key:          state.state.Context.resumptionSecret,
+	}
+
+	tktm, err := HandshakeMessageFromBody(tkt)
+	if err != nil {
+		logf(logTypeHandshake, "[StateConnected] Error marshaling NewSessionTicket: %v", err)
+		return nil, AlertInternalError
+	}
+
+	toSend := []HandshakeInstruction{
+		StorePSK{newPSK},
+		SendHandshakeMessage{tktm},
+	}
+	return toSend, AlertNoAlert
 }
 
 func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeInstruction, Alert) {
@@ -1341,13 +1406,50 @@ func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []Handsh
 		return nil, nil, AlertDecodeError
 	}
 
-	switch bodyGeneric.(type) {
+	switch body := bodyGeneric.(type) {
 	case *KeyUpdateBody:
-		// TODO: Handle KeyUpdate
-		return state, nil, AlertNoAlert
+
+		// Roll the inbound keys
+		err = state.state.Context.updateKeys(!state.isClient)
+		if err != nil {
+			logf(logTypeHandshake, "[StateConnected] Error updating inbound keys: %v", err)
+			return nil, nil, AlertInternalError
+		}
+
+		keySet := state.state.Context.serverTrafficKeys
+		if !state.isClient {
+			keySet = state.state.Context.clientTrafficKeys
+		}
+
+		toSend := []HandshakeInstruction{RekeyIn{Label: "update", KeySet: keySet}}
+
+		// If requested, roll outbound keys and send a KeyUpdate
+		if body.KeyUpdateRequest == KeyUpdateRequested {
+			moreToSend, alert := state.KeyUpdate(KeyUpdateNotRequested)
+			if alert != AlertNoAlert {
+				return nil, nil, alert
+			}
+
+			toSend = append(toSend, moreToSend...)
+		}
+
+		return state, toSend, AlertNoAlert
+
 	case *NewSessionTicketBody:
-		// TODO: Handle NewSessionTicket
-		return state, nil, AlertNoAlert
+		// XXX: Allow NewSessionTicket in both directions?
+		if !state.isClient {
+			return nil, nil, AlertUnexpectedMessage
+		}
+
+		psk := PreSharedKey{
+			CipherSuite:  state.state.Context.suite,
+			IsResumption: true,
+			Identity:     body.Ticket,
+			Key:          state.state.Context.resumptionSecret,
+		}
+
+		toSend := []HandshakeInstruction{StorePSK{psk}}
+		return state, toSend, AlertNoAlert
 	}
 
 	return nil, nil, AlertUnexpectedMessage

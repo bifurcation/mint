@@ -75,6 +75,8 @@ func (hm HandshakeMessage) ToBody() (HandshakeMessageBody, error) {
 		body = &FinishedBody{VerifyDataLen: len(hm.body)}
 	case HandshakeTypeNewSessionTicket:
 		body = new(NewSessionTicketBody)
+	case HandshakeTypeKeyUpdate:
+		body = new(KeyUpdateBody)
 	case HandshakeTypeEndOfEarlyData:
 		body = new(EndOfEarlyDataBody)
 	default:

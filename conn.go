@@ -56,6 +56,7 @@ type Config struct {
 	SendSessionTickets bool
 	TicketLifetime     uint32
 	TicketLen          int
+	EarlyDataLifetime  uint32
 	AllowEarlyData     bool
 	RequireCookie      bool
 	RequireClientAuth  bool
@@ -214,7 +215,7 @@ func (c *Conn) extendBuffer(n int) error {
 
 		switch pt.contentType {
 		case RecordTypeHandshake:
-			// We do not support fragmentation of post-handshake handshake messages
+			// We do not support fragmentation of post-handshake handshake messages.
 			// TODO: Factor this more elegantly; coalesce with handshakeLayer.ReadMessage()
 			start := 0
 			for start < len(pt.fragment) {
@@ -231,52 +232,33 @@ func (c *Conn) extendBuffer(n int) error {
 				}
 				hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
 
-				switch hm.msgType {
-				/*
-						TODO: Re-enable NST / KU
-					case HandshakeTypeNewSessionTicket:
-						psk, err := c.handshake.HandleNewSessionTicket(hm)
-						if err != nil {
-							return err
-						}
+				// Advance state machine
+				state, instructions, alert := c.state.Next(hm)
 
-						logf(logTypeHandshake, "Storing new session ticket with identity [%x]", psk.Identity)
-						c.config.PSKs.Put(c.config.ServerName, psk)
+				if alert != AlertNoAlert {
+					logf(logTypeHandshake, "Error in state transition: %v", alert)
+					c.sendAlert(alert)
+					return io.EOF
+				}
 
-					case HandshakeTypeKeyUpdate:
-						outboundUpdate, err := c.handshake.HandleKeyUpdate(hm)
-						if err != nil {
-							return err
-						}
+				for _, instr := range instructions {
+					alert = c.followInstruction(instr)
+					if alert != AlertNoAlert {
+						logf(logTypeHandshake, "Error following instructions: %v", alert)
+						c.sendAlert(alert)
+						return io.EOF
+					}
+				}
 
-						// Rekey inbound
-						cipher, keys := c.handshake.inboundKeys()
-						err = c.in.Rekey(cipher, keys.key, keys.iv)
-						if err != nil {
-							return err
-						}
-
-						if outboundUpdate != nil {
-							// Send KeyUpdate
-							err = c.out.WriteRecord(&TLSPlaintext{
-								contentType: RecordTypeHandshake,
-								fragment:    outboundUpdate.Marshal(),
-							})
-							if err != nil {
-								return err
-							}
-
-							// Rekey outbound
-							cipher, keys := c.handshake.outboundKeys()
-							err = c.out.Rekey(cipher, keys.key, keys.iv)
-							if err != nil {
-								return err
-							}
-						}
-				*/
-				default:
-					c.sendAlert(AlertUnexpectedMessage)
-					return fmt.Errorf("Unsupported post-handshake handshake message [%v]", hm.msgType)
+				// XXX: If we want to support more advanced cases, e.g., post-handshake
+				// authentication, we'll need to allow transitions other than
+				// Connected -> Connected
+				var connected bool
+				c.state, connected = state.(StateConnected)
+				if !connected {
+					logf(logTypeHandshake, "Disconnected after state transition: %v", alert)
+					c.sendAlert(alert)
+					return io.EOF
 				}
 
 				start += handshakeHeaderLen + hmLen
@@ -494,10 +476,16 @@ func (c *Conn) followInstruction(instrGeneric HandshakeInstruction) Alert {
 		logf(logTypeHandshake, "%s Reading past early data...", label)
 		// Scan past all records that fail to decrypt
 		_, err := c.in.PeekRecordType()
+		if err == nil {
+			break
+		}
 		_, ok := err.(DecryptError)
+
 		for ok {
-			c.in.ReadRecord()
 			_, err = c.in.PeekRecordType()
+			if err == nil {
+				break
+			}
 			_, ok = err.(DecryptError)
 		}
 
@@ -528,6 +516,10 @@ func (c *Conn) followInstruction(instrGeneric HandshakeInstruction) Alert {
 			}
 			logf(logTypeHandshake, "%s Got record type: %v", label, t)
 		}
+
+	case StorePSK:
+		logf(logTypeHandshake, "%s Storing new session ticket with identity [%x]", label, instr.PSK.Identity)
+		c.config.PSKs.Put(c.config.ServerName, instr.PSK)
 
 	default:
 		logf(logTypeHandshake, "%s Unknown instruction type", label)
@@ -625,6 +617,7 @@ func (c *Conn) Handshake() Alert {
 			alert = c.followInstruction(instr)
 			if alert != AlertNoAlert {
 				logf(logTypeHandshake, "Error following instructions: %v", alert)
+				// TODO Send alert
 				return alert
 			}
 		}
@@ -633,40 +626,53 @@ func (c *Conn) Handshake() Alert {
 	}
 
 	c.state = state.(StateConnected)
+
+	// Send NewSessionTicket if acting as server
+	if !c.isClient {
+		instructions, alert := c.state.NewSessionTicket(
+			c.config.TicketLen,
+			c.config.TicketLifetime,
+			c.config.EarlyDataLifetime)
+
+		for _, instr := range instructions {
+			alert = c.followInstruction(instr)
+			if alert != AlertNoAlert {
+				logf(logTypeHandshake, "Error following instructions: %v", alert)
+				// TODO Send alert
+				return alert
+			}
+		}
+	}
+
+	c.handshakeComplete = true
 	return AlertNoAlert
 }
 
 func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
+	if !c.handshakeComplete {
+		return fmt.Errorf("Cannot update keys until after handshake")
+	}
+
+	request := KeyUpdateNotRequested
+	if requestUpdate {
+		request = KeyUpdateRequested
+	}
+
+	// Create the key update and update state
+	instructions, alert := c.state.KeyUpdate(request)
+	if alert != AlertNoAlert {
+		return fmt.Errorf("Alert while generating key update: %v", alert)
+		// TODO Send alert
+	}
+
+	// Follow instructions (send key update and rekey)
+	for _, instr := range instructions {
+		alert = c.followInstruction(instr)
+		if alert != AlertNoAlert {
+			return fmt.Errorf("Alert while folowing key update instructions: %v", alert)
+			// TODO Send alert
+		}
+	}
+
 	return nil
-	// TODO: Re-enable
-	/*
-		if !c.handshakeComplete {
-			return fmt.Errorf("Cannot update keys until after handshake")
-		}
-
-		request := KeyUpdateNotRequested
-		if requestUpdate {
-			request = KeyUpdateRequested
-		}
-
-		// Create the key update and update the keys internally
-		kum, err := c.handshake.CreateKeyUpdate(request)
-		if err != nil {
-			return err
-		}
-
-		// Send key update
-		err = c.out.WriteRecord(&TLSPlaintext{
-			contentType: RecordTypeHandshake,
-			fragment:    kum.Marshal(),
-		})
-		if err != nil {
-			return err
-		}
-
-		// Rekey outbound
-		cipher, keys := c.handshake.outboundKeys()
-		err = c.out.Rekey(cipher, keys.key, keys.iv)
-		return err
-	*/
 }
