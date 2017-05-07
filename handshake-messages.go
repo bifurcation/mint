@@ -359,34 +359,13 @@ func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript [
 	return verify(cv.Algorithm, publicKey, sigInput, cv.Signature)
 }
 
-// opaque DistinguishedName<1..2^16-1>;
-//
-// struct {
-//     opaque certificate_extension_oid<1..2^8-1>;
-//     opaque certificate_extension_values<0..2^16-1>;
-// } CertificateExtension;
-//
 // struct {
 //     opaque certificate_request_context<0..2^8-1>;
-//     SignatureScheme
-//       supported_signature_algorithms<2..2^16-2>;
-//     DistinguishedName certificate_authorities<0..2^16-1>;
-//     CertificateExtension certificate_extensions<0..2^16-1>;
+//     Extension extensions<2..2^16-1>;
 // } CertificateRequest;
-type DistinguishedName struct {
-	DistinguishedName []byte `tls:"head=2,min=1"`
-}
-
-type CertificateExtension struct {
-	OID    []byte `tls:"head=1,min=1"`
-	Values []byte `tls:"head=2"`
-}
-
 type CertificateRequestBody struct {
-	CertificateRequestContext    []byte                 `tls:"head=1"`
-	SupportedSignatureAlgorithms []SignatureScheme      `tls:"head=2,min=2"`
-	CertificateAuthorities       []DistinguishedName    `tls:"head=2"`
-	CertificateExtensions        []CertificateExtension `tls:"head=2"`
+	CertificateRequestContext []byte        `tls:"head=1"`
+	Extensions                ExtensionList `tls:"head=2"`
 }
 
 func (cr CertificateRequestBody) Type() HandshakeType {

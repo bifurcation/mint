@@ -187,23 +187,15 @@ var (
 	// CertificateRequest test cases
 	certReqValidIn = CertificateRequestBody{
 		CertificateRequestContext: []byte{0, 1, 2, 3, 4, 5, 6, 7},
-		SupportedSignatureAlgorithms: []SignatureScheme{
-			ECDSA_P256_SHA256, // 0x0403
-			ECDSA_P384_SHA384, // 0x0503
-		},
-		CertificateAuthorities: []DistinguishedName{
-			{[]byte{0, 1, 2, 3}},
-			{[]byte{4, 5, 6, 7}},
-		},
-		CertificateExtensions: []CertificateExtension{
-			{[]byte{0, 1}, []byte{2, 3}},
-			{[]byte{4, 5}, []byte{6, 7}},
+		Extensions: []Extension{
+			{
+				ExtensionType: ExtensionTypeSignatureAlgorithms,
+				ExtensionData: unhex("000404030503"),
+			},
 		},
 	}
 	certReqValidHex = "080001020304050607" + // context
-		"000404030503" + // signature algorithms
-		"000c" + "000400010203" + "000404050607" + // CAs
-		"000e" + "02000100020203" + "02040500020607" // extensionss
+		"000a000d0006000404030503" // extensions
 
 	// NewSessionTicket test cases
 	ticketValidHex = "00010203" + "04050607" + "000408090a0b" + "0006eeff00021122"

@@ -36,9 +36,44 @@ type HandshakeState interface {
 	Next(hm *HandshakeMessage) (HandshakeState, []HandshakeInstruction, Alert)
 }
 
-// XXX: This is just a big bucket of all the previously-defined state values
-// for now.  We should trim this down once the state machine version is
-// functional.
+// XXX: We just use a big bucket of all the previously-defined state values for
+// now.  We should trim this down to the minimum needed by each state.
+type Capabilities struct {
+	// For both client and server
+	CipherSuites     []CipherSuite
+	Groups           []NamedGroup
+	SignatureSchemes []SignatureScheme
+	PSKs             PreSharedKeyCache
+	Certificates     []*Certificate
+
+	// For client
+	PSKModes []PSKKeyExchangeMode
+
+	// For server
+	NextProtos        []string
+	AllowEarlyData    bool
+	RequireCookie     bool
+	RequireClientAuth bool
+}
+
+type ConnectionOptions struct {
+	ServerName string
+	NextProtos []string
+	EarlyData  []byte
+}
+
+type ConnectionParameters struct {
+	UsingPSK               bool
+	UsingDH                bool
+	ClientSendingEarlyData bool
+	UsingEarlyData         bool
+	UsingClientAuth        bool
+
+	CipherSuite CipherSuite
+	ServerName  string
+	NextProto   string
+}
+
 type connectionState struct {
 	Conn    *Conn
 	Caps    Capabilities
@@ -493,23 +528,29 @@ func (state ClientStateWaitCertCR) Next(hm *HandshakeMessage) (HandshakeState, [
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	body, err := hm.ToBody()
+	bodyGeneric, err := hm.ToBody()
 	if err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitCertCR] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
 
-	switch body.(type) {
+	switch body := bodyGeneric.(type) {
 	case *CertificateBody:
-		state.state.serverCertificate = body.(*CertificateBody)
+		state.state.serverCertificate = body
 		state.state.serverFirstFlight = append(state.state.serverFirstFlight, hm)
 		logf(logTypeHandshake, "[ClientStateWaitCertCR] -> [ClientStateWaitCV]")
 		nextState := ClientStateWaitCV{state: state.state}
 		return nextState, nil, AlertNoAlert
 
 	case *CertificateRequestBody:
+		// A certificate request in the handshake should have a zero-length context
+		if len(body.CertificateRequestContext) > 0 {
+			logf(logTypeHandshake, "[ClientStateWaitCertCR] Certificate request with non-empty context: %v", err)
+			return nil, nil, AlertIllegalParameter
+		}
+
 		state.state.Params.UsingClientAuth = true
-		state.state.serverCertificateRequest = body.(*CertificateRequestBody)
+		state.state.serverCertificateRequest = body
 		state.state.serverFirstFlight = append(state.state.serverFirstFlight, hm)
 		logf(logTypeHandshake, "[ClientStateWaitCertCR] -> [ClientStateWaitCert]")
 		nextState := ClientStateWaitCert{state: state.state}
@@ -637,9 +678,17 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 	toSend = append(toSend, RekeyOut{Label: "handshake", KeySet: state.state.Context.clientHandshakeKeys})
 
 	if state.state.Params.UsingClientAuth {
+		// Extract constraints from certicateRequest
+		schemes := SignatureAlgorithmsExtension{}
+		gotSchemes := state.state.serverCertificateRequest.Extensions.Find(&schemes)
+		if !gotSchemes {
+			logf(logTypeHandshake, "[ClientStateWaitFinished] WARNING no appropriate certificate found [%v]", err)
+			return nil, nil, AlertIllegalParameter
+		}
+
 		// Select a certificate
 		// TODO: Take into account constraints from CertificateRequest
-		cert, certScheme, err := CertificateSelection(nil, state.state.Caps.SignatureSchemes, state.state.Caps.Certificates)
+		cert, certScheme, err := CertificateSelection(nil, schemes.Algorithms, state.state.Caps.Certificates)
 		if err != nil {
 			// XXX: Signal this to the application layer?
 			logf(logTypeHandshake, "[ClientStateWaitFinished] WARNING no appropriate certificate found [%v]", err)
@@ -1066,7 +1115,14 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 
 			// XXX: We don't support sending any constraints besides a list of
 			// supported signature algorithms
-			cr := &CertificateRequestBody{SupportedSignatureAlgorithms: state.state.Caps.SignatureSchemes}
+			cr := &CertificateRequestBody{}
+			schemes := &SignatureAlgorithmsExtension{Algorithms: state.state.Caps.SignatureSchemes}
+			err := cr.Extensions.Add(schemes)
+			if err != nil {
+				logf(logTypeHandshake, "[ServerStateNegotiated] Error adding supported schemes to CertificateRequest [%v]", err)
+				return nil, nil, AlertInternalError
+			}
+
 			crm, err := HandshakeMessageFromBody(cr)
 			if err != nil {
 				logf(logTypeHandshake, "[ServerStateNegotiated] Error marshaling CertificateRequest [%v]", err)

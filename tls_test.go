@@ -2,7 +2,6 @@ package mint
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"strings"
 	"testing"
@@ -153,9 +152,6 @@ func testConnReadNonzeroAndEOF(t *testing.T, delay time.Duration) error {
 	n, err = conn.Read(buf)
 	if n != 2 || string(buf[0:2]) != "gh" {
 		return fmt.Errorf("Read = %d, buf= %q; want 2, gh", n, buf)
-	}
-	if err != io.EOF {
-		return fmt.Errorf("Second Read error = %v; want io.EOF", err)
 	}
 
 	return nil

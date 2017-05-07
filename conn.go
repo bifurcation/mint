@@ -377,31 +377,32 @@ func (c *Conn) sendAlert(err Alert) error {
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
-	tmp := make([]byte, 2)
+	var level int
 	switch err {
 	case AlertNoRenegotiation, AlertCloseNotify:
-		tmp[0] = AlertLevelWarning
+		level = AlertLevelWarning
 	default:
-		tmp[0] = AlertLevelError
+		level = AlertLevelError
 	}
-	tmp[1] = byte(err)
+
+	buf := []byte{byte(err), byte(level)}
 	c.out.WriteRecord(&TLSPlaintext{
 		contentType: RecordTypeAlert,
-		fragment:    tmp,
+		fragment:    buf,
 	})
 
 	// close_notify and end_of_early_data are not actually errors
-	if err != AlertCloseNotify && err != AlertEndOfEarlyData {
+	if level == AlertLevelWarning {
 		return &net.OpError{Op: "local error", Err: err}
 	}
-	return nil
+
+	return c.Close()
 }
 
 // Close closes the connection.
 func (c *Conn) Close() error {
 	// XXX crypto/tls has an interlock with Write here.  Do we need that?
 
-	c.sendAlert(AlertCloseNotify)
 	return c.conn.Close()
 }
 
@@ -608,7 +609,8 @@ func (c *Conn) Handshake() Alert {
 		hm, err := c.hIn.ReadMessage()
 		if err != nil {
 			logf(logTypeHandshake, "Error reading message: %v", err)
-			return AlertInternalError
+			c.sendAlert(AlertCloseNotify)
+			return AlertCloseNotify
 		}
 		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
@@ -624,7 +626,7 @@ func (c *Conn) Handshake() Alert {
 			alert = c.followInstruction(instr)
 			if alert != AlertNoAlert {
 				logf(logTypeHandshake, "Error following instructions: %v", alert)
-				// TODO Send alert
+				c.sendAlert(alert)
 				return alert
 			}
 		}
@@ -645,7 +647,7 @@ func (c *Conn) Handshake() Alert {
 			alert = c.followInstruction(instr)
 			if alert != AlertNoAlert {
 				logf(logTypeHandshake, "Error following instructions: %v", alert)
-				// TODO Send alert
+				c.sendAlert(alert)
 				return alert
 			}
 		}
@@ -668,16 +670,16 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 	// Create the key update and update state
 	instructions, alert := c.state.KeyUpdate(request)
 	if alert != AlertNoAlert {
+		c.sendAlert(alert)
 		return fmt.Errorf("Alert while generating key update: %v", alert)
-		// TODO Send alert
 	}
 
 	// Follow instructions (send key update and rekey)
 	for _, instr := range instructions {
 		alert = c.followInstruction(instr)
 		if alert != AlertNoAlert {
+			c.sendAlert(alert)
 			return fmt.Errorf("Alert while folowing key update instructions: %v", alert)
-			// TODO Send alert
 		}
 	}
 
