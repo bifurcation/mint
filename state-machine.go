@@ -237,6 +237,7 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		}
 
 		// Add the shim PSK extension to the ClientHello
+		logf(logTypeHandshake, "Adding PSK extension with id = %x", key.Identity)
 		psk = &PreSharedKeyExtension{
 			HandshakeType: HandshakeTypeClientHello,
 			Identities: []PSKIdentity{

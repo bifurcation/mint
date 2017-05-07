@@ -132,12 +132,18 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*
 
 	if timeout == 0 {
 		err = conn.Handshake()
+		if err == AlertNoAlert {
+			err = nil
+		}
 	} else {
 		go func() {
 			errChannel <- conn.Handshake()
 		}()
 
 		err = <-errChannel
+		if err == AlertNoAlert {
+			err = nil
+		}
 	}
 
 	if err != nil {

@@ -3,6 +3,7 @@ package mint
 import (
 	"crypto"
 	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -519,7 +520,13 @@ func (c *Conn) followInstruction(instrGeneric HandshakeInstruction) Alert {
 
 	case StorePSK:
 		logf(logTypeHandshake, "%s Storing new session ticket with identity [%x]", label, instr.PSK.Identity)
-		c.config.PSKs.Put(c.config.ServerName, instr.PSK)
+		if c.isClient {
+			// Clients look up PSKs based on server name
+			c.config.PSKs.Put(c.config.ServerName, instr.PSK)
+		} else {
+			// Servers look them up based on the identity in the extension
+			c.config.PSKs.Put(hex.EncodeToString(instr.PSK.Identity), instr.PSK)
+		}
 
 	default:
 		logf(logTypeHandshake, "%s Unknown instruction type", label)

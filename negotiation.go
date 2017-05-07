@@ -54,6 +54,7 @@ func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context 
 
 		psk, ok := psks.Get(identityHex)
 		if !ok {
+			logf(logTypeNegotiation, "No PSK for identity %x", identityHex)
 			continue
 		}
 

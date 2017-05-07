@@ -166,7 +166,8 @@ var (
 					PSKs: &PSKMapCache{
 						"00010203": psk,
 					},
-					Certificates: certificates,
+					Certificates:   certificates,
+					AllowEarlyData: true,
 				},
 			},
 			clientStateSequence: []HandshakeState{
@@ -259,6 +260,7 @@ var (
 				ClientStateWaitSH{},
 				ClientStateWaitEE{},
 				ClientStateWaitCertCR{},
+				ClientStateWaitCert{},
 				ClientStateWaitCV{},
 				ClientStateWaitFinished{},
 				StateConnected{},
@@ -303,6 +305,7 @@ var (
 				ClientStateWaitSH{},
 				ClientStateWaitEE{},
 				ClientStateWaitCertCR{},
+				ClientStateWaitCert{},
 				ClientStateWaitCV{},
 				ClientStateWaitFinished{},
 				StateConnected{},
@@ -391,15 +394,16 @@ func TestStateMachineIntegration(t *testing.T) {
 				assertContextEquals(t, &c.state.Context, &s.state.Context)
 
 				// Test that the client went through the expected sequence of states
-				//assertEquals(t, len(clientStateSequence), len(params.clientStateSequence))
+				assertEquals(t, len(clientStateSequence), len(params.clientStateSequence))
 				for i, state := range clientStateSequence {
 					t.Logf("-- %d %s", i, reflect.TypeOf(state).Name())
-					//assertSameType(t, state, params.clientStateSequence[i])
+					assertSameType(t, state, params.clientStateSequence[i])
 				}
 
 				// Test that the server went through the expected sequence of states
 				assertEquals(t, len(serverStateSequence), len(params.serverStateSequence))
 				for i, state := range serverStateSequence {
+					t.Logf("-- %d %s", i, reflect.TypeOf(state).Name())
 					assertSameType(t, state, params.serverStateSequence[i])
 				}
 

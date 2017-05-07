@@ -355,68 +355,66 @@ func TestPSKFlows(t *testing.T) {
 }
 
 func TestResumption(t *testing.T) {
-	/*
-		XXX: Disabled until NewSessionTicket is re-enabled
+	// Phase 1: Verify that the session ticket gets sent and stored
+	clientConfig := *resumptionConfig
+	serverConfig := *resumptionConfig
 
-		// Phase 1: Verify that the session ticket gets sent and stored
-		clientConfig := *resumptionConfig
-		serverConfig := *resumptionConfig
+	cConn1, sConn1 := pipe()
+	client1 := Client(cConn1, &clientConfig)
+	server1 := Server(sConn1, &serverConfig)
 
-		cConn1, sConn1 := pipe()
-		client1 := Client(cConn1, &clientConfig)
-		server1 := Server(sConn1, &serverConfig)
+	var clientAlert, serverAlert Alert
 
-		done := make(chan bool)
-		go func(t *testing.T) {
-			err := server1.Handshake()
-			assertNotError(t, err, "Server failed handshake")
-			done <- true
-		}(t)
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server1.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
 
-		err := client1.Handshake()
-		assertNotError(t, err, "Client failed handshake")
+	clientAlert = client1.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
 
-		client1.Read(nil)
-		<-done
+	client1.Read(nil)
+	<-done
 
-		assertDeepEquals(t, &client1.state.state.Params, &server1.state.state.Params)
-		assertContextEquals(t, &client1.state.state.Context, &server1.state.state.Context)
-		assertEquals(t, clientConfig.PSKs.Size(), 1)
-		assertEquals(t, serverConfig.PSKs.Size(), 1)
+	assertDeepEquals(t, &client1.state.state.Params, &server1.state.state.Params)
+	assertContextEquals(t, &client1.state.state.Context, &server1.state.state.Context)
+	assertEquals(t, clientConfig.PSKs.Size(), 1)
+	assertEquals(t, serverConfig.PSKs.Size(), 1)
 
-		clientCache := clientConfig.PSKs.(*PSKMapCache)
-		serverCache := serverConfig.PSKs.(*PSKMapCache)
+	clientCache := clientConfig.PSKs.(*PSKMapCache)
+	serverCache := serverConfig.PSKs.(*PSKMapCache)
 
-		var serverPSK PreSharedKey
-		for _, key := range *serverCache {
-			serverPSK = key
-		}
-		var clientPSK PreSharedKey
-		for _, key := range *clientCache {
-			clientPSK = key
-		}
-		assertDeepEquals(t, clientPSK, serverPSK)
+	var serverPSK PreSharedKey
+	for _, key := range *serverCache {
+		serverPSK = key
+	}
+	var clientPSK PreSharedKey
+	for _, key := range *clientCache {
+		clientPSK = key
+	}
+	assertDeepEquals(t, clientPSK, serverPSK)
 
-		// Phase 2: Verify that the session ticket gets used as a PSK
-		cConn2, sConn2 := pipe()
-		client2 := Client(cConn2, &clientConfig)
-		server2 := Server(sConn2, &serverConfig)
+	// Phase 2: Verify that the session ticket gets used as a PSK
+	cConn2, sConn2 := pipe()
+	client2 := Client(cConn2, &clientConfig)
+	server2 := Server(sConn2, &serverConfig)
 
-		go func(t *testing.T) {
-			err := server2.Handshake()
-			assertNotError(t, err, "Server failed second handshake")
-			done <- true
-		}(t)
+	go func(t *testing.T) {
+		serverAlert = server2.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
 
-		err = client2.Handshake()
-		assertNotError(t, err, "Client failed second handshake")
+	clientAlert = client2.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
 
-		client2.Read(nil)
-		<-done
+	client2.Read(nil)
+	<-done
 
-		assertDeepEquals(t, &client2.state.state.Params, &server2.state.state.Params)
-		assertContextEquals(t, &client2.state.state.Context, &server2.state.state.Context)
-	*/
+	assertDeepEquals(t, &client2.state.state.Params, &server2.state.state.Params)
+	assertContextEquals(t, &client2.state.state.Context, &server2.state.state.Context)
 }
 
 func Test0xRTT(t *testing.T) {
