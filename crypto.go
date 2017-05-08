@@ -755,17 +755,6 @@ type cryptoContext struct {
 	resumptionSecret   []byte
 }
 
-func (ctx cryptoContext) deriveSecret(secret []byte, label string, messageHash []byte) []byte {
-	return hkdfExpandLabel(ctx.params.hash, secret, label, messageHash, ctx.params.hash.Size())
-}
-
-func (ctx cryptoContext) computeFinishedData(baseKey []byte, input []byte) []byte {
-	macKey := hkdfExpandLabel(ctx.params.hash, baseKey, labelFinished, []byte{}, ctx.params.hash.Size())
-	mac := hmac.New(ctx.params.hash.New, macKey)
-	mac.Write(input)
-	return mac.Sum(nil)
-}
-
 func (ctx *cryptoContext) preInit(psk PreSharedKey) error {
 	// Configure based on cipherSuite
 	params, ok := cipherSuiteMap[psk.CipherSuite]
@@ -796,7 +785,7 @@ func (ctx *cryptoContext) preInit(psk PreSharedKey) error {
 
 	h := ctx.params.hash.New()
 	h.Write([]byte{})
-	ctx.binderKey = ctx.deriveSecret(ctx.earlySecret, binderLabel, h.Sum(nil))
+	ctx.binderKey = deriveSecret(ctx.params, ctx.earlySecret, binderLabel, h.Sum(nil))
 	return nil
 }
 
@@ -807,8 +796,8 @@ func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *HandshakeMessage) {
 	h.Write(chBytes)
 	chHash := h.Sum(nil)
 
-	ctx.earlyTrafficSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyTrafficSecret, chHash)
-	ctx.earlyExporterSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyExporterSecret, chHash)
+	ctx.earlyTrafficSecret = deriveSecret(ctx.params, ctx.earlySecret, labelEarlyTrafficSecret, chHash)
+	ctx.earlyExporterSecret = deriveSecret(ctx.params, ctx.earlySecret, labelEarlyExporterSecret, chHash)
 	ctx.clientEarlyTrafficKeys = makeTrafficKeys(ctx.params, ctx.earlyTrafficSecret)
 
 	logf(logTypeCrypto, "binder key: [%d] %x", len(ctx.binderKey), ctx.binderKey)
@@ -883,10 +872,10 @@ func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret 
 
 	// Compute the handshake secret and derived secrets
 	logf(logTypeCrypto, "h0: %x", ctx.h0)
-	preHandshakeSecret := ctx.deriveSecret(ctx.earlySecret, labelDerived, ctx.h0)
+	preHandshakeSecret := deriveSecret(ctx.params, ctx.earlySecret, labelDerived, ctx.h0)
 	ctx.handshakeSecret = hkdfExtract(ctx.params.hash, preHandshakeSecret, ctx.dhSecret)
-	ctx.clientHandshakeTrafficSecret = ctx.deriveSecret(ctx.handshakeSecret, labelClientHandshakeTrafficSecret, ctx.h2)
-	ctx.serverHandshakeTrafficSecret = ctx.deriveSecret(ctx.handshakeSecret, labelServerHandshakeTrafficSecret, ctx.h2)
+	ctx.clientHandshakeTrafficSecret = deriveSecret(ctx.params, ctx.handshakeSecret, labelClientHandshakeTrafficSecret, ctx.h2)
+	ctx.serverHandshakeTrafficSecret = deriveSecret(ctx.params, ctx.handshakeSecret, labelServerHandshakeTrafficSecret, ctx.h2)
 	ctx.clientHandshakeKeys = makeTrafficKeys(ctx.params, ctx.clientHandshakeTrafficSecret)
 	ctx.serverHandshakeKeys = makeTrafficKeys(ctx.params, ctx.serverHandshakeTrafficSecret)
 	logf(logTypeCrypto, "handshake secret: [%d] %x", len(ctx.handshakeSecret), ctx.handshakeSecret)
@@ -900,7 +889,7 @@ func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret 
 		len(ctx.serverHandshakeKeys.iv), ctx.serverHandshakeKeys.iv)
 
 	// Compute the master secret
-	preMasterSecret := ctx.deriveSecret(ctx.handshakeSecret, labelDerived, ctx.h0)
+	preMasterSecret := deriveSecret(ctx.params, ctx.handshakeSecret, labelDerived, ctx.h0)
 	ctx.masterSecret = hkdfExtract(ctx.params.hash, preMasterSecret, ctx.zero)
 	logf(logTypeCrypto, "master secret: [%d] %x", len(ctx.masterSecret), ctx.masterSecret)
 
@@ -926,7 +915,7 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*HandshakeMessage) 
 	logf(logTypeCrypto, "handshake hash for server Finished: [%d] %x", len(ctx.h3), ctx.h3)
 
 	// Compute the server Finished message
-	ctx.serverFinishedData = ctx.computeFinishedData(ctx.serverHandshakeTrafficSecret, ctx.h3)
+	ctx.serverFinishedData = computeFinishedData(ctx.params, ctx.serverHandshakeTrafficSecret, ctx.h3)
 	logf(logTypeCrypto, "server finished data: [%d] %x", len(ctx.serverFinishedData), ctx.serverFinishedData)
 
 	ctx.serverFinished = &FinishedBody{
@@ -944,9 +933,9 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*HandshakeMessage) 
 	// XXX:RLB: Why not make the traffic secret include the client's second
 	// flight as well?  Do we expect the server to start sending before it gets
 	// the client's Finished message?
-	ctx.clientTrafficSecret = ctx.deriveSecret(ctx.masterSecret, labelClientApplicationTrafficSecret, ctx.h4)
-	ctx.serverTrafficSecret = ctx.deriveSecret(ctx.masterSecret, labelServerApplicationTrafficSecret, ctx.h4)
-	ctx.exporterSecret = ctx.deriveSecret(ctx.masterSecret, labelExporterSecret, ctx.h4)
+	ctx.clientTrafficSecret = deriveSecret(ctx.params, ctx.masterSecret, labelClientApplicationTrafficSecret, ctx.h4)
+	ctx.serverTrafficSecret = deriveSecret(ctx.params, ctx.masterSecret, labelServerApplicationTrafficSecret, ctx.h4)
+	ctx.exporterSecret = deriveSecret(ctx.params, ctx.masterSecret, labelExporterSecret, ctx.h4)
 	ctx.clientTrafficKeys = makeTrafficKeys(ctx.params, ctx.clientTrafficSecret)
 	ctx.serverTrafficKeys = makeTrafficKeys(ctx.params, ctx.serverTrafficSecret)
 	logf(logTypeCrypto, "client traffic secret: [%d] %x", len(ctx.clientTrafficSecret), ctx.clientTrafficSecret)
@@ -983,7 +972,7 @@ func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*HandshakeMessage)
 	logf(logTypeCrypto, "handshake hash 5 [%d]: %x", len(ctx.h5), ctx.h5)
 
 	// Compute the client Finished message
-	ctx.clientFinishedData = ctx.computeFinishedData(ctx.clientHandshakeTrafficSecret, ctx.h5)
+	ctx.clientFinishedData = computeFinishedData(ctx.params, ctx.clientHandshakeTrafficSecret, ctx.h5)
 	logf(logTypeCrypto, "client Finished data: [%d] %x", len(ctx.clientFinishedData), ctx.clientFinishedData)
 
 	ctx.clientFinished = &FinishedBody{
@@ -998,7 +987,7 @@ func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*HandshakeMessage)
 	logf(logTypeCrypto, "handshake hash 6 [%d]: %x", len(ctx.h6), ctx.h6)
 
 	// Compute the exporter and resumption secrets
-	ctx.resumptionSecret = ctx.deriveSecret(ctx.masterSecret, labelResumptionSecret, ctx.h6)
+	ctx.resumptionSecret = deriveSecret(ctx.params, ctx.masterSecret, labelResumptionSecret, ctx.h6)
 	logf(logTypeCrypto, "resumption secret: [%d] %x", len(ctx.resumptionSecret), ctx.resumptionSecret)
 
 	ctx.state = ctxStateClientSecondFlight
@@ -1014,4 +1003,15 @@ func makeTrafficKeys(params cipherSuiteParams, secret []byte) keySet {
 		key:    hkdfExpandLabel(params.hash, secret, "key", []byte{}, params.keyLen),
 		iv:     hkdfExpandLabel(params.hash, secret, "iv", []byte{}, params.ivLen),
 	}
+}
+
+func computeFinishedData(params cipherSuiteParams, baseKey []byte, input []byte) []byte {
+	macKey := hkdfExpandLabel(params.hash, baseKey, labelFinished, []byte{}, params.hash.Size())
+	mac := hmac.New(params.hash.New, macKey)
+	mac.Write(input)
+	return mac.Sum(nil)
+}
+
+func deriveSecret(params cipherSuiteParams, secret []byte, label string, messageHash []byte) []byte {
+	return hkdfExpandLabel(params.hash, secret, label, messageHash, params.hash.Size())
 }

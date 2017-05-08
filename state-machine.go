@@ -2,6 +2,7 @@ package mint
 
 import (
 	"bytes"
+	"hash"
 	"reflect"
 )
 
@@ -298,7 +299,7 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		truncHash := state.state.Context.params.hash.New()
 		truncHash.Write(trunc)
 
-		binder := state.state.Context.computeFinishedData(state.state.Context.binderKey, truncHash.Sum(nil))
+		binder := computeFinishedData(state.state.Context.params, state.state.Context.binderKey, truncHash.Sum(nil))
 
 		// Replace the PSK extension
 		psk.Binders[0].Binder = binder
@@ -1262,8 +1263,23 @@ func (state ServerStateWaitFlight2) Next(hm *HandshakeMessage) (HandshakeState, 
 		return nextState, nil, AlertNoAlert
 	}
 
+	// XXX
+	for _, hm := range state.state.clientSecondFlight {
+		state.state.Context.handshakeHash.Write(hm.Marshal())
+	}
+
 	logf(logTypeHandshake, "[ServerStateWaitFlight2] -> [ServerStateWaitFinished]")
-	nextState := ServerStateWaitFinished{state: state.state}
+	nextState := ServerStateWaitFinished{
+		Params:       state.state.Params,
+		cryptoParams: state.state.Context.params,
+
+		masterSecret:                 state.state.Context.masterSecret,
+		clientHandshakeTrafficSecret: state.state.Context.clientHandshakeTrafficSecret,
+
+		handshakeHash:       state.state.Context.handshakeHash,
+		clientTrafficSecret: state.state.Context.clientTrafficSecret,
+		serverTrafficSecret: state.state.Context.serverTrafficSecret,
+	}
 	return nextState, nil, AlertNoAlert
 }
 
@@ -1289,8 +1305,24 @@ func (state ServerStateWaitCert) Next(hm *HandshakeMessage) (HandshakeState, []H
 
 	if len(cert.CertificateList) == 0 {
 		logf(logTypeHandshake, "[ServerStateWaitCert] WARNING client did not provide a certificate")
+
+		// XXX
+		for _, hm := range state.state.clientSecondFlight {
+			state.state.Context.handshakeHash.Write(hm.Marshal())
+		}
+
 		logf(logTypeHandshake, "[ServerStateWaitCert] -> [ServerStateWaitFinished]")
-		nextState := ServerStateWaitFinished{state: state.state}
+		nextState := ServerStateWaitFinished{
+			Params:       state.state.Params,
+			cryptoParams: state.state.Context.params,
+
+			masterSecret:                 state.state.Context.masterSecret,
+			clientHandshakeTrafficSecret: state.state.Context.clientHandshakeTrafficSecret,
+
+			handshakeHash:       state.state.Context.handshakeHash,
+			clientTrafficSecret: state.state.Context.clientTrafficSecret,
+			serverTrafficSecret: state.state.Context.serverTrafficSecret,
+		}
 		return nextState, nil, AlertNoAlert
 	}
 
@@ -1333,6 +1365,11 @@ func (state ServerStateWaitCV) Next(hm *HandshakeMessage) (HandshakeState, []Han
 
 	state.state.clientSecondFlight = append(state.state.clientSecondFlight, hm)
 
+	// XXX:
+	for _, hm := range state.state.clientSecondFlight {
+		state.state.Context.handshakeHash.Write(hm.Marshal())
+	}
+
 	if state.state.AuthCertificate != nil {
 		err := state.state.AuthCertificate(state.state.serverCertificate.CertificateList)
 		if err != nil {
@@ -1344,12 +1381,30 @@ func (state ServerStateWaitCV) Next(hm *HandshakeMessage) (HandshakeState, []Han
 	}
 
 	logf(logTypeHandshake, "[ServerStateWaitCV] -> [ServerStateWaitFinished]")
-	nextState := ServerStateWaitFinished{state: state.state}
+	nextState := ServerStateWaitFinished{
+		Params:       state.state.Params,
+		cryptoParams: state.state.Context.params,
+
+		masterSecret:                 state.state.Context.masterSecret,
+		clientHandshakeTrafficSecret: state.state.Context.clientHandshakeTrafficSecret,
+
+		handshakeHash:       state.state.Context.handshakeHash,
+		clientTrafficSecret: state.state.Context.clientTrafficSecret,
+		serverTrafficSecret: state.state.Context.serverTrafficSecret,
+	}
 	return nextState, nil, AlertNoAlert
 }
 
 type ServerStateWaitFinished struct {
-	state *connectionState
+	Params       ConnectionParameters
+	cryptoParams cipherSuiteParams
+
+	masterSecret                 []byte
+	clientHandshakeTrafficSecret []byte
+
+	handshakeHash       hash.Hash
+	clientTrafficSecret []byte
+	serverTrafficSecret []byte
 }
 
 func (state ServerStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeInstruction, Alert) {
@@ -1358,36 +1413,47 @@ func (state ServerStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	fin := &FinishedBody{VerifyDataLen: state.state.Context.serverFinished.VerifyDataLen}
+	fin := &FinishedBody{VerifyDataLen: state.cryptoParams.hash.Size()}
 	_, err := fin.Unmarshal(hm.body)
 	if err != nil {
 		logf(logTypeHandshake, "[ServerStateWaitFinished] Error decoding message %v", err)
 		return nil, nil, AlertDecodeError
 	}
 
-	err = state.state.Context.updateWithClientSecondFlight(state.state.clientSecondFlight)
-	if err != nil {
-		logf(logTypeHandshake, "[ServerStateWaitFinished] Error updating crypto context with client second flight [%v]", err)
-		return nil, nil, AlertInternalError
-	}
+	// Verify client Finished data
+	h5 := state.handshakeHash.Sum(nil)
+	logf(logTypeCrypto, "handshake hash for client Finished: [%d] %x", len(h5), h5)
 
-	// Verify client's Finished
-	if !bytes.Equal(fin.VerifyData, state.state.Context.clientFinished.VerifyData) {
+	clientFinishedData := computeFinishedData(state.cryptoParams, state.clientHandshakeTrafficSecret, h5)
+	logf(logTypeCrypto, "client Finished data: [%d] %x", len(clientFinishedData), clientFinishedData)
+
+	if !bytes.Equal(fin.VerifyData, clientFinishedData) {
 		logf(logTypeHandshake, "[ServerStateWaitFinished] Client's Finished failed to verify")
 		return nil, nil, AlertHandshakeFailure
 	}
 
+	// Compute the resumption secret
+	state.handshakeHash.Write(hm.Marshal())
+	h6 := state.handshakeHash.Sum(nil)
+	logf(logTypeCrypto, "handshake hash 6 [%d]: %x", len(h6), h6)
+
+	resumptionSecret := deriveSecret(state.cryptoParams, state.masterSecret, labelResumptionSecret, h6)
+	logf(logTypeCrypto, "resumption secret: [%d] %x", len(resumptionSecret), resumptionSecret)
+
+	// Compute client traffic keys
+	clientTrafficKeys := makeTrafficKeys(state.cryptoParams, state.clientTrafficSecret)
+
 	logf(logTypeHandshake, "[ServerStateWaitFinished] -> [StateConnected]")
 	nextState := StateConnected{
-		Params:              state.state.Params,
+		Params:              state.Params,
 		isClient:            false,
-		cryptoParams:        state.state.Context.params,
-		resumptionSecret:    state.state.Context.resumptionSecret,
-		clientTrafficSecret: state.state.Context.clientTrafficSecret,
-		serverTrafficSecret: state.state.Context.serverTrafficSecret,
+		cryptoParams:        state.cryptoParams,
+		resumptionSecret:    resumptionSecret,
+		clientTrafficSecret: state.clientTrafficSecret,
+		serverTrafficSecret: state.serverTrafficSecret,
 	}
 	toSend := []HandshakeInstruction{
-		RekeyIn{Label: "application", KeySet: state.state.Context.clientTrafficKeys},
+		RekeyIn{Label: "application", KeySet: clientTrafficKeys},
 	}
 	return nextState, toSend, AlertNoAlert
 }
