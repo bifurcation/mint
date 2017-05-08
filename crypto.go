@@ -519,7 +519,7 @@ func hkdfExtract(hash crypto.Hash, saltIn, input []byte) []byte {
 //    opaque hash_value<0..255>;
 // };
 func hkdfEncodeLabel(labelIn string, hashValue []byte, outLen int) []byte {
-	label := "TLS 1.3, " + labelIn
+	label := "tls13 " + labelIn
 
 	labelLen := len(label)
 	hashLen := len(hashValue)
@@ -556,7 +556,7 @@ func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []
 	info := hkdfEncodeLabel(label, hashValue, outLen)
 	derived := hkdfExpand(hash, secret, info, outLen)
 
-	logf(logTypeCrypto, "HKDF Expand: label=[TLS 1.3, ] + '%s',requested length=%d\n", label, outLen)
+	logf(logTypeCrypto, "HKDF Expand: label=[tls13 ] + '%s',requested length=%d\n", label, outLen)
 	logf(logTypeCrypto, "PRK [%d]: %x\n", len(secret), secret)
 	logf(logTypeCrypto, "Hash [%d]: %x\n", len(hashValue), hashValue)
 	logf(logTypeCrypto, "Info [%d]: %x\n", len(info), info)
@@ -573,7 +573,7 @@ const (
 	labelClientHandshakeTrafficSecret   = "c hs traffic"
 	labelServerHandshakeTrafficSecret   = "s hs traffic"
 	labelClientApplicationTrafficSecret = "c ap traffic"
-	labelServerApplicationTrafficSecret = "c ap traffic"
+	labelServerApplicationTrafficSecret = "s ap traffic"
 	labelExporterSecret                 = "exp master"
 	labelResumptionSecret               = "res master"
 	labelDerived                        = "derived"
@@ -707,6 +707,7 @@ type cryptoContext struct {
 
 	handshakeHash hash.Hash
 
+	h0 []byte // h0 = nothing
 	// h1 = ClientHello
 	h2 []byte // = h1 + HRR? + CH? + ServerHello
 	h3 []byte // = h2 + Server...
@@ -781,6 +782,7 @@ func (ctx *cryptoContext) preInit(psk PreSharedKey) error {
 	ctx.suite = psk.CipherSuite
 	ctx.params = params
 	ctx.zero = bytes.Repeat([]byte{0}, ctx.params.hash.Size())
+	ctx.h0 = ctx.params.hash.New().Sum(nil)
 
 	// Cache the hash function for this suite so that we can verify it didn't change
 	ctx.earlyHash = ctx.params.hash
@@ -836,6 +838,7 @@ func (ctx *cryptoContext) init(suite CipherSuite, chm, hrrm, rechm *HandshakeMes
 	ctx.suite = suite
 	ctx.params = params
 	ctx.zero = bytes.Repeat([]byte{0}, ctx.params.hash.Size())
+	ctx.h0 = ctx.params.hash.New().Sum(nil)
 
 	if ctx.pskSecret != nil {
 		if ctx.params.hash != ctx.earlyHash {
@@ -886,7 +889,8 @@ func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret 
 	}
 
 	// Compute the handshake secret and derived secrets
-	preHandshakeSecret := ctx.deriveSecret(ctx.earlySecret, labelDerived, nil)
+	logf(logTypeCrypto, "h0: %x", ctx.h0)
+	preHandshakeSecret := ctx.deriveSecret(ctx.earlySecret, labelDerived, ctx.h0)
 	ctx.handshakeSecret = hkdfExtract(ctx.params.hash, preHandshakeSecret, ctx.dhSecret)
 	ctx.clientHandshakeTrafficSecret = ctx.deriveSecret(ctx.handshakeSecret, labelClientHandshakeTrafficSecret, ctx.h2)
 	ctx.serverHandshakeTrafficSecret = ctx.deriveSecret(ctx.handshakeSecret, labelServerHandshakeTrafficSecret, ctx.h2)
@@ -903,7 +907,7 @@ func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret 
 		len(ctx.serverHandshakeKeys.iv), ctx.serverHandshakeKeys.iv)
 
 	// Compute the master secret
-	preMasterSecret := ctx.deriveSecret(ctx.handshakeSecret, labelDerived, nil)
+	preMasterSecret := ctx.deriveSecret(ctx.handshakeSecret, labelDerived, ctx.h0)
 	ctx.masterSecret = hkdfExtract(ctx.params.hash, preMasterSecret, ctx.zero)
 	logf(logTypeCrypto, "master secret: [%d] %x", len(ctx.masterSecret), ctx.masterSecret)
 
