@@ -37,23 +37,31 @@ func assertNotNil(t *testing.T, x interface{}, msg string) {
 	assert(t, x != nil, msg)
 }
 
-func assertEquals(t *testing.T, a interface{}, b interface{}) {
+func assertEquals(t *testing.T, a, b interface{}) {
 	assert(t, a == b, fmt.Sprintf("%+v != %+v", a, b))
 }
 
-func assertByteEquals(t *testing.T, a []byte, b []byte) {
+func assertByteEquals(t *testing.T, a, b []byte) {
 	assert(t, bytes.Equal(a, b), fmt.Sprintf("%+v != %+v", hex.EncodeToString(a), hex.EncodeToString(b)))
 }
 
-func assertNotByteEquals(t *testing.T, a []byte, b []byte) {
+func assertNotByteEquals(t *testing.T, a, b []byte) {
 	assert(t, !bytes.Equal(a, b), fmt.Sprintf("%+v == %+v", hex.EncodeToString(a), hex.EncodeToString(b)))
 }
 
-func assertDeepEquals(t *testing.T, a interface{}, b interface{}) {
+func assertCipherSuiteParamsEquals(t *testing.T, a, b cipherSuiteParams) {
+	assertEquals(t, a.suite, b.suite)
+	// Can't compare aeadFactory values
+	assertEquals(t, a.hash, b.hash)
+	assertEquals(t, a.keyLen, b.keyLen)
+	assertEquals(t, a.ivLen, b.ivLen)
+}
+
+func assertDeepEquals(t *testing.T, a, b interface{}) {
 	assert(t, reflect.DeepEqual(a, b), fmt.Sprintf("%+v != %+v", a, b))
 }
 
-func assertSameType(t *testing.T, a interface{}, b interface{}) {
+func assertSameType(t *testing.T, a, b interface{}) {
 	A := reflect.TypeOf(a)
 	B := reflect.TypeOf(b)
 	assert(t, A == B, fmt.Sprintf("%s != %s", A.Name(), B.Name()))

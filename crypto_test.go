@@ -511,30 +511,6 @@ func TestCryptoContext(t *testing.T) {
 	assertNotNil(t, ctx.clientFinished, "Failed to set client finished message")
 	assertNotNil(t, ctx.resumptionSecret, "Failed to set resumption secret")
 
-	// Test key update (client side)
-	oldClientKeys := ctx.clientTrafficKeys
-	oldServerKeys := ctx.serverTrafficKeys
-	err = ctx.updateKeys(true)
-	newClientKeys := ctx.clientTrafficKeys
-	newServerKeys := ctx.serverTrafficKeys
-	assertNotError(t, err, "UpdateKeys failed")
-	assert(t, !bytes.Equal(oldClientKeys.key, newClientKeys.key), "Client write key didn't change")
-	assert(t, !bytes.Equal(oldClientKeys.iv, newClientKeys.iv), "Client write IV didn't change")
-	assert(t, bytes.Equal(oldServerKeys.key, newServerKeys.key), "Server write key changed")
-	assert(t, bytes.Equal(oldServerKeys.iv, newServerKeys.iv), "Server write IV changed")
-
-	// Test key update (server side)
-	oldClientKeys = ctx.clientTrafficKeys
-	oldServerKeys = ctx.serverTrafficKeys
-	err = ctx.updateKeys(false)
-	newClientKeys = ctx.clientTrafficKeys
-	newServerKeys = ctx.serverTrafficKeys
-	assertNotError(t, err, "UpdateKeys failed")
-	assert(t, bytes.Equal(oldClientKeys.key, newClientKeys.key), "Client write key changed")
-	assert(t, bytes.Equal(oldClientKeys.iv, newClientKeys.iv), "Client write IV changed")
-	assert(t, !bytes.Equal(oldServerKeys.key, newServerKeys.key), "Server write key didn't change")
-	assert(t, !bytes.Equal(oldServerKeys.iv, newServerKeys.iv), "Server write IV didn't change")
-
 	// Test that the order of operations is enforced
 	ctx = cryptoContext{}
 	_ = ctx.init(TLS_AES_128_GCM_SHA256, nil, nil, chm)
@@ -559,9 +535,4 @@ func TestCryptoContext(t *testing.T) {
 	ctx.state = ctxStateServerFirstFlight
 	err = ctx.updateWithClientSecondFlight([]*HandshakeMessage{cm})
 	assertNotError(t, err, "Rejected updateWithServerFirstFlight in proper state")
-
-	ctx.state = ctxStateUnknown
-	err = ctx.updateKeys(true)
-	assertError(t, err, "Allowed UpdateKeys in wrong state")
-
 }

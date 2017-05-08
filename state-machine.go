@@ -762,8 +762,12 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 
 	logf(logTypeHandshake, "[ClientStateWaitFinished] -> [StateConnected]")
 	nextState := StateConnected{
-		state:    state.state,
-		isClient: true,
+		Params:              state.state.Params,
+		isClient:            true,
+		cryptoParams:        state.state.Context.params,
+		resumptionSecret:    state.state.Context.resumptionSecret,
+		clientTrafficSecret: state.state.Context.clientTrafficSecret,
+		serverTrafficSecret: state.state.Context.serverTrafficSecret,
 	}
 	return nextState, toSend, AlertNoAlert
 }
@@ -1375,8 +1379,12 @@ func (state ServerStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 
 	logf(logTypeHandshake, "[ServerStateWaitFinished] -> [StateConnected]")
 	nextState := StateConnected{
-		state:    state.state,
-		isClient: false,
+		Params:              state.state.Params,
+		isClient:            false,
+		cryptoParams:        state.state.Context.params,
+		resumptionSecret:    state.state.Context.resumptionSecret,
+		clientTrafficSecret: state.state.Context.clientTrafficSecret,
+		serverTrafficSecret: state.state.Context.serverTrafficSecret,
 	}
 	toSend := []HandshakeInstruction{
 		RekeyIn{Label: "application", KeySet: state.state.Context.clientTrafficKeys},
@@ -1387,20 +1395,24 @@ func (state ServerStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 // Connected state is symmetric between client and server (NB: Might need a
 // notation as to which role is being played)
 type StateConnected struct {
-	state    *connectionState
-	isClient bool
+	Params              ConnectionParameters
+	isClient            bool
+	cryptoParams        cipherSuiteParams
+	resumptionSecret    []byte
+	clientTrafficSecret []byte
+	serverTrafficSecret []byte
 }
 
 func (state *StateConnected) KeyUpdate(request KeyUpdateRequest) ([]HandshakeInstruction, Alert) {
-	err := state.state.Context.updateKeys(state.isClient)
-	if err != nil {
-		logf(logTypeHandshake, "[StateConnected] Error updating outbound keys: %v", err)
-		return nil, AlertInternalError
-	}
-
-	keySet := state.state.Context.clientTrafficKeys
-	if !state.isClient {
-		keySet = state.state.Context.serverTrafficKeys
+	var trafficKeys keySet
+	if state.isClient {
+		state.clientTrafficSecret = hkdfExpandLabel(state.cryptoParams.hash, state.clientTrafficSecret,
+			labelClientApplicationTrafficSecret, []byte{}, state.cryptoParams.hash.Size())
+		trafficKeys = makeTrafficKeys(state.cryptoParams, state.clientTrafficSecret)
+	} else {
+		state.serverTrafficSecret = hkdfExpandLabel(state.cryptoParams.hash, state.serverTrafficSecret,
+			labelServerApplicationTrafficSecret, []byte{}, state.cryptoParams.hash.Size())
+		trafficKeys = makeTrafficKeys(state.cryptoParams, state.serverTrafficSecret)
 	}
 
 	kum, err := HandshakeMessageFromBody(&KeyUpdateBody{KeyUpdateRequest: request})
@@ -1411,7 +1423,7 @@ func (state *StateConnected) KeyUpdate(request KeyUpdateRequest) ([]HandshakeIns
 
 	toSend := []HandshakeInstruction{
 		SendHandshakeMessage{kum},
-		RekeyOut{Label: "update", KeySet: keySet},
+		RekeyOut{Label: "update", KeySet: trafficKeys},
 	}
 	return toSend, AlertNoAlert
 }
@@ -1432,10 +1444,10 @@ func (state *StateConnected) NewSessionTicket(length int, lifetime, earlyDataLif
 	}
 
 	newPSK := PreSharedKey{
-		CipherSuite:  state.state.Context.suite,
+		CipherSuite:  state.cryptoParams.suite,
 		IsResumption: true,
 		Identity:     tkt.Ticket,
-		Key:          state.state.Context.resumptionSecret,
+		Key:          state.resumptionSecret,
 	}
 
 	tktm, err := HandshakeMessageFromBody(tkt)
@@ -1465,20 +1477,18 @@ func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []Handsh
 
 	switch body := bodyGeneric.(type) {
 	case *KeyUpdateBody:
-
-		// Roll the inbound keys
-		err = state.state.Context.updateKeys(!state.isClient)
-		if err != nil {
-			logf(logTypeHandshake, "[StateConnected] Error updating inbound keys: %v", err)
-			return nil, nil, AlertInternalError
-		}
-
-		keySet := state.state.Context.serverTrafficKeys
+		var trafficKeys keySet
 		if !state.isClient {
-			keySet = state.state.Context.clientTrafficKeys
+			state.clientTrafficSecret = hkdfExpandLabel(state.cryptoParams.hash, state.clientTrafficSecret,
+				labelClientApplicationTrafficSecret, []byte{}, state.cryptoParams.hash.Size())
+			trafficKeys = makeTrafficKeys(state.cryptoParams, state.clientTrafficSecret)
+		} else {
+			state.serverTrafficSecret = hkdfExpandLabel(state.cryptoParams.hash, state.serverTrafficSecret,
+				labelServerApplicationTrafficSecret, []byte{}, state.cryptoParams.hash.Size())
+			trafficKeys = makeTrafficKeys(state.cryptoParams, state.serverTrafficSecret)
 		}
 
-		toSend := []HandshakeInstruction{RekeyIn{Label: "update", KeySet: keySet}}
+		toSend := []HandshakeInstruction{RekeyIn{Label: "update", KeySet: trafficKeys}}
 
 		// If requested, roll outbound keys and send a KeyUpdate
 		if body.KeyUpdateRequest == KeyUpdateRequested {
@@ -1499,15 +1509,16 @@ func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []Handsh
 		}
 
 		psk := PreSharedKey{
-			CipherSuite:  state.state.Context.suite,
+			CipherSuite:  state.cryptoParams.suite,
 			IsResumption: true,
 			Identity:     body.Ticket,
-			Key:          state.state.Context.resumptionSecret,
+			Key:          state.resumptionSecret,
 		}
 
 		toSend := []HandshakeInstruction{StorePSK{psk}}
 		return state, toSend, AlertNoAlert
 	}
 
+	logf(logTypeHandshake, "[StateConnected] Unexpected message type %v", hm.msgType)
 	return nil, nil, AlertUnexpectedMessage
 }

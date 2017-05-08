@@ -31,6 +31,7 @@ var prng = rand.Reader
 type aeadFactory func(key []byte) (cipher.AEAD, error)
 
 type cipherSuiteParams struct {
+	suite  CipherSuite
 	cipher aeadFactory // Cipher factory
 	hash   crypto.Hash // Hash function
 	keyLen int         // Key length in octets
@@ -91,12 +92,14 @@ var (
 
 	cipherSuiteMap = map[CipherSuite]cipherSuiteParams{
 		TLS_AES_128_GCM_SHA256: {
+			suite:  TLS_AES_128_GCM_SHA256,
 			cipher: newAESGCM,
 			hash:   crypto.SHA256,
 			keyLen: 16,
 			ivLen:  12,
 		},
 		TLS_AES_256_GCM_SHA384: {
+			suite:  TLS_AES_256_GCM_SHA384,
 			cipher: newAESGCM,
 			hash:   crypto.SHA384,
 			keyLen: 32,
@@ -763,16 +766,6 @@ func (ctx cryptoContext) computeFinishedData(baseKey []byte, input []byte) []byt
 	return mac.Sum(nil)
 }
 
-func (ctx cryptoContext) makeTrafficKeys(secret []byte) keySet {
-	logf(logTypeCrypto, "making traffic keys: secret=%x", secret)
-	H := ctx.params.hash
-	return keySet{
-		cipher: ctx.params.cipher,
-		key:    hkdfExpandLabel(H, secret, "key", []byte{}, ctx.params.keyLen),
-		iv:     hkdfExpandLabel(H, secret, "iv", []byte{}, ctx.params.ivLen),
-	}
-}
-
 func (ctx *cryptoContext) preInit(psk PreSharedKey) error {
 	// Configure based on cipherSuite
 	params, ok := cipherSuiteMap[psk.CipherSuite]
@@ -816,7 +809,7 @@ func (ctx *cryptoContext) earlyUpdateWithClientHello(chm *HandshakeMessage) {
 
 	ctx.earlyTrafficSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyTrafficSecret, chHash)
 	ctx.earlyExporterSecret = ctx.deriveSecret(ctx.earlySecret, labelEarlyExporterSecret, chHash)
-	ctx.clientEarlyTrafficKeys = ctx.makeTrafficKeys(ctx.earlyTrafficSecret)
+	ctx.clientEarlyTrafficKeys = makeTrafficKeys(ctx.params, ctx.earlyTrafficSecret)
 
 	logf(logTypeCrypto, "binder key: [%d] %x", len(ctx.binderKey), ctx.binderKey)
 	logf(logTypeCrypto, "early traffic secret: [%d] %x", len(ctx.earlyTrafficSecret), ctx.earlyTrafficSecret)
@@ -894,8 +887,8 @@ func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret 
 	ctx.handshakeSecret = hkdfExtract(ctx.params.hash, preHandshakeSecret, ctx.dhSecret)
 	ctx.clientHandshakeTrafficSecret = ctx.deriveSecret(ctx.handshakeSecret, labelClientHandshakeTrafficSecret, ctx.h2)
 	ctx.serverHandshakeTrafficSecret = ctx.deriveSecret(ctx.handshakeSecret, labelServerHandshakeTrafficSecret, ctx.h2)
-	ctx.clientHandshakeKeys = ctx.makeTrafficKeys(ctx.clientHandshakeTrafficSecret)
-	ctx.serverHandshakeKeys = ctx.makeTrafficKeys(ctx.serverHandshakeTrafficSecret)
+	ctx.clientHandshakeKeys = makeTrafficKeys(ctx.params, ctx.clientHandshakeTrafficSecret)
+	ctx.serverHandshakeKeys = makeTrafficKeys(ctx.params, ctx.serverHandshakeTrafficSecret)
 	logf(logTypeCrypto, "handshake secret: [%d] %x", len(ctx.handshakeSecret), ctx.handshakeSecret)
 	logf(logTypeCrypto, "client handshake traffic secret: [%d] %x", len(ctx.clientHandshakeTrafficSecret), ctx.clientHandshakeTrafficSecret)
 	logf(logTypeCrypto, "server handshake traffic secret: [%d] %x", len(ctx.serverHandshakeTrafficSecret), ctx.serverHandshakeTrafficSecret)
@@ -954,8 +947,8 @@ func (ctx *cryptoContext) updateWithServerFirstFlight(msgs []*HandshakeMessage) 
 	ctx.clientTrafficSecret = ctx.deriveSecret(ctx.masterSecret, labelClientApplicationTrafficSecret, ctx.h4)
 	ctx.serverTrafficSecret = ctx.deriveSecret(ctx.masterSecret, labelServerApplicationTrafficSecret, ctx.h4)
 	ctx.exporterSecret = ctx.deriveSecret(ctx.masterSecret, labelExporterSecret, ctx.h4)
-	ctx.clientTrafficKeys = ctx.makeTrafficKeys(ctx.clientTrafficSecret)
-	ctx.serverTrafficKeys = ctx.makeTrafficKeys(ctx.serverTrafficSecret)
+	ctx.clientTrafficKeys = makeTrafficKeys(ctx.params, ctx.clientTrafficSecret)
+	ctx.serverTrafficKeys = makeTrafficKeys(ctx.params, ctx.serverTrafficSecret)
 	logf(logTypeCrypto, "client traffic secret: [%d] %x", len(ctx.clientTrafficSecret), ctx.clientTrafficSecret)
 	logf(logTypeCrypto, "server traffic secret: [%d] %x", len(ctx.serverTrafficSecret), ctx.serverTrafficSecret)
 	logf(logTypeCrypto, "exporter secret: [%d] %x", len(ctx.exporterSecret), ctx.exporterSecret)
@@ -1012,21 +1005,13 @@ func (ctx *cryptoContext) updateWithClientSecondFlight(msgs []*HandshakeMessage)
 	return nil
 }
 
-func (ctx *cryptoContext) updateKeys(client bool) error {
-	logf(logTypeCrypto, "Updating crypto context new keys client=[%v]", client)
+/////
 
-	if ctx.state != ctxStateClientSecondFlight {
-		return fmt.Errorf("cryptoContext.UpdateKeys called with invalid state %v", ctx.state)
+func makeTrafficKeys(params cipherSuiteParams, secret []byte) keySet {
+	logf(logTypeCrypto, "making traffic keys: secret=%x", secret)
+	return keySet{
+		cipher: params.cipher,
+		key:    hkdfExpandLabel(params.hash, secret, "key", []byte{}, params.keyLen),
+		iv:     hkdfExpandLabel(params.hash, secret, "iv", []byte{}, params.ivLen),
 	}
-
-	if client {
-		ctx.clientTrafficSecret = hkdfExpandLabel(ctx.params.hash, ctx.clientTrafficSecret,
-			labelClientApplicationTrafficSecret, []byte{}, ctx.params.hash.Size())
-		ctx.clientTrafficKeys = ctx.makeTrafficKeys(ctx.clientTrafficSecret)
-	} else {
-		ctx.serverTrafficSecret = hkdfExpandLabel(ctx.params.hash, ctx.serverTrafficSecret,
-			labelServerApplicationTrafficSecret, []byte{}, ctx.params.hash.Size())
-		ctx.serverTrafficKeys = ctx.makeTrafficKeys(ctx.serverTrafficSecret)
-	}
-	return nil
 }

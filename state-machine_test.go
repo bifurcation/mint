@@ -390,8 +390,11 @@ func TestStateMachineIntegration(t *testing.T) {
 				s := serverState.(StateConnected)
 
 				// Test that we ended up at the same state
-				assertDeepEquals(t, c.state.Params, s.state.Params)
-				assertContextEquals(t, &c.state.Context, &s.state.Context)
+				assertDeepEquals(t, c.Params, s.Params)
+				assertCipherSuiteParamsEquals(t, c.cryptoParams, s.cryptoParams)
+				assertByteEquals(t, c.resumptionSecret, s.resumptionSecret)
+				assertByteEquals(t, c.clientTrafficSecret, s.clientTrafficSecret)
+				assertByteEquals(t, c.serverTrafficSecret, s.serverTrafficSecret)
 
 				// Test that the client went through the expected sequence of states
 				assertEquals(t, len(clientStateSequence), len(params.clientStateSequence))
