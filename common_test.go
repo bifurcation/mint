@@ -8,6 +8,14 @@ import (
 	"testing"
 )
 
+func unhex(h string) []byte {
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
 func assert(t *testing.T, test bool, msg string) {
 	if !test {
 		t.Fatalf(msg)
@@ -30,25 +38,23 @@ func assertNotNil(t *testing.T, x interface{}, msg string) {
 }
 
 func assertEquals(t *testing.T, a interface{}, b interface{}) {
-	if a != b {
-		assert(t, false, fmt.Sprintf("%v != %v", a, b))
-	}
+	assert(t, a == b, fmt.Sprintf("%+v != %+v", a, b))
 }
 
 func assertByteEquals(t *testing.T, a []byte, b []byte) {
-	if !bytes.Equal(a, b) {
-		assert(t, false, fmt.Sprintf("%v != %v", hex.EncodeToString(a), hex.EncodeToString(b)))
-	}
+	assert(t, bytes.Equal(a, b), fmt.Sprintf("%+v != %+v", hex.EncodeToString(a), hex.EncodeToString(b)))
 }
 
 func assertNotByteEquals(t *testing.T, a []byte, b []byte) {
-	if bytes.Equal(a, b) {
-		assert(t, false, fmt.Sprintf("%v == %v", hex.EncodeToString(a), hex.EncodeToString(b)))
-	}
+	assert(t, !bytes.Equal(a, b), fmt.Sprintf("%+v == %+v", hex.EncodeToString(a), hex.EncodeToString(b)))
 }
 
 func assertDeepEquals(t *testing.T, a interface{}, b interface{}) {
-	if !reflect.DeepEqual(a, b) {
-		assert(t, false, fmt.Sprintf("%+v != %+v", a, b))
-	}
+	assert(t, reflect.DeepEqual(a, b), fmt.Sprintf("%+v != %+v", a, b))
+}
+
+func assertSameType(t *testing.T, a interface{}, b interface{}) {
+	A := reflect.TypeOf(a)
+	B := reflect.TypeOf(b)
+	assert(t, A == B, fmt.Sprintf("%s != %s", A.Name(), B.Name()))
 }

@@ -1,7 +1,7 @@
 package mint
 
 var (
-	supportedVersion uint16 = 0x7f12 // draft-18
+	supportedVersion uint16 = 0x7f14 // draft-20
 
 	// Flags for some minor compat issues
 	allowWrongVersionNumber = true
@@ -25,6 +25,7 @@ const (
 	HandshakeTypeClientHello         HandshakeType = 1
 	HandshakeTypeServerHello         HandshakeType = 2
 	HandshakeTypeNewSessionTicket    HandshakeType = 4
+	HandshakeTypeEndOfEarlyData      HandshakeType = 5
 	HandshakeTypeHelloRetryRequest   HandshakeType = 6
 	HandshakeTypeEncryptedExtensions HandshakeType = 8
 	HandshakeTypeCertificate         HandshakeType = 11
@@ -33,12 +34,16 @@ const (
 	HandshakeTypeServerConfiguration HandshakeType = 17
 	HandshakeTypeFinished            HandshakeType = 20
 	HandshakeTypeKeyUpdate           HandshakeType = 24
+	HandshakeTypeMessageHash         HandshakeType = 254
 )
 
 // uint8 CipherSuite[2];
 type CipherSuite uint16
 
 const (
+	// XXX: Actually TLS_NULL_WITH_NULL_NULL, but we need a way to label the zero
+	// value for this type so that we can detect when a field is set.
+	CIPHER_SUITE_UNKNOWN         CipherSuite = 0x0000
 	TLS_AES_128_GCM_SHA256       CipherSuite = 0x1301
 	TLS_AES_256_GCM_SHA384       CipherSuite = 0x1302
 	TLS_CHACHA20_POLY1305_SHA256 CipherSuite = 0x1303

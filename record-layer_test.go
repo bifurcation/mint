@@ -2,7 +2,6 @@ package mint
 
 import (
 	"bytes"
-	"encoding/hex"
 	"net"
 	"testing"
 )
@@ -21,8 +20,8 @@ const (
 )
 
 func TestRekey(t *testing.T) {
-	key, _ := hex.DecodeString(keyHex)
-	iv, _ := hex.DecodeString(ivHex)
+	key := unhex(keyHex)
+	iv := unhex(ivHex)
 
 	r := NewRecordLayer(bytes.NewBuffer(nil))
 	err := r.Rekey(newAESGCM, key, iv)
@@ -35,8 +34,8 @@ func TestSequenceNumberRollover(t *testing.T) {
 		assert(t, r != nil, "failed to panic on sequence number overflow")
 	}()
 
-	key, _ := hex.DecodeString(keyHex)
-	iv, _ := hex.DecodeString(ivHex)
+	key := unhex(keyHex)
+	iv := unhex(ivHex)
 
 	r := NewRecordLayer(bytes.NewBuffer(nil))
 	r.Rekey(newAESGCM, key, iv)
@@ -48,7 +47,7 @@ func TestSequenceNumberRollover(t *testing.T) {
 }
 
 func TestReadRecord(t *testing.T) {
-	plaintext, _ := hex.DecodeString(plaintextHex)
+	plaintext := unhex(plaintextHex)
 
 	// Test that a known-good frame decodes properly
 	r := NewRecordLayer(bytes.NewBuffer(plaintext))
@@ -93,7 +92,7 @@ func TestReadRecord(t *testing.T) {
 }
 
 func TestWriteRecord(t *testing.T) {
-	plaintext, _ := hex.DecodeString(plaintextHex)
+	plaintext := unhex(plaintextHex)
 
 	// Test that plain WriteRecord works
 	pt := &TLSPlaintext{
@@ -124,11 +123,11 @@ func TestWriteRecord(t *testing.T) {
 }
 
 func TestDecryptRecord(t *testing.T) {
-	key, _ := hex.DecodeString(keyHex)
-	iv, _ := hex.DecodeString(ivHex)
-	plaintext, _ := hex.DecodeString(plaintextHex)
-	ciphertext1, _ := hex.DecodeString(ciphertext1Hex)
-	ciphertext2, _ := hex.DecodeString(ciphertext2Hex)
+	key := unhex(keyHex)
+	iv := unhex(ivHex)
+	plaintext := unhex(plaintextHex)
+	ciphertext1 := unhex(ciphertext1Hex)
+	ciphertext2 := unhex(ciphertext2Hex)
 
 	// Test successful decrypt
 	r := NewRecordLayer(bytes.NewBuffer(ciphertext1))
@@ -159,12 +158,12 @@ func TestDecryptRecord(t *testing.T) {
 }
 
 func TestEncryptRecord(t *testing.T) {
-	key, _ := hex.DecodeString(keyHex)
-	iv, _ := hex.DecodeString(ivHex)
-	plaintext, _ := hex.DecodeString(plaintextHex)
-	ciphertext0, _ := hex.DecodeString(ciphertext0Hex)
-	ciphertext1, _ := hex.DecodeString(ciphertext1Hex)
-	ciphertext2, _ := hex.DecodeString(ciphertext2Hex)
+	key := unhex(keyHex)
+	iv := unhex(ivHex)
+	plaintext := unhex(plaintextHex)
+	ciphertext0 := unhex(ciphertext0Hex)
+	ciphertext1 := unhex(ciphertext1Hex)
+	ciphertext2 := unhex(ciphertext2Hex)
 
 	// Test successful encrypt
 	b := bytes.NewBuffer(nil)
@@ -218,9 +217,9 @@ func TestEncryptRecord(t *testing.T) {
 }
 
 func TestReadWrite(t *testing.T) {
-	key, _ := hex.DecodeString(keyHex)
-	iv, _ := hex.DecodeString(ivHex)
-	plaintext, _ := hex.DecodeString(plaintextHex)
+	key := unhex(keyHex)
+	iv := unhex(ivHex)
+	plaintext := unhex(plaintextHex)
 
 	b := bytes.NewBuffer(nil)
 	out := NewRecordLayer(b)
@@ -250,9 +249,9 @@ func TestReadWrite(t *testing.T) {
 }
 
 func TestOverSocket(t *testing.T) {
-	key, _ := hex.DecodeString(keyHex)
-	iv, _ := hex.DecodeString(ivHex)
-	plaintext, _ := hex.DecodeString(plaintextHex)
+	key := unhex(keyHex)
+	iv := unhex(ivHex)
+	plaintext := unhex(plaintextHex)
 
 	socketReady := make(chan bool)
 	done := make(chan TLSPlaintext, 1)

@@ -519,7 +519,7 @@ func hkdfExtract(hash crypto.Hash, saltIn, input []byte) []byte {
 //    opaque hash_value<0..255>;
 // };
 func hkdfEncodeLabel(labelIn string, hashValue []byte, outLen int) []byte {
-	label := "TLS 1.3, " + labelIn
+	label := "tls13 " + labelIn
 
 	labelLen := len(label)
 	hashLen := len(hashValue)
@@ -556,7 +556,7 @@ func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []
 	info := hkdfEncodeLabel(label, hashValue, outLen)
 	derived := hkdfExpand(hash, secret, info, outLen)
 
-	logf(logTypeCrypto, "HKDF Expand: label=[TLS 1.3, ] + '%s',requested length=%d\n", label, outLen)
+	logf(logTypeCrypto, "HKDF Expand: label=[tls13 ] + '%s',requested length=%d\n", label, outLen)
 	logf(logTypeCrypto, "PRK [%d]: %x\n", len(secret), secret)
 	logf(logTypeCrypto, "Hash [%d]: %x\n", len(hashValue), hashValue)
 	logf(logTypeCrypto, "Info [%d]: %x\n", len(info), info)
@@ -566,22 +566,24 @@ func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []
 }
 
 const (
-	labelExternalBinder                 = "external psk binder key"
-	labelResumptionBinder               = "resumption psk binder key"
-	labelEarlyTrafficSecret             = "client early traffic secret"
-	labelEarlyExporterSecret            = "early exporter master secret"
-	labelClientHandshakeTrafficSecret   = "client handshake traffic secret"
-	labelServerHandshakeTrafficSecret   = "server handshake traffic secret"
-	labelClientApplicationTrafficSecret = "client application traffic secret"
-	labelServerApplicationTrafficSecret = "server application traffic secret"
-	labelExporterSecret                 = "exporter master secret"
-	labelResumptionSecret               = "resumption master secret"
+	labelExternalBinder                 = "ext binder"
+	labelResumptionBinder               = "res binder"
+	labelEarlyTrafficSecret             = "c e traffic"
+	labelEarlyExporterSecret            = "e exp master"
+	labelClientHandshakeTrafficSecret   = "c hs traffic"
+	labelServerHandshakeTrafficSecret   = "s hs traffic"
+	labelClientApplicationTrafficSecret = "c ap traffic"
+	labelServerApplicationTrafficSecret = "s ap traffic"
+	labelExporterSecret                 = "exp master"
+	labelResumptionSecret               = "res master"
+	labelDerived                        = "derived"
 	labelFinished                       = "finished"
 )
 
 type keySet struct {
-	key []byte
-	iv  []byte
+	cipher aeadFactory
+	key    []byte
+	iv     []byte
 }
 
 // Sine the steps have to be performed linearly (except for early data), we use
@@ -601,59 +603,55 @@ const (
 //                  0
 //                  |
 //                  v
-//    PSK ->  HKDF-Extract
-//                  |
-//                  v
-//            Early Secret
+//    PSK ->  HKDF-Extract = Early Secret
 //                  |
 //                  +-----> Derive-Secret(.,
-//                  |                     "external psk binder key" |
-//                  |                     "resumption psk binder key",
+//                  |                     "ext binder" |
+//                  |                     "res binder",
 //                  |                     "")
 //                  |                     = binder_key
 //                  |
-//                  +-----> Derive-Secret(., "client early traffic secret",
+//                  +-----> Derive-Secret(., "c e traffic",
 //                  |                     ClientHello)
 //                  |                     = client_early_traffic_secret
 //                  |
-//                  +-----> Derive-Secret(., "early exporter master secret",
+//                  +-----> Derive-Secret(., "e exp master",
 //                  |                     ClientHello)
-//                  |                     = early_exporter_secret
+//                  |                     = early_exporter_master_secret
 //                  v
-// (EC)DHE -> HKDF-Extract
+//            Derive-Secret(., "derived", "")
 //                  |
 //                  v
-//          Handshake Secret
+// (EC)DHE -> HKDF-Extract = Handshake Secret
 //                  |
-//                  +-----> Derive-Secret(., "client handshake traffic secret",
+//                  +-----> Derive-Secret(., "c hs traffic",
 //                  |                     ClientHello...ServerHello)
 //                  |                     = client_handshake_traffic_secret
 //                  |
-//                  +-----> Derive-Secret(., "server handshake traffic secret",
+//                  +-----> Derive-Secret(., "s hs traffic",
 //                  |                     ClientHello...ServerHello)
 //                  |                     = server_handshake_traffic_secret
+//                  v
+//            Derive-Secret(., "derived", "")
 //                  |
 //                  v
-//       0 -> HKDF-Extract
+//       0 -> HKDF-Extract = Master Secret
 //                  |
-//                  v
-//             Master Secret
+//                  +-----> Derive-Secret(., "c ap traffic",
+//                  |                     ClientHello...server Finished)
+//                  |                     = client_application_traffic_secret_0
 //                  |
-//                  +-----> Derive-Secret(., "client application traffic secret",
-//                  |                     ClientHello...Server Finished)
-//                  |                     = client_traffic_secret_0
+//                  +-----> Derive-Secret(., "s ap traffic",
+//                  |                     ClientHello...server Finished)
+//                  |                     = server_application_traffic_secret_0
 //                  |
-//                  +-----> Derive-Secret(., "server application traffic secret",
-//                  |                     ClientHello...Server Finished)
-//                  |                     = server_traffic_secret_0
+//                  +-----> Derive-Secret(., "exp master",
+//                  |                     ClientHello...server Finished)
+//                  |                     = exporter_master_secret
 //                  |
-//                  +-----> Derive-Secret(., "exporter master secret",
-//                  |                     ClientHello...Server Finished)
-//                  |                     = exporter_secret
-//                  |
-//                  +-----> Derive-Secret(., "resumption master secret",
-//                                        ClientHello...Client Finished)
-//                                        = resumption_secret
+//                  +-----> Derive-Secret(., "res master",
+//                                        ClientHello...client Finished)
+//                                        = resumption_master_secret
 //
 // ==========
 //
@@ -709,6 +707,7 @@ type cryptoContext struct {
 
 	handshakeHash hash.Hash
 
+	h0 []byte // h0 = nothing
 	// h1 = ClientHello
 	h2 []byte // = h1 + HRR? + CH? + ServerHello
 	h3 []byte // = h2 + Server...
@@ -768,8 +767,9 @@ func (ctx cryptoContext) makeTrafficKeys(secret []byte) keySet {
 	logf(logTypeCrypto, "making traffic keys: secret=%x", secret)
 	H := ctx.params.hash
 	return keySet{
-		key: hkdfExpandLabel(H, secret, "key", []byte{}, ctx.params.keyLen),
-		iv:  hkdfExpandLabel(H, secret, "iv", []byte{}, ctx.params.ivLen),
+		cipher: ctx.params.cipher,
+		key:    hkdfExpandLabel(H, secret, "key", []byte{}, ctx.params.keyLen),
+		iv:     hkdfExpandLabel(H, secret, "iv", []byte{}, ctx.params.ivLen),
 	}
 }
 
@@ -782,6 +782,7 @@ func (ctx *cryptoContext) preInit(psk PreSharedKey) error {
 	ctx.suite = psk.CipherSuite
 	ctx.params = params
 	ctx.zero = bytes.Repeat([]byte{0}, ctx.params.hash.Size())
+	ctx.h0 = ctx.params.hash.New().Sum(nil)
 
 	// Cache the hash function for this suite so that we can verify it didn't change
 	ctx.earlyHash = ctx.params.hash
@@ -837,6 +838,7 @@ func (ctx *cryptoContext) init(suite CipherSuite, chm, hrrm, rechm *HandshakeMes
 	ctx.suite = suite
 	ctx.params = params
 	ctx.zero = bytes.Repeat([]byte{0}, ctx.params.hash.Size())
+	ctx.h0 = ctx.params.hash.New().Sum(nil)
 
 	if ctx.pskSecret != nil {
 		if ctx.params.hash != ctx.earlyHash {
@@ -871,7 +873,7 @@ func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret 
 
 	// Update the handshake hash
 	bytes := shm.Marshal()
-	logf(logTypeCrypto, "input to handshake hash [%d]: %x", len(bytes), bytes)
+	logf(logTypeCrypto, "input to handshake hash  [%d]: %x", len(bytes), bytes)
 	ctx.handshakeHash.Write(bytes)
 	ctx.h2 = ctx.handshakeHash.Sum(nil)
 	logf(logTypeCrypto, "handshake hash 2 [%d]: %x", len(ctx.h2), ctx.h2)
@@ -887,7 +889,9 @@ func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret 
 	}
 
 	// Compute the handshake secret and derived secrets
-	ctx.handshakeSecret = hkdfExtract(ctx.params.hash, ctx.earlySecret, ctx.dhSecret)
+	logf(logTypeCrypto, "h0: %x", ctx.h0)
+	preHandshakeSecret := ctx.deriveSecret(ctx.earlySecret, labelDerived, ctx.h0)
+	ctx.handshakeSecret = hkdfExtract(ctx.params.hash, preHandshakeSecret, ctx.dhSecret)
 	ctx.clientHandshakeTrafficSecret = ctx.deriveSecret(ctx.handshakeSecret, labelClientHandshakeTrafficSecret, ctx.h2)
 	ctx.serverHandshakeTrafficSecret = ctx.deriveSecret(ctx.handshakeSecret, labelServerHandshakeTrafficSecret, ctx.h2)
 	ctx.clientHandshakeKeys = ctx.makeTrafficKeys(ctx.clientHandshakeTrafficSecret)
@@ -903,7 +907,8 @@ func (ctx *cryptoContext) updateWithServerHello(shm *HandshakeMessage, dhSecret 
 		len(ctx.serverHandshakeKeys.iv), ctx.serverHandshakeKeys.iv)
 
 	// Compute the master secret
-	ctx.masterSecret = hkdfExtract(ctx.params.hash, ctx.handshakeSecret, ctx.zero)
+	preMasterSecret := ctx.deriveSecret(ctx.handshakeSecret, labelDerived, ctx.h0)
+	ctx.masterSecret = hkdfExtract(ctx.params.hash, preMasterSecret, ctx.zero)
 	logf(logTypeCrypto, "master secret: [%d] %x", len(ctx.masterSecret), ctx.masterSecret)
 
 	ctx.state = ctxStateServerHello

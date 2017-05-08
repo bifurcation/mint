@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/x509"
+	"encoding/pem"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 
 	"github.com/bifurcation/mint"
-	"github.com/cloudflare/cfssl/helpers"
 	"golang.org/x/net/http2"
 )
 
@@ -27,6 +31,81 @@ type responder []byte
 
 func (rsp responder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(rsp)
+}
+
+// ParsePrivateKeyDER parses a PKCS #1, PKCS #8, or elliptic curve
+// PEM-encoded private key.
+// XXX: Inlined from github.com/cloudflare/cfssl because of build issues with that module
+func ParsePrivateKeyPEM(keyPEM []byte) (key crypto.Signer, err error) {
+	keyDER, _ := pem.Decode(keyPEM)
+	if keyDER == nil {
+		return nil, err
+	}
+
+	generalKey, err := x509.ParsePKCS8PrivateKey(keyDER.Bytes)
+	if err != nil {
+		generalKey, err = x509.ParsePKCS1PrivateKey(keyDER.Bytes)
+		if err != nil {
+			generalKey, err = x509.ParseECPrivateKey(keyDER.Bytes)
+			if err != nil {
+				// We don't include the actual error into
+				// the final error. The reason might be
+				// we don't want to leak any info about
+				// the private key.
+				return nil, fmt.Errorf("No successful private key decoder")
+			}
+		}
+	}
+
+	switch generalKey.(type) {
+	case *rsa.PrivateKey:
+		return generalKey.(*rsa.PrivateKey), nil
+	case *ecdsa.PrivateKey:
+		return generalKey.(*ecdsa.PrivateKey), nil
+	}
+
+	// should never reach here
+	return nil, fmt.Errorf("Should be unreachable")
+}
+
+// ParseOneCertificateFromPEM attempts to parse one PEM encoded certificate object,
+// either a raw x509 certificate or a PKCS #7 structure possibly containing
+// multiple certificates, from the top of certsPEM, which itself may
+// contain multiple PEM encoded certificate objects.
+// XXX: Inlined from github.com/cloudflare/cfssl because of build issues with that module
+func ParseOneCertificateFromPEM(certsPEM []byte) ([]*x509.Certificate, []byte, error) {
+	block, rest := pem.Decode(certsPEM)
+	if block == nil {
+		return nil, rest, nil
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	var certs = []*x509.Certificate{cert}
+	return certs, rest, err
+}
+
+// ParseCertificatesPEM parses a sequence of PEM-encoded certificate and returns them,
+// can handle PEM encoded PKCS #7 structures.
+// XXX: Inlined from github.com/cloudflare/cfssl because of build issues with that module
+func ParseCertificatesPEM(certsPEM []byte) ([]*x509.Certificate, error) {
+	var certs []*x509.Certificate
+	var err error
+	certsPEM = bytes.TrimSpace(certsPEM)
+	for len(certsPEM) > 0 {
+		var cert []*x509.Certificate
+		cert, certsPEM, err = ParseOneCertificateFromPEM(certsPEM)
+		if err != nil {
+			return nil, err
+		} else if cert == nil {
+			break
+		}
+
+		certs = append(certs, cert...)
+	}
+	if len(certsPEM) > 0 {
+		return nil, fmt.Errorf("Trailing PEM data")
+	}
+	return certs, nil
 }
 
 func main() {
@@ -50,9 +129,12 @@ func main() {
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		} else {
-			certChain, err = helpers.ParseCertificatesPEM(certs)
+			certChain, err = ParseCertificatesPEM(certs)
 			if err != nil {
-				certChain, _, err = helpers.ParseCertificatesDER(certs, "")
+				certChain, err = x509.ParseCertificates(certs)
+				if err != nil {
+					log.Fatalf("Error parsing certificates: %v", err)
+				}
 			}
 		}
 	}
@@ -61,7 +143,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Error: %v", err)
 		} else {
-			priv, err = helpers.ParsePrivateKeyPEM(keyPEM)
+			priv, err = ParsePrivateKeyPEM(keyPEM)
 			if priv == nil || err != nil {
 				log.Fatalf("Error parsing private key: %v", err)
 			}
@@ -120,8 +202,8 @@ func main() {
 		}
 
 		if !h2 {
-			err = srv.Serve(listener)
-			if err != nil {
+			alert := srv.Serve(listener)
+			if alert != mint.AlertNoAlert {
 				log.Printf("Serve Error: %v", err)
 			}
 		} else {

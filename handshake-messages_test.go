@@ -40,8 +40,8 @@ var (
 		"0006000100020003" + "0100" + extListOverflowOuterHex
 
 	// ClientHello truncation test cases
-	chTruncPSKData, _ = hex.DecodeString(pskClientHex)
-	chTruncHex        = "01000062" + "0303" + hex.EncodeToString(helloRandom[:]) +
+	chTruncPSKData = unhex(pskClientHex)
+	chTruncHex     = "01000062" + "0303" + hex.EncodeToString(helloRandom[:]) +
 		"00" + "0006000100020003" + "0100" + "00330029002f000a00040102030405060708"
 	chTruncValid = ClientHelloBody{
 		Random:       helloRandom,
@@ -76,12 +76,13 @@ var (
 
 	// HelloRetryRequest test cases
 	hrrValidIn = HelloRetryRequestBody{
-		Version:    supportedVersion,
-		Extensions: extListValidIn,
+		Version:     supportedVersion,
+		CipherSuite: 0x0001,
+		Extensions:  extListValidIn,
 	}
 	hrrEmptyIn  = HelloRetryRequestBody{}
-	hrrValidHex = supportedVersionHex + extListValidHex
-	hrrEmptyHex = supportedVersionHex + "0000"
+	hrrValidHex = supportedVersionHex + "0001" + extListValidHex
+	hrrEmptyHex = supportedVersionHex + "0001" + "0000"
 
 	// ServerHello test cases
 	shValidIn = ServerHelloBody{
@@ -142,10 +143,10 @@ var (
 		"470030440220718254f2b3c1cc0fa4c53bf43182f8acbc19" +
 		"04e45ee1a3abdc8bc50a155712b4022010664cc29b80fae9" +
 		"150027726da5b144df764a76007eee2a52b6ae0c995395fb"
-	cert1Bytes, _ = hex.DecodeString(cert1Hex)
-	cert2Bytes, _ = hex.DecodeString(cert2Hex)
-	cert1, _      = x509.ParseCertificate(cert1Bytes)
-	cert2, _      = x509.ParseCertificate(cert2Bytes)
+	cert1Bytes = unhex(cert1Hex)
+	cert2Bytes = unhex(cert2Hex)
+	cert1, _   = x509.ParseCertificate(cert1Bytes)
+	cert2, _   = x509.ParseCertificate(cert2Bytes)
 
 	certValidIn = CertificateBody{
 		CertificateRequestContext: []byte{0, 0, 0, 0},
@@ -186,23 +187,15 @@ var (
 	// CertificateRequest test cases
 	certReqValidIn = CertificateRequestBody{
 		CertificateRequestContext: []byte{0, 1, 2, 3, 4, 5, 6, 7},
-		SupportedSignatureAlgorithms: []SignatureScheme{
-			ECDSA_P256_SHA256, // 0x0403
-			ECDSA_P384_SHA384, // 0x0503
-		},
-		CertificateAuthorities: []DistinguishedName{
-			{[]byte{0, 1, 2, 3}},
-			{[]byte{4, 5, 6, 7}},
-		},
-		CertificateExtensions: []CertificateExtension{
-			{[]byte{0, 1}, []byte{2, 3}},
-			{[]byte{4, 5}, []byte{6, 7}},
+		Extensions: []Extension{
+			{
+				ExtensionType: ExtensionTypeSignatureAlgorithms,
+				ExtensionData: unhex("000404030503"),
+			},
 		},
 	}
 	certReqValidHex = "080001020304050607" + // context
-		"000404030503" + // signature algorithms
-		"000c" + "000400010203" + "000404050607" + // CAs
-		"000e" + "02000100020203" + "02040500020607" // extensionss
+		"000a000d0006000404030503" // extensions
 
 	// NewSessionTicket test cases
 	ticketValidHex = "00010203" + "04050607" + "000408090a0b" + "0006eeff00021122"
@@ -230,6 +223,10 @@ var (
 	keyUpdateValidIn  = KeyUpdateBody{
 		KeyUpdateRequest: KeyUpdateRequested,
 	}
+
+	// EndOfEarlyData test cases
+	endOfEarlyDataValidHex = ""
+	endOfEarlyDataValidIn  = EndOfEarlyDataBody{}
 )
 
 func TestHandshakeMessageTypes(t *testing.T) {
@@ -242,8 +239,8 @@ func TestHandshakeMessageTypes(t *testing.T) {
 }
 
 func TestClientHelloMarshalUnmarshal(t *testing.T) {
-	chValid, _ := hex.DecodeString(chValidHex)
-	chOverflow, _ := hex.DecodeString(chOverflowHex)
+	chValid := unhex(chValidHex)
+	chOverflow := unhex(chOverflowHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (ClientHelloBody{}).Type(), HandshakeTypeClientHello)
@@ -324,7 +321,7 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 }
 
 func TestClientHelloTruncate(t *testing.T) {
-	chTrunc, _ := hex.DecodeString(chTruncHex)
+	chTrunc := unhex(chTruncHex)
 
 	// Test success
 	trunc, err := chTruncValid.Truncated()
@@ -349,8 +346,8 @@ func TestClientHelloTruncate(t *testing.T) {
 }
 
 func TestHelloRetryRequestMarshalUnmarshal(t *testing.T) {
-	hrrValid, _ := hex.DecodeString(hrrValidHex)
-	hrrEmpty, _ := hex.DecodeString(hrrEmptyHex)
+	hrrValid := unhex(hrrValidHex)
+	hrrEmpty := unhex(hrrEmptyHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (HelloRetryRequestBody{}).Type(), HandshakeTypeHelloRetryRequest)
@@ -377,9 +374,9 @@ func TestHelloRetryRequestMarshalUnmarshal(t *testing.T) {
 }
 
 func TestServerHelloMarshalUnmarshal(t *testing.T) {
-	shValid, _ := hex.DecodeString(shValidHex)
-	shEmpty, _ := hex.DecodeString(shEmptyHex)
-	shOverflow, _ := hex.DecodeString(shOverflowHex)
+	shValid := unhex(shValidHex)
+	shEmpty := unhex(shEmptyHex)
+	shOverflow := unhex(shOverflowHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (ServerHelloBody{}).Type(), HandshakeTypeServerHello)
@@ -425,7 +422,7 @@ func TestServerHelloMarshalUnmarshal(t *testing.T) {
 }
 
 func TestFinishedMarshalUnmarshal(t *testing.T) {
-	finValid, _ := hex.DecodeString(finValidHex)
+	finValid := unhex(finValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (FinishedBody{}).Type(), HandshakeTypeFinished)
@@ -458,7 +455,7 @@ func TestFinishedMarshalUnmarshal(t *testing.T) {
 
 // This one is a little brief because it is just an extensionList
 func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
-	encExtValid, _ := hex.DecodeString(encExtValidHex)
+	encExtValid := unhex(encExtValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (EncryptedExtensionsBody{}).Type(), HandshakeTypeEncryptedExtensions)
@@ -478,8 +475,8 @@ func TestEncrypteExtensionsMarshalUnmarshal(t *testing.T) {
 
 func TestCertificateMarshalUnmarshal(t *testing.T) {
 	// Create a couple of certificates and manually encode
-	certValid, _ := hex.DecodeString(certValidHex)
-	certTooShort, _ := hex.DecodeString(certTooShortHex)
+	certValid := unhex(certValidHex)
+	certTooShort := unhex(certTooShortHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (CertificateBody{}).Type(), HandshakeTypeCertificate)
@@ -544,7 +541,7 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 }
 
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
-	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
+	certVerifyValid := unhex(certVerifyValidHex)
 
 	chMessage, _ := HandshakeMessageFromBody(&chValidIn)
 	shMessage, _ := HandshakeMessageFromBody(&shValidIn)
@@ -607,7 +604,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 }
 
 func TestCertificateRequestMarshalUnmarshal(t *testing.T) {
-	certReqValid, _ := hex.DecodeString(certReqValidHex)
+	certReqValid := unhex(certReqValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (CertificateRequestBody{}).Type(), HandshakeTypeCertificateRequest)
@@ -627,7 +624,7 @@ func TestCertificateRequestMarshalUnmarshal(t *testing.T) {
 }
 
 func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
-	ticketValid, _ := hex.DecodeString(ticketValidHex)
+	ticketValid := unhex(ticketValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (NewSessionTicketBody{}).Type(), HandshakeTypeNewSessionTicket)
@@ -670,7 +667,7 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 }
 
 func TestKeyUpdateMarshalUnmarshal(t *testing.T) {
-	keyUpdateValid, _ := hex.DecodeString(keyUpdateValidHex)
+	keyUpdateValid := unhex(keyUpdateValidHex)
 
 	// Test correctness of handshake type
 	assertEquals(t, (KeyUpdateBody{}).Type(), HandshakeTypeKeyUpdate)
@@ -686,4 +683,23 @@ func TestKeyUpdateMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Failed to unmarshal a valid KeyUpdate")
 	assertEquals(t, read, len(keyUpdateValid))
 	assertDeepEquals(t, ku, keyUpdateValidIn)
+}
+
+func TestEndOfEarlyDataMarshalUnmarshal(t *testing.T) {
+	endOfEarlyDataValid := unhex(endOfEarlyDataValidHex)
+
+	// Test correctness of handshake type
+	assertEquals(t, (EndOfEarlyDataBody{}).Type(), HandshakeTypeEndOfEarlyData)
+
+	// Test successful marshal
+	out, err := endOfEarlyDataValidIn.Marshal()
+	assertNotError(t, err, "Failed to marshal a valid KeyUpdate")
+	assertByteEquals(t, out, endOfEarlyDataValid)
+
+	// Test successful unmarshal
+	var eoed EndOfEarlyDataBody
+	read, err := eoed.Unmarshal(endOfEarlyDataValid)
+	assertNotError(t, err, "Failed to unmarshal a valid KeyUpdate")
+	assertEquals(t, read, len(endOfEarlyDataValid))
+	assertDeepEquals(t, eoed, endOfEarlyDataValidIn)
 }

@@ -57,6 +57,7 @@ type Config struct {
 	SendSessionTickets bool
 	TicketLifetime     uint32
 	TicketLen          int
+	EarlyDataLifetime  uint32
 	AllowEarlyData     bool
 	RequireCookie      bool
 	RequireClientAuth  bool
@@ -178,21 +179,24 @@ type Conn struct {
 	conn     net.Conn
 	isClient bool
 
-	earlyData []byte
+	EarlyData []byte
 
-	handshake         Handshake
+	state             StateConnected
 	handshakeMutex    sync.Mutex
-	handshakeErr      error
+	handshakeAlert    Alert
 	handshakeComplete bool
 
 	readBuffer []byte
 	in, out    *RecordLayer
+	hIn, hOut  *HandshakeLayer
 }
 
 func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
 	c := &Conn{conn: conn, config: config, isClient: isClient}
 	c.in = NewRecordLayer(c.conn)
 	c.out = NewRecordLayer(c.conn)
+	c.hIn = NewHandshakeLayer(c.in)
+	c.hOut = NewHandshakeLayer(c.out)
 	return c
 }
 
@@ -212,7 +216,7 @@ func (c *Conn) extendBuffer(n int) error {
 
 		switch pt.contentType {
 		case RecordTypeHandshake:
-			// We do not support fragmentation of post-handshake handshake messages
+			// We do not support fragmentation of post-handshake handshake messages.
 			// TODO: Factor this more elegantly; coalesce with handshakeLayer.ReadMessage()
 			start := 0
 			for start < len(pt.fragment) {
@@ -229,49 +233,33 @@ func (c *Conn) extendBuffer(n int) error {
 				}
 				hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
 
-				switch hm.msgType {
-				case HandshakeTypeNewSessionTicket:
-					psk, err := c.handshake.HandleNewSessionTicket(hm)
-					if err != nil {
-						return err
+				// Advance state machine
+				state, instructions, alert := c.state.Next(hm)
+
+				if alert != AlertNoAlert {
+					logf(logTypeHandshake, "Error in state transition: %v", alert)
+					c.sendAlert(alert)
+					return io.EOF
+				}
+
+				for _, instr := range instructions {
+					alert = c.followInstruction(instr)
+					if alert != AlertNoAlert {
+						logf(logTypeHandshake, "Error following instructions: %v", alert)
+						c.sendAlert(alert)
+						return io.EOF
 					}
+				}
 
-					logf(logTypeHandshake, "Storing new session ticket with identity [%x]", psk.Identity)
-					c.config.PSKs.Put(c.config.ServerName, psk)
-
-				case HandshakeTypeKeyUpdate:
-					outboundUpdate, err := c.handshake.HandleKeyUpdate(hm)
-					if err != nil {
-						return err
-					}
-
-					// Rekey inbound
-					cipher, keys := c.handshake.inboundKeys()
-					err = c.in.Rekey(cipher, keys.key, keys.iv)
-					if err != nil {
-						return err
-					}
-
-					if outboundUpdate != nil {
-						// Send KeyUpdate
-						err = c.out.WriteRecord(&TLSPlaintext{
-							contentType: RecordTypeHandshake,
-							fragment:    outboundUpdate.Marshal(),
-						})
-						if err != nil {
-							return err
-						}
-
-						// Rekey outbound
-						cipher, keys := c.handshake.outboundKeys()
-						err = c.out.Rekey(cipher, keys.key, keys.iv)
-						if err != nil {
-							return err
-						}
-					}
-				default:
-					c.sendAlert(AlertUnexpectedMessage)
-					return fmt.Errorf("Unsupported post-handshake handshake message [%v]", hm.msgType)
+				// XXX: If we want to support more advanced cases, e.g., post-handshake
+				// authentication, we'll need to allow transitions other than
+				// Connected -> Connected
+				var connected bool
+				c.state, connected = state.(StateConnected)
+				if !connected {
+					logf(logTypeHandshake, "Disconnected after state transition: %v", alert)
+					c.sendAlert(alert)
+					return io.EOF
 				}
 
 				start += handshakeHeaderLen + hmLen
@@ -321,8 +309,8 @@ func (c *Conn) extendBuffer(n int) error {
 // Read application data until the buffer is full.  Handshake and alert records
 // are consumed by the Conn object directly.
 func (c *Conn) Read(buffer []byte) (int, error) {
-	if err := c.Handshake(); err != nil {
-		return 0, err
+	if alert := c.Handshake(); alert != AlertNoAlert {
+		return 0, alert
 	}
 
 	// Lock the input channel
@@ -389,31 +377,32 @@ func (c *Conn) sendAlert(err Alert) error {
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
-	tmp := make([]byte, 2)
+	var level int
 	switch err {
 	case AlertNoRenegotiation, AlertCloseNotify:
-		tmp[0] = AlertLevelWarning
+		level = AlertLevelWarning
 	default:
-		tmp[0] = AlertLevelError
+		level = AlertLevelError
 	}
-	tmp[1] = byte(err)
+
+	buf := []byte{byte(err), byte(level)}
 	c.out.WriteRecord(&TLSPlaintext{
 		contentType: RecordTypeAlert,
-		fragment:    tmp,
+		fragment:    buf,
 	})
 
 	// close_notify and end_of_early_data are not actually errors
-	if err != AlertCloseNotify && err != AlertEndOfEarlyData {
+	if level == AlertLevelWarning {
 		return &net.OpError{Op: "local error", Err: err}
 	}
-	return nil
+
+	return c.Close()
 }
 
 // Close closes the connection.
 func (c *Conn) Close() error {
 	// XXX crypto/tls has an interlock with Write here.  Do we need that?
 
-	c.sendAlert(AlertCloseNotify)
 	return c.conn.Close()
 }
 
@@ -447,420 +436,225 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
+func (c *Conn) followInstruction(instrGeneric HandshakeInstruction) Alert {
+	label := "[server]"
+	if c.isClient {
+		label = "[client]"
+	}
+
+	switch instr := instrGeneric.(type) {
+	case SendHandshakeMessage:
+		err := c.hOut.WriteMessage(instr.Message)
+		if err != nil {
+			logf(logTypeHandshake, "%s Error writing handshake message: %v", label, err)
+			return AlertInternalError
+		}
+
+	case RekeyIn:
+		logf(logTypeHandshake, "%s Rekeying in to %s: %+v", label, instr.Label, instr.KeySet)
+		err := c.in.Rekey(instr.KeySet.cipher, instr.KeySet.key, instr.KeySet.iv)
+		if err != nil {
+			logf(logTypeHandshake, "%s Unable to rekey inbound: %v", label, err)
+			return AlertInternalError
+		}
+
+	case RekeyOut:
+		logf(logTypeHandshake, "%s Rekeying out to %s: %+v", label, instr.Label, instr.KeySet)
+		err := c.out.Rekey(instr.KeySet.cipher, instr.KeySet.key, instr.KeySet.iv)
+		if err != nil {
+			logf(logTypeHandshake, "%s Unable to rekey outbound: %v", label, err)
+			return AlertInternalError
+		}
+
+	case SendEarlyData:
+		logf(logTypeHandshake, "%s Sending early data...", label)
+		_, err := c.Write(c.EarlyData)
+		if err != nil {
+			logf(logTypeHandshake, "%s Error writing early data: %v", label, err)
+			return AlertInternalError
+		}
+
+	case ReadPastEarlyData:
+		logf(logTypeHandshake, "%s Reading past early data...", label)
+		// Scan past all records that fail to decrypt
+		_, err := c.in.PeekRecordType()
+		if err == nil {
+			break
+		}
+		_, ok := err.(DecryptError)
+
+		for ok {
+			_, err = c.in.PeekRecordType()
+			if err == nil {
+				break
+			}
+			_, ok = err.(DecryptError)
+		}
+
+	case ReadEarlyData:
+		logf(logTypeHandshake, "%s Reading early data...", label)
+		t, err := c.in.PeekRecordType()
+		if err != nil {
+			logf(logTypeHandshake, "%s Error reading record type: %v", label, err)
+			return AlertInternalError
+		}
+		logf(logTypeHandshake, "%s Got record type: %v", label, t)
+
+		for t == RecordTypeApplicationData {
+			// Read a record into the buffer
+			pt, err := c.in.ReadRecord()
+			if err != nil {
+				logf(logTypeHandshake, "%s Error reading early data record: %v", label, err)
+				return AlertInternalError
+			}
+
+			logf(logTypeHandshake, "%s Read early data: %x", label, pt.fragment)
+			c.EarlyData = append(c.EarlyData, pt.fragment...)
+
+			t, err = c.in.PeekRecordType()
+			if err != nil {
+				logf(logTypeHandshake, "%s Error reading record type: %v", label, err)
+				return AlertInternalError
+			}
+			logf(logTypeHandshake, "%s Got record type: %v", label, t)
+		}
+
+	case StorePSK:
+		logf(logTypeHandshake, "%s Storing new session ticket with identity [%x]", label, instr.PSK.Identity)
+		if c.isClient {
+			// Clients look up PSKs based on server name
+			c.config.PSKs.Put(c.config.ServerName, instr.PSK)
+		} else {
+			// Servers look them up based on the identity in the extension
+			c.config.PSKs.Put(hex.EncodeToString(instr.PSK.Identity), instr.PSK)
+		}
+
+	default:
+		logf(logTypeHandshake, "%s Unknown instruction type", label)
+		return AlertInternalError
+	}
+
+	return AlertNoAlert
+}
+
 // Handshake causes a TLS handshake on the connection.  The `isClient` member
 // determines whether a client or server handshake is performed.  If a
 // handshake has already been performed, then its result will be returned.
-func (c *Conn) Handshake() error {
+func (c *Conn) Handshake() Alert {
 	// TODO Lock handshakeMutex
-	if err := c.handshakeErr; err != nil {
-		return err
+	// TODO Remove CloseNotify hack
+	if c.handshakeAlert != AlertNoAlert && c.handshakeAlert != AlertCloseNotify {
+		logf(logTypeHandshake, "Pre-existing handshake error: %v", c.handshakeAlert)
+		return c.handshakeAlert
 	}
 	if c.handshakeComplete {
-		return nil
+		return AlertNoAlert
 	}
 
 	if err := c.config.Init(c.isClient); err != nil {
-		return err
+		logf(logTypeHandshake, "Error initializing config: %v", err)
+		return AlertInternalError
 	}
 
-	if c.isClient {
-		c.handshakeErr = c.clientHandshake()
-	} else {
-		c.handshakeErr = c.serverHandshake()
-	}
-	c.handshakeComplete = (c.handshakeErr == nil)
-
-	if c.handshakeErr != nil {
-		logf(logTypeHandshake, "Handshake failed: %v", c.handshakeErr)
-		c.sendAlert(AlertHandshakeFailure)
-		c.conn.Close()
-	}
-
-	return c.handshakeErr
-}
-
-func (c *Conn) clientHandshake() error {
-	logf(logTypeHandshake, "Starting clientHandshake")
-
-	h := &ClientHandshake{}
-	hIn := NewHandshakeLayer(c.in)
-	hOut := NewHandshakeLayer(c.out)
-
-	// Generate ClientHello
-	caps := Capabilities{
-		CipherSuites:     c.config.CipherSuites,
-		Groups:           c.config.Groups,
-		SignatureSchemes: c.config.SignatureSchemes,
-		PSKs:             c.config.PSKs,
-		PSKModes:         c.config.PSKModes,
-		Certificates:     c.config.Certificates,
-	}
-	opts := ConnectionOptions{
-		ServerName: c.config.ServerName,
-		NextProtos: c.config.NextProtos,
-		EarlyData:  c.earlyData,
-	}
-
-	chm, err := h.CreateClientHello(opts, caps)
-	if err != nil {
-		return err
-	}
-
-	// Write ClientHello
-	err = hOut.WriteMessage(chm)
-	if err != nil {
-		return err
-	}
-
-	// Send early data
-	if opts.EarlyData != nil {
-		// Rekey output to early data keys
-		logf(logTypeHandshake, "[client] Rekey -> early...")
-		err = c.out.Rekey(h.Context.params.cipher, h.Context.clientEarlyTrafficKeys.key, h.Context.clientEarlyTrafficKeys.iv)
-		if err != nil {
-			return err
-		}
-
-		// Send early application data
-		logf(logTypeHandshake, "[client] Sending data...")
-		_, err = c.Write(opts.EarlyData)
-		if err != nil {
-			return err
-		}
-
-		// Send end_of_earlyData
-		logf(logTypeHandshake, "[client] Sending end_of_early_data...")
-		err = c.sendAlert(AlertEndOfEarlyData)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Read server's response to ClientHello
-	shm, err := hIn.ReadMessage()
-	if err != nil {
-		return err
-	}
-
-	// If server sent HelloRetryRequest, retry ClientHello
-	if shm.msgType == HandshakeTypeHelloRetryRequest {
-		chm, err := h.HandleHelloRetryRequest(shm)
-		if err != nil {
-			return err
-		}
-
-		err = hOut.WriteMessage(chm)
-		if err != nil {
-			return err
-		}
-
-		shm, err = hIn.ReadMessage()
-		if err != nil {
-			return err
-		}
-	}
-
-	err = h.HandleServerHello(shm)
-	if err != nil {
-		return err
-	}
-
-	// Rekey to handshake keys
-	err = c.in.Rekey(h.Context.params.cipher, h.Context.serverHandshakeKeys.key, h.Context.serverHandshakeKeys.iv)
-	if err != nil {
-		logf(logTypeHandshake, "[client] Unable to rekey inbound")
-		return err
-	}
-	err = c.out.Rekey(h.Context.params.cipher, h.Context.clientHandshakeKeys.key, h.Context.clientHandshakeKeys.iv)
-	if err != nil {
-		logf(logTypeHandshake, "[client] Unable to rekey outbound")
-		return err
-	}
-	logf(logTypeHandshake, "[client] Completed rekey")
-	dumpCryptoContext("client", h.Context)
-
-	// Read and process server's first flight
-	transcript := []*HandshakeMessage{}
-	var finishedMessage *HandshakeMessage
-	for {
-		hm, err := hIn.ReadMessage()
-		if err != nil {
-			logf(logTypeHandshake, "Error reading message: %v", err)
-			return err
-		}
-		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
-
-		if hm.msgType == HandshakeTypeFinished {
-			finishedMessage = hm
-			break
-		} else {
-			transcript = append(transcript, hm)
-		}
-	}
-	logf(logTypeHandshake, "[client] Done reading server's first flight")
-
-	clientSecondFlight, err := h.HandleServerFirstFlight(transcript, finishedMessage)
-	if err != nil {
-		return err
-	}
-
-	// Update the crypto context with the (empty) client second flight
-	err = h.Context.updateWithClientSecondFlight(clientSecondFlight)
-	if err != nil {
-		return err
-	}
-
-	// Send client second flight and Finished
-	for _, msg := range clientSecondFlight {
-		err = hOut.WriteMessage(msg)
-		if err != nil {
-			return err
-		}
-	}
-
-	fm, err := HandshakeMessageFromBody(h.Context.clientFinished)
-	if err != nil {
-		return err
-	}
-	err = hOut.WriteMessage(fm)
-	if err != nil {
-		return err
-	}
-
-	// Rekey to application keys
-	err = c.in.Rekey(h.Context.params.cipher, h.Context.serverTrafficKeys.key, h.Context.serverTrafficKeys.iv)
-	if err != nil {
-		return err
-	}
-	err = c.out.Rekey(h.Context.params.cipher, h.Context.clientTrafficKeys.key, h.Context.clientTrafficKeys.iv)
-	if err != nil {
-		return err
-	}
-
-	c.handshake = h
-	return nil
-}
-
-func (c *Conn) serverHandshake() error {
-	logf(logTypeHandshake, "Starting serverHandshake")
-
-	h := &ServerHandshake{}
-	hIn := NewHandshakeLayer(c.in)
-	hOut := NewHandshakeLayer(c.out)
-
-	// Read ClientHello and extract extensions
-	chm, err := hIn.ReadMessage()
-	if err != nil {
-		logf(logTypeHandshake, "Unable to read ClientHello: %v", err)
-		return err
-	}
-	logf(logTypeHandshake, "[server] Read ClientHello")
-
-	// Create the server's first flight
+	// Set things up
 	caps := Capabilities{
 		CipherSuites:      c.config.CipherSuites,
 		Groups:            c.config.Groups,
 		SignatureSchemes:  c.config.SignatureSchemes,
 		PSKs:              c.config.PSKs,
+		PSKModes:          c.config.PSKModes,
 		AllowEarlyData:    c.config.AllowEarlyData,
 		RequireCookie:     c.config.RequireCookie,
 		RequireClientAuth: c.config.RequireClientAuth,
 		NextProtos:        c.config.NextProtos,
 		Certificates:      c.config.Certificates,
 	}
-	shm, serverFirstFlight, err := h.HandleClientHello(chm, caps)
-	if err != nil {
-		return err
+	opts := ConnectionOptions{
+		ServerName: c.config.ServerName,
+		NextProtos: c.config.NextProtos,
+		EarlyData:  c.EarlyData,
+	}
+	connState := connectionState{
+		Caps: caps,
+		Opts: opts,
 	}
 
-	if shm.msgType == HandshakeTypeHelloRetryRequest {
-		// Send the HRR
-		err = hOut.WriteMessage(shm)
-		if err != nil {
-			logf(logTypeHandshake, "[server] Unable to send HelloRetryRequest %v", err)
-			return err
-		}
-		logf(logTypeHandshake, "[server] Wrote HelloRetryRequest")
+	var state HandshakeState
+	var instructions []HandshakeInstruction
+	var alert Alert
+	connected := false
 
-		// Read the clientHello and re-handle it
-		chm, err := hIn.ReadMessage()
-		if err != nil {
-			logf(logTypeHandshake, "Unable to read 2nd ClientHello: %v", err)
-			return err
-		}
-		logf(logTypeHandshake, "[server] Read 2nd ClientHello")
-
-		shm, serverFirstFlight, err = h.HandleClientHello(chm, caps)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Write ServerHello and update the crypto context
-	err = hOut.WriteMessage(shm)
-	if err != nil {
-		logf(logTypeHandshake, "[server] Unable to send ServerHello %v", err)
-		return err
-	}
-	logf(logTypeHandshake, "[server] Wrote ServerHello")
-
-	// Rekey outbound to handshake keys
-	err = c.out.Rekey(h.Context.params.cipher, h.Context.serverHandshakeKeys.key, h.Context.serverHandshakeKeys.iv)
-	if err != nil {
-		return err
-	}
-	logf(logTypeHandshake, "[server] Completed rekey")
-	dumpCryptoContext("server", h.Context)
-
-	// Write remainder of server first flight
-	for _, msg := range serverFirstFlight {
-		err := hOut.WriteMessage(msg)
-		if err != nil {
-			logf(logTypeHandshake, "[server] Unable to send handshake message %v", err)
-			return err
-		}
-	}
-
-	// Handle early data that the client sends
-	if h.Params.UsingEarlyData {
-		logf(logTypeHandshake, "[server] Processing early data")
-
-		// Compute early handshake / traffic keys from pskSecret
-		// XXX: We init different contexts for early vs. main handshakes, that
-		// means that in principle, we could end up with different ciphersuites for
-		// early data vs. the main record flow.  Probably not ideal.
-		logf(logTypeHandshake, "[server] Computing early secrets...")
-		h.Context.earlyUpdateWithClientHello(chm)
-
-		// Rekey read channel to early traffic keys
-		logf(logTypeHandshake, "[server] Rekey -> handshake...")
-		err = c.in.Rekey(h.Context.params.cipher, h.Context.clientEarlyTrafficKeys.key, h.Context.clientEarlyTrafficKeys.iv)
-		if err != nil {
-			return err
+	if c.isClient {
+		state, instructions, alert = ClientStateStart{state: &connState}.Next(nil)
+		if alert != AlertNoAlert {
+			logf(logTypeHandshake, "Error initializing client state: %v", alert)
+			return alert
 		}
 
-		// Read to end of early data
-		logf(logTypeHandshake, "[server] Reading early data...")
-		done := false
-		for !done {
-			logf(logTypeHandshake, "  Record!")
-			pt, err := c.in.ReadRecord()
-			if err != nil {
-				return err
-			}
-
-			switch pt.contentType {
-			case RecordTypeAlert:
-				logf(logTypeHandshake, "Alert record")
-				alertType := Alert(pt.fragment[1])
-				if alertType == AlertEndOfEarlyData {
-					done = true
-				} else {
-					return fmt.Errorf("tls.server: Unexpected alert in early data [%v]", alertType)
-				}
-			case RecordTypeApplicationData:
-				// XXX: Should expose early data differently
-				logf(logTypeHandshake, "App data")
-				c.readBuffer = append(c.readBuffer, pt.fragment...)
-			default:
-				return fmt.Errorf("tls.server: Unexpected content type in early data [%v] %x", pt.contentType, pt.fragment)
+		for _, instr := range instructions {
+			alert = c.followInstruction(instr)
+			if alert != AlertNoAlert {
+				logf(logTypeHandshake, "Error following instructions: %v", alert)
+				return alert
 			}
 		}
 
-		logf(logTypeHandshake, "[server] Done reading early data [%d] %x", len(c.readBuffer), c.readBuffer)
+		_, connected = state.(StateConnected)
+	} else {
+		state = ServerStateStart{state: &connState}
 	}
 
-	// Rekey input to handshake keys
-	err = c.in.Rekey(h.Context.params.cipher, h.Context.clientHandshakeKeys.key, h.Context.clientHandshakeKeys.iv)
-	if err != nil {
-		return err
-	}
-
-	// Even if we reject early data, the client might still send it.  We need
-	// to read past any records that don't decrypt until we hit the next
-	// handshake message.
-	if !h.Params.UsingEarlyData {
-		logf(logTypeHandshake, "[server] Rejecting early data; reading past it")
-		for {
-			pt, err := c.in.ReadRecord()
-
-			// Ignore decrypt errors...
-			if _, ok := err.(DecryptError); ok {
-				continue
-			}
-
-			// ... but fail on other errors
-			if err != nil {
-				return err
-			}
-
-			// If it's not a handshake message, fail
-			if pt.contentType != RecordTypeHandshake {
-				return fmt.Errorf("[server] Got a non-handshake message encrypted with handshake key")
-			}
-
-			// If it's a handshake message, add it to the handshake layer's buffer
-			// and quit reading ahead
-			hIn.buffer = append(hIn.buffer, pt.fragment...)
-			break
-
-		}
-	}
-
-	// Read and process the client's second flight
-	transcript := []*HandshakeMessage{}
-	var finishedMessage *HandshakeMessage
-	for {
-		hm, err := hIn.ReadMessage()
+	for !connected {
+		// Read a handshake message
+		hm, err := c.hIn.ReadMessage()
 		if err != nil {
 			logf(logTypeHandshake, "Error reading message: %v", err)
-			return err
+			c.sendAlert(AlertCloseNotify)
+			return AlertCloseNotify
 		}
 		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
-		if hm.msgType == HandshakeTypeFinished {
-			finishedMessage = hm
-			break
-		} else {
-			transcript = append(transcript, hm)
-		}
-	}
-	logf(logTypeHandshake, "[client] Done reading server's first flight")
+		// Advance the state machine
+		state, instructions, alert = state.Next(hm)
 
-	err = h.HandleClientSecondFlight(transcript, finishedMessage)
-	if err != nil {
-		return err
-	}
-
-	// Rekey to application keys
-	err = c.in.Rekey(h.Context.params.cipher, h.Context.clientTrafficKeys.key, h.Context.clientTrafficKeys.iv)
-	if err != nil {
-		return err
-	}
-	err = c.out.Rekey(h.Context.params.cipher, h.Context.serverTrafficKeys.key, h.Context.serverTrafficKeys.iv)
-	if err != nil {
-		return err
-	}
-
-	// Send a new session ticket
-	if c.config.SendSessionTickets {
-		newPSK, newSessionTicket, err := h.CreateNewSessionTicket(c.config.TicketLen, c.config.TicketLifetime)
-		if err != nil {
-			return err
+		if alert != AlertNoAlert {
+			logf(logTypeHandshake, "Error in state transition: %v", alert)
+			return alert
 		}
 
-		pskIDHex := hex.EncodeToString(newPSK.Identity)
-		c.config.PSKs.Put(pskIDHex, newPSK)
-
-		err = hOut.WriteMessage(newSessionTicket)
-		if err != nil {
-			return err
+		for _, instr := range instructions {
+			alert = c.followInstruction(instr)
+			if alert != AlertNoAlert {
+				logf(logTypeHandshake, "Error following instructions: %v", alert)
+				c.sendAlert(alert)
+				return alert
+			}
 		}
-		logf(logTypeHandshake, "Wrote NewSessionTicket %x", newPSK.Identity)
+
+		_, connected = state.(StateConnected)
 	}
 
-	c.handshake = h
-	return nil
+	c.state = state.(StateConnected)
+
+	// Send NewSessionTicket if acting as server
+	if !c.isClient {
+		instructions, alert := c.state.NewSessionTicket(
+			c.config.TicketLen,
+			c.config.TicketLifetime,
+			c.config.EarlyDataLifetime)
+
+		for _, instr := range instructions {
+			alert = c.followInstruction(instr)
+			if alert != AlertNoAlert {
+				logf(logTypeHandshake, "Error following instructions: %v", alert)
+				c.sendAlert(alert)
+				return alert
+			}
+		}
+	}
+
+	c.handshakeComplete = true
+	return AlertNoAlert
 }
 
 func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
@@ -873,23 +667,21 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 		request = KeyUpdateRequested
 	}
 
-	// Create the key update and update the keys internally
-	kum, err := c.handshake.CreateKeyUpdate(request)
-	if err != nil {
-		return err
+	// Create the key update and update state
+	instructions, alert := c.state.KeyUpdate(request)
+	if alert != AlertNoAlert {
+		c.sendAlert(alert)
+		return fmt.Errorf("Alert while generating key update: %v", alert)
 	}
 
-	// Send key update
-	err = c.out.WriteRecord(&TLSPlaintext{
-		contentType: RecordTypeHandshake,
-		fragment:    kum.Marshal(),
-	})
-	if err != nil {
-		return err
+	// Follow instructions (send key update and rekey)
+	for _, instr := range instructions {
+		alert = c.followInstruction(instr)
+		if alert != AlertNoAlert {
+			c.sendAlert(alert)
+			return fmt.Errorf("Alert while folowing key update instructions: %v", alert)
+		}
 	}
 
-	// Rekey outbound
-	cipher, keys := c.handshake.outboundKeys()
-	err = c.out.Rekey(cipher, keys.key, keys.iv)
-	return err
+	return nil
 }

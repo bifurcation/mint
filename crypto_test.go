@@ -35,8 +35,8 @@ var (
 	hkdfExpandLen            = 42
 	hkdfLabel                = "test"
 	hkdfHashHex              = "f9a54250131c827542664bcad131b87c09cdd92f0d5f84db3680ee4c0c0f8ed6" // random
-	hkdfEncodedLabelHex      = "002a" + "0d" + hex.EncodeToString([]byte("TLS 1.3, "+hkdfLabel)) + "20" + hkdfHashHex
-	hkdfExpandLabelOutputHex = "474de877d26b9e14ba50d91657bdf8bdb0fb7152f0ef8d908bb68eb697bb64c6bf2f2d81fa987e86bc32"
+	hkdfEncodedLabelHex      = "002a" + "0a" + hex.EncodeToString([]byte("tls13 "+hkdfLabel)) + "20" + hkdfHashHex
+	hkdfExpandLabelOutputHex = "a7c2b665154333b14f01762409173a6941d9c4e2edbe380e1cdd3091cb56f4aff8aced829cca286be245"
 )
 
 type mockSigner struct{}
@@ -98,8 +98,8 @@ func TestNewKeyShare(t *testing.T) {
 }
 
 func TestKeyAgreement(t *testing.T) {
-	shortKeyPub, _ := hex.DecodeString(shortKeyPubHex)
-	shortKeyPriv, _ := hex.DecodeString(shortKeyPrivHex)
+	shortKeyPub := unhex(shortKeyPubHex)
+	shortKeyPriv := unhex(shortKeyPrivHex)
 
 	// Test success cases
 	for _, group := range dhGroups {
@@ -320,15 +320,15 @@ func TestSignVerify(t *testing.T) {
 
 func TestHKDF(t *testing.T) {
 	hash := crypto.SHA256
-	hkdfInput, _ := hex.DecodeString(hkdfInputHex)
-	hkdfSalt, _ := hex.DecodeString(hkdfSaltHex)
-	hkdfInfo, _ := hex.DecodeString(hkdfInfoHex)
-	hkdfExtractOutput, _ := hex.DecodeString(hkdfExtractOutputHex)
-	hkdfExtractZeroOutput, _ := hex.DecodeString(hkdfExtractZeroOutputHex)
-	hkdfExpandOutput, _ := hex.DecodeString(hkdfExpandOutputHex)
-	hkdfHash, _ := hex.DecodeString(hkdfHashHex)
-	hkdfEncodedLabel, _ := hex.DecodeString(hkdfEncodedLabelHex)
-	hkdfExpandLabelOutput, _ := hex.DecodeString(hkdfExpandLabelOutputHex)
+	hkdfInput := unhex(hkdfInputHex)
+	hkdfSalt := unhex(hkdfSaltHex)
+	hkdfInfo := unhex(hkdfInfoHex)
+	hkdfExtractOutput := unhex(hkdfExtractOutputHex)
+	hkdfExtractZeroOutput := unhex(hkdfExtractZeroOutputHex)
+	hkdfExpandOutput := unhex(hkdfExpandOutputHex)
+	hkdfHash := unhex(hkdfHashHex)
+	hkdfEncodedLabel := unhex(hkdfEncodedLabelHex)
+	hkdfExpandLabelOutput := unhex(hkdfExpandLabelOutputHex)
 
 	// Test hkdfExtract is correct with salt
 	out := hkdfExtract(hash, hkdfSalt, hkdfInput)
