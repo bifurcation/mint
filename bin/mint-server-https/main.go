@@ -120,8 +120,8 @@ func main() {
 		}
 
 		if !h2 {
-			err = srv.Serve(listener)
-			if err != nil {
+			alert := srv.Serve(listener)
+			if alert != mint.AlertNoAlert {
 				log.Printf("Serve Error: %v", err)
 			}
 		} else {
