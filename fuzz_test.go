@@ -1,7 +1,6 @@
 package mint
 
 import (
-	"encoding/hex"
 	"math/rand"
 	"testing"
 )
@@ -80,7 +79,7 @@ func TestFuzz(t *testing.T) {
 		}
 
 		// Provide partially valid data
-		valid, _ := hex.DecodeString(validHex[i])
+		valid := unhex(validHex[i])
 		random := randomBytes(10*len(valid), rand)
 		for cut := 0; cut < len(valid)-1; cut++ {
 			testCase := append(valid[:cut], random...)

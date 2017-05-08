@@ -61,16 +61,24 @@ func (hm HandshakeMessage) ToBody() (HandshakeMessageBody, error) {
 		body = new(ClientHelloBody)
 	case HandshakeTypeServerHello:
 		body = new(ServerHelloBody)
+	case HandshakeTypeHelloRetryRequest:
+		body = new(HelloRetryRequestBody)
 	case HandshakeTypeEncryptedExtensions:
 		body = new(EncryptedExtensionsBody)
 	case HandshakeTypeCertificate:
 		body = new(CertificateBody)
+	case HandshakeTypeCertificateRequest:
+		body = new(CertificateRequestBody)
 	case HandshakeTypeCertificateVerify:
 		body = new(CertificateVerifyBody)
 	case HandshakeTypeFinished:
-		body = new(FinishedBody)
+		body = &FinishedBody{VerifyDataLen: len(hm.body)}
 	case HandshakeTypeNewSessionTicket:
 		body = new(NewSessionTicketBody)
+	case HandshakeTypeKeyUpdate:
+		body = new(KeyUpdateBody)
+	case HandshakeTypeEndOfEarlyData:
+		body = new(EndOfEarlyDataBody)
 	default:
 		return body, fmt.Errorf("tls.handshakemessage: Unsupported body type")
 	}
@@ -112,7 +120,7 @@ func (h *HandshakeLayer) extendBuffer(n int) error {
 
 		if pt.contentType != RecordTypeHandshake &&
 			pt.contentType != RecordTypeAlert {
-			return fmt.Errorf("tls.handshakelayer: Unexpected record type %04x", pt.contentType)
+			return fmt.Errorf("tls.handshakelayer: Unexpected record type %d", pt.contentType)
 		}
 
 		if pt.contentType == RecordTypeAlert {
@@ -120,10 +128,6 @@ func (h *HandshakeLayer) extendBuffer(n int) error {
 			if len(pt.fragment) < 2 {
 				h.sendAlert(AlertUnexpectedMessage)
 				return io.EOF
-			}
-			if Alert(pt.fragment[1]) == AlertEndOfEarlyData {
-				// TODO: add a state change for 0-RTT here
-				return nil
 			}
 			return Alert(pt.fragment[1])
 		}

@@ -36,8 +36,10 @@ type TLSPlaintext struct {
 type RecordLayer struct {
 	sync.Mutex
 
-	conn     io.ReadWriter // The underlying connection
-	nextData []byte        // The next record to send
+	conn         io.ReadWriter // The underlying connection
+	nextData     []byte        // The next record to send
+	cachedRecord *TLSPlaintext // Last record read, cached to enable "peek"
+	cachedError  error         // Error on the last record read
 
 	ivLength int         // Length of the seq and nonce fields
 	seq      []byte      // Zero-padded sequence number
@@ -110,7 +112,8 @@ func (r *RecordLayer) encrypt(pt *TLSPlaintext, padLen int) *TLSPlaintext {
 
 func (r *RecordLayer) decrypt(pt *TLSPlaintext) (*TLSPlaintext, int, error) {
 	if len(pt.fragment) < r.cipher.Overhead() {
-		return nil, 0, DecryptError("tls.record.decrypt: Record too short")
+		msg := fmt.Sprintf("tls.record.decrypt: Record too short [%d] < [%d]", len(pt.fragment), r.cipher.Overhead())
+		return nil, 0, DecryptError(msg)
 	}
 
 	decryptLen := len(pt.fragment) - r.cipher.Overhead()
@@ -162,7 +165,30 @@ func (r *RecordLayer) readFullBuffer(data []byte) error {
 	}
 }
 
+func (r *RecordLayer) PeekRecordType() (RecordType, error) {
+	pt, err := r.nextRecord()
+	if err != nil {
+		return RecordType(0), err
+	}
+
+	return pt.contentType, nil
+}
+
 func (r *RecordLayer) ReadRecord() (*TLSPlaintext, error) {
+	pt, err := r.nextRecord()
+
+	// Consume the cached record if there was one
+	r.cachedRecord = nil
+	r.cachedError = nil
+
+	return pt, err
+}
+
+func (r *RecordLayer) nextRecord() (*TLSPlaintext, error) {
+	if r.cachedRecord != nil {
+		return r.cachedRecord, r.cachedError
+	}
+
 	pt := &TLSPlaintext{}
 	header := make([]byte, recordHeaderLen)
 	err := r.readFullBuffer(header)
@@ -211,6 +237,7 @@ func (r *RecordLayer) ReadRecord() (*TLSPlaintext, error) {
 
 	logf(logTypeIO, "RecordLayer.ReadRecord [%d] [%x]", pt.contentType, pt.fragment)
 
+	r.cachedRecord = pt
 	r.incrementSequenceNumber()
 	return pt, nil
 }

@@ -77,7 +77,7 @@ var (
 )
 
 func TestMessageMarshal(t *testing.T) {
-	tinyMessage, _ := hex.DecodeString(tinyMessageHex)
+	tinyMessage := unhex(tinyMessageHex)
 
 	out := tinyMessageIn.Marshal()
 	assertByteEquals(t, out, tinyMessage)
@@ -85,13 +85,13 @@ func TestMessageMarshal(t *testing.T) {
 
 func TestMessageToBody(t *testing.T) {
 	// Borrowing serialized bodies from handshake-messages_test.go
-	chValid, _ := hex.DecodeString(chValidHex)
-	shValid, _ := hex.DecodeString(shValidHex)
-	finValid, _ := hex.DecodeString(finValidHex)
-	encExtValid, _ := hex.DecodeString(encExtValidHex)
-	certValid, _ := hex.DecodeString(certValidHex)
-	certVerifyValid, _ := hex.DecodeString(certVerifyValidHex)
-	ticketValid, _ := hex.DecodeString(ticketValidHex)
+	chValid := unhex(chValidHex)
+	shValid := unhex(shValidHex)
+	finValid := unhex(finValidHex)
+	encExtValid := unhex(encExtValidHex)
+	certValid := unhex(certValidHex)
+	certVerifyValid := unhex(certVerifyValidHex)
+	ticketValid := unhex(ticketValidHex)
 
 	// Test successful marshal of ClientHello
 	hm := HandshakeMessage{HandshakeTypeClientHello, chValid}
@@ -141,7 +141,7 @@ func TestMessageToBody(t *testing.T) {
 }
 
 func TestMessageFromBody(t *testing.T) {
-	chValid, _ := hex.DecodeString(chValidHex)
+	chValid := unhex(chValidHex)
 
 	// Test successful conversion
 	hm, err := HandshakeMessageFromBody(&chValidIn)
@@ -157,11 +157,11 @@ func TestMessageFromBody(t *testing.T) {
 }
 
 func TestReadHandshakeMessage(t *testing.T) {
-	short, _ := hex.DecodeString(shortHex)
-	long, _ := hex.DecodeString(longHex)
-	shortLongShort, _ := hex.DecodeString(shortLongShortHex)
-	insufficientData, _ := hex.DecodeString(insufficientDataHex)
-	nonHandshake, _ := hex.DecodeString(nonHandshakeHex)
+	short := unhex(shortHex)
+	long := unhex(longHex)
+	shortLongShort := unhex(shortLongShortHex)
+	insufficientData := unhex(insufficientDataHex)
+	nonHandshake := unhex(nonHandshakeHex)
 
 	// Test successful read of a message in a single record
 	b := bytes.NewBuffer(short)
@@ -210,9 +210,9 @@ func TestReadHandshakeMessage(t *testing.T) {
 }
 
 func TestWriteHandshakeMessage(t *testing.T) {
-	short, _ := hex.DecodeString(shortHex)
-	long, _ := hex.DecodeString(longHex)
-	shortLongShort, _ := hex.DecodeString(shortLongShortHex)
+	short := unhex(shortHex)
+	long := unhex(longHex)
+	shortLongShort := unhex(shortLongShortHex)
 
 	// Test successful write of single message
 	b := bytes.NewBuffer(nil)
