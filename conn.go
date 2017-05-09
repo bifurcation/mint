@@ -594,7 +594,7 @@ func (c *Conn) Handshake() Alert {
 	connected := false
 
 	if c.isClient {
-		state, instructions, alert = ClientStateStart{state: &connState}.Next(nil)
+		state, instructions, alert = ClientStateStart{Caps: caps, Opts: opts}.Next(nil)
 		if alert != AlertNoAlert {
 			logf(logTypeHandshake, "Error initializing client state: %v", alert)
 			return alert

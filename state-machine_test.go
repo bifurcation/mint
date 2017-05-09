@@ -8,24 +8,23 @@ import (
 
 var (
 	stateMachineIntegrationCases = map[string]struct {
-		clientConnState     *connectionState
+		clientCapabilities  Capabilities
+		clientOptions       ConnectionOptions
 		serverConnState     *connectionState
 		clientStateSequence []HandshakeState
 		serverStateSequence []HandshakeState
 	}{
 		"normal": {
-			clientConnState: &connectionState{
-				Caps: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
-				},
-				Opts: ConnectionOptions{
-					ServerName: "example.com",
-					NextProtos: []string{"h2"},
-				},
+			clientCapabilities: Capabilities{
+				Groups:           []NamedGroup{P256},
+				SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+				PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+				CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+				PSKs:             &PSKMapCache{},
+			},
+			clientOptions: ConnectionOptions{
+				ServerName: "example.com",
+				NextProtos: []string{"h2"},
 			},
 			serverConnState: &connectionState{
 				Caps: Capabilities{
@@ -54,18 +53,16 @@ var (
 		},
 
 		"helloRetryRequest": {
-			clientConnState: &connectionState{
-				Caps: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
-				},
-				Opts: ConnectionOptions{
-					ServerName: "example.com",
-					NextProtos: []string{"h2"},
-				},
+			clientCapabilities: Capabilities{
+				Groups:           []NamedGroup{P256},
+				SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+				PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+				CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+				PSKs:             &PSKMapCache{},
+			},
+			clientOptions: ConnectionOptions{
+				ServerName: "example.com",
+				NextProtos: []string{"h2"},
 			},
 			serverConnState: &connectionState{
 				Caps: Capabilities{
@@ -98,20 +95,18 @@ var (
 
 		// PSK case, no early data
 		"psk": {
-			clientConnState: &connectionState{
-				Caps: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs: &PSKMapCache{
-						"example.com": psk,
-					},
+			clientCapabilities: Capabilities{
+				Groups:           []NamedGroup{P256},
+				SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+				PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+				CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+				PSKs: &PSKMapCache{
+					"example.com": psk,
 				},
-				Opts: ConnectionOptions{
-					ServerName: "example.com",
-					NextProtos: []string{"h2"},
-				},
+			},
+			clientOptions: ConnectionOptions{
+				ServerName: "example.com",
+				NextProtos: []string{"h2"},
 			},
 			serverConnState: &connectionState{
 				Caps: Capabilities{
@@ -141,21 +136,19 @@ var (
 
 		// PSK case, with early data
 		"pskWithEarlyData": {
-			clientConnState: &connectionState{
-				Caps: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs: &PSKMapCache{
-						"example.com": psk,
-					},
+			clientCapabilities: Capabilities{
+				Groups:           []NamedGroup{P256},
+				SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+				PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+				CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+				PSKs: &PSKMapCache{
+					"example.com": psk,
 				},
-				Opts: ConnectionOptions{
-					ServerName: "example.com",
-					NextProtos: []string{"h2"},
-					EarlyData:  []byte{0, 1, 2, 3},
-				},
+			},
+			clientOptions: ConnectionOptions{
+				ServerName: "example.com",
+				NextProtos: []string{"h2"},
+				EarlyData:  []byte{0, 1, 2, 3},
 			},
 			serverConnState: &connectionState{
 				Caps: Capabilities{
@@ -187,20 +180,18 @@ var (
 
 		// PSK case, server rejects PSK
 		"pskRejected": {
-			clientConnState: &connectionState{
-				Caps: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs: &PSKMapCache{
-						"example.com": psk,
-					},
+			clientCapabilities: Capabilities{
+				Groups:           []NamedGroup{P256},
+				SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+				PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+				CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+				PSKs: &PSKMapCache{
+					"example.com": psk,
 				},
-				Opts: ConnectionOptions{
-					ServerName: "example.com",
-					NextProtos: []string{"h2"},
-				},
+			},
+			clientOptions: ConnectionOptions{
+				ServerName: "example.com",
+				NextProtos: []string{"h2"},
 			},
 			serverConnState: &connectionState{
 				Caps: Capabilities{
@@ -230,19 +221,17 @@ var (
 
 		// Client auth, successful
 		"clientAuth": {
-			clientConnState: &connectionState{
-				Caps: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
-					Certificates:     certificates,
-				},
-				Opts: ConnectionOptions{
-					ServerName: "example.com",
-					NextProtos: []string{"h2"},
-				},
+			clientCapabilities: Capabilities{
+				Groups:           []NamedGroup{P256},
+				SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+				PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+				CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+				PSKs:             &PSKMapCache{},
+				Certificates:     certificates,
+			},
+			clientOptions: ConnectionOptions{
+				ServerName: "example.com",
+				NextProtos: []string{"h2"},
 			},
 			serverConnState: &connectionState{
 				Caps: Capabilities{
@@ -276,18 +265,16 @@ var (
 
 		// Client auth, no certificate found
 		"clientAuthNoCertificate": {
-			clientConnState: &connectionState{
-				Caps: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
-				},
-				Opts: ConnectionOptions{
-					ServerName: "example.com",
-					NextProtos: []string{"h2"},
-				},
+			clientCapabilities: Capabilities{
+				Groups:           []NamedGroup{P256},
+				SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+				PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
+				CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+				PSKs:             &PSKMapCache{},
+			},
+			clientOptions: ConnectionOptions{
+				ServerName: "example.com",
+				NextProtos: []string{"h2"},
 			},
 			serverConnState: &connectionState{
 				Caps: Capabilities{
@@ -339,7 +326,10 @@ func TestStateMachineIntegration(t *testing.T) {
 		t.Logf("=== Integration Test (%s) ===", caseName)
 
 		var clientState, serverState HandshakeState
-		clientState = ClientStateStart{state: params.clientConnState}
+		clientState = ClientStateStart{
+			Caps: params.clientCapabilities,
+			Opts: params.clientOptions,
+		}
 		serverState = ServerStateStart{state: params.serverConnState}
 		t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
 		t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
