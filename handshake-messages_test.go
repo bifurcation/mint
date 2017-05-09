@@ -544,8 +544,7 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	certVerifyValid := unhex(certVerifyValidHex)
 
 	chMessage, _ := HandshakeMessageFromBody(&chValidIn)
-	shMessage, _ := HandshakeMessageFromBody(&shValidIn)
-	transcript := []*HandshakeMessage{chMessage, shMessage}
+	handshakeHash := []byte{0, 1, 2, 3}
 
 	privRSA, err := newSigningKey(RSA_PSS_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
@@ -578,27 +577,27 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 
 	// Test successful sign / verify round-trip
 	certVerifyValidIn.Algorithm = RSA_PSS_SHA256
-	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
+	err = certVerifyValidIn.Sign(privRSA, handshakeHash)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
 
 	// Test sign failure on algorithm
 	originalAlg := certVerifyValidIn.Algorithm
 	certVerifyValidIn.Algorithm = SignatureScheme(0)
-	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
+	err = certVerifyValidIn.Sign(privRSA, handshakeHash)
 	assertError(t, err, "Signed CertificateVerify despite bad algorithm")
 	certVerifyValidIn.Algorithm = originalAlg
 
 	// Test successful verify
 	certVerifyValidIn = CertificateVerifyBody{Algorithm: RSA_PSS_SHA256}
-	err = certVerifyValidIn.Sign(privRSA, transcript, ctx)
+	err = certVerifyValidIn.Sign(privRSA, handshakeHash)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
-	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, ctx)
+	err = certVerifyValidIn.Verify(privRSA.Public(), handshakeHash)
 	assertNotError(t, err, "Failed to verify CertificateVerify")
 
 	// Test verify failure on bad algorithm
 	originalAlg = certVerifyValidIn.Algorithm
 	certVerifyValidIn.Algorithm = SignatureScheme(0)
-	err = certVerifyValidIn.Verify(privRSA.Public(), transcript, ctx)
+	err = certVerifyValidIn.Verify(privRSA.Public(), handshakeHash)
 	assertError(t, err, "Verified CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.Algorithm = originalAlg
 }

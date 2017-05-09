@@ -201,14 +201,19 @@ func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
 }
 
 func (c *Conn) extendBuffer(n int) error {
+	logf(logTypeHandshake, "!!! extendBuffer")
 	// XXX: crypto/tls bounds the number of empty records that can be read.  Should we?
 	// if there's no more data left, stop reading
 	if len(c.in.nextData) == 0 && len(c.readBuffer) > 0 {
+		logf(logTypeHandshake, "!!! extendBuffer -> nil")
 		return nil
 	}
 
+	logf(logTypeHandshake, "!!! extendBuffer -> loop?")
 	for len(c.readBuffer) <= n {
+		logf(logTypeHandshake, "!!! extendBuffer -> loop!")
 		pt, err := c.in.ReadRecord()
+		logf(logTypeHandshake, "!!! extendBuffer -> %v %v", pt, err)
 
 		if pt == nil {
 			return err
@@ -216,6 +221,8 @@ func (c *Conn) extendBuffer(n int) error {
 
 		switch pt.contentType {
 		case RecordTypeHandshake:
+			logf(logTypeHandshake, "!!! hm")
+
 			// We do not support fragmentation of post-handshake handshake messages.
 			// TODO: Factor this more elegantly; coalesce with handshakeLayer.ReadMessage()
 			start := 0
@@ -316,6 +323,8 @@ func (c *Conn) Read(buffer []byte) (int, error) {
 	// Lock the input channel
 	c.in.Lock()
 	defer c.in.Unlock()
+
+	logf(logTypeHandshake, "!!! Read")
 
 	n := len(buffer)
 	err := c.extendBuffer(n)

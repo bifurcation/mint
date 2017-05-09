@@ -344,17 +344,15 @@ func (cv *CertificateVerifyBody) EncodeSignatureInput(data []byte) []byte {
 	return sigInput
 }
 
-func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*HandshakeMessage, ctx cryptoContext) (err error) {
-	hashedWithContext := cv.ComputeContext(ctx, transcript)
-	sigInput := cv.EncodeSignatureInput(hashedWithContext)
+func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, handshakeHash []byte) (err error) {
+	sigInput := cv.EncodeSignatureInput(handshakeHash)
 	cv.Signature, err = sign(cv.Algorithm, privateKey, sigInput)
 	logf(logTypeHandshake, "Signed: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return
 }
 
-func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*HandshakeMessage, ctx cryptoContext) error {
-	hashedWithContext := cv.ComputeContext(ctx, transcript)
-	sigInput := cv.EncodeSignatureInput(hashedWithContext)
+func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, handshakeHash []byte) error {
+	sigInput := cv.EncodeSignatureInput(handshakeHash)
 	logf(logTypeHandshake, "About to verify: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return verify(cv.Algorithm, publicKey, sigInput, cv.Signature)
 }

@@ -374,6 +374,7 @@ func TestResumption(t *testing.T) {
 
 	var clientAlert, serverAlert Alert
 
+	zeroBuf := []byte{}
 	done := make(chan bool)
 	go func(t *testing.T) {
 		serverAlert = server1.Handshake()
@@ -384,7 +385,7 @@ func TestResumption(t *testing.T) {
 	clientAlert = client1.Handshake()
 	assertEquals(t, clientAlert, AlertNoAlert)
 
-	client1.Read(nil)
+	client1.Read(zeroBuf)
 	<-done
 
 	assertDeepEquals(t, client1.state.Params, server1.state.Params)
