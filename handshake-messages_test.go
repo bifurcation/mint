@@ -543,14 +543,10 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	certVerifyValid := unhex(certVerifyValidHex)
 
-	chMessage, _ := HandshakeMessageFromBody(&chValidIn)
 	handshakeHash := []byte{0, 1, 2, 3}
 
 	privRSA, err := newSigningKey(RSA_PSS_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
-
-	ctx := cryptoContext{}
-	ctx.init(certVerifyCipherSuite, nil, nil, chMessage)
 
 	// Test correctness of handshake type
 	assertEquals(t, (CertificateVerifyBody{}).Type(), HandshakeTypeCertificateVerify)

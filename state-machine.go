@@ -77,41 +77,6 @@ type ConnectionParameters struct {
 	NextProto   string
 }
 
-type connectionState struct {
-	Conn    *Conn
-	Caps    Capabilities
-	Opts    ConnectionOptions
-	Params  ConnectionParameters
-	Context cryptoContext
-
-	AuthCertificate func(chain []CertificateEntry) error
-
-	// Client semi-transient state
-	OfferedDH                map[NamedGroup][]byte
-	OfferedPSK               PreSharedKey
-	PSK                      []byte
-	firstClientHello         *HandshakeMessage
-	helloRetryRequest        *HandshakeMessage
-	clientHello              *HandshakeMessage
-	serverHello              *HandshakeMessage
-	serverFirstFlight        []*HandshakeMessage
-	serverFinished           *HandshakeMessage
-	serverHRR                *HelloRetryRequestBody
-	serverCertificate        *CertificateBody
-	serverCertificateRequest *CertificateRequestBody
-
-	// Server semi-transient state
-	cookie             []byte
-	cert               *Certificate
-	certScheme         SignatureScheme
-	dhGroup            NamedGroup
-	dhPublic           []byte
-	dhSecret           []byte
-	selectedPSK        int
-	clientSecondFlight []*HandshakeMessage
-	clientCertificate  *CertificateBody
-}
-
 // Client State Machine
 //
 //                            START <----+

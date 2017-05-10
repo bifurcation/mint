@@ -227,55 +227,6 @@ func assertKeySetEquals(t *testing.T, k1, k2 keySet) {
 	assertByteEquals(t, k1.key, k2.key)
 }
 
-func assertContextEquals(t *testing.T, c, s *cryptoContext) {
-	assertEquals(t, c.suite, s.suite)
-	// XXX: Figure out a way to compare ciphers?
-	assertEquals(t, c.params.hash, s.params.hash)
-	assertEquals(t, c.params.keyLen, s.params.keyLen)
-	assertEquals(t, c.params.ivLen, s.params.ivLen)
-	assertByteEquals(t, c.zero, s.zero)
-
-	assertByteEquals(t, c.h2, s.h2)
-	assertByteEquals(t, c.h3, s.h3)
-	assertByteEquals(t, c.h4, s.h4)
-	assertByteEquals(t, c.h5, s.h5)
-	assertByteEquals(t, c.h6, s.h6)
-
-	assertByteEquals(t, c.pskSecret, s.pskSecret)
-	assertByteEquals(t, c.earlySecret, s.earlySecret)
-
-	if c.binderKey != nil && s.binderKey != nil {
-		assertByteEquals(t, c.binderKey, s.binderKey)
-	}
-
-	if c.earlyTrafficSecret != nil && s.earlyTrafficSecret != nil {
-		assertByteEquals(t, c.earlyTrafficSecret, s.earlyTrafficSecret)
-		assertByteEquals(t, c.earlyExporterSecret, s.earlyExporterSecret)
-		assertKeySetEquals(t, c.clientEarlyTrafficKeys, s.clientEarlyTrafficKeys)
-	}
-
-	assertByteEquals(t, c.dhSecret, s.dhSecret)
-	assertByteEquals(t, c.handshakeSecret, s.handshakeSecret)
-	assertByteEquals(t, c.clientHandshakeTrafficSecret, s.clientHandshakeTrafficSecret)
-	assertByteEquals(t, c.serverHandshakeTrafficSecret, s.serverHandshakeTrafficSecret)
-	assertKeySetEquals(t, c.clientHandshakeKeys, s.clientHandshakeKeys)
-	assertKeySetEquals(t, c.serverHandshakeKeys, s.serverHandshakeKeys)
-
-	assertByteEquals(t, c.serverFinishedKey, s.serverFinishedKey)
-	assertByteEquals(t, c.serverFinishedData, s.serverFinishedData)
-
-	assertByteEquals(t, c.clientFinishedKey, s.clientFinishedKey)
-	assertByteEquals(t, c.clientFinishedData, s.clientFinishedData)
-
-	assertByteEquals(t, c.masterSecret, s.masterSecret)
-	assertByteEquals(t, c.clientTrafficSecret, s.clientTrafficSecret)
-	assertByteEquals(t, c.serverTrafficSecret, s.serverTrafficSecret)
-	assertKeySetEquals(t, c.clientTrafficKeys, s.clientTrafficKeys)
-	assertKeySetEquals(t, c.serverTrafficKeys, s.serverTrafficKeys)
-	assertByteEquals(t, c.exporterSecret, s.exporterSecret)
-	assertByteEquals(t, c.resumptionSecret, s.resumptionSecret)
-}
-
 func TestBasicFlows(t *testing.T) {
 	for _, conf := range []*Config{basicConfig, hrrConfig, alpnConfig, ffdhConfig, x25519Config} {
 		cConn, sConn := pipe()

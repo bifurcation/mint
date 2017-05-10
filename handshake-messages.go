@@ -319,22 +319,6 @@ func (cv *CertificateVerifyBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, cv)
 }
 
-func (cv *CertificateVerifyBody) ComputeContext(ctx cryptoContext, transcript []*HandshakeMessage) (hashed []byte) {
-	h := ctx.params.hash.New()
-	handshakeContext := []byte{}
-	for _, msg := range transcript {
-		data := msg.Marshal()
-		logf(logTypeHandshake, "Added Message to Handshake Context to be verified: [%d] %x", len(data), data)
-		handshakeContext = append(handshakeContext, data...)
-		h.Write(data)
-	}
-
-	hashed = h.Sum(nil)
-	logf(logTypeHandshake, "Handshake Context to be verified: [%d] %x", len(handshakeContext), handshakeContext)
-	logf(logTypeHandshake, "Handshake Hash to be verified: [%d] %x", len(hashed), hashed)
-	return
-}
-
 func (cv *CertificateVerifyBody) EncodeSignatureInput(data []byte) []byte {
 	const context = "TLS 1.3, server CertificateVerify"
 	sigInput := bytes.Repeat([]byte{0x20}, 64)
