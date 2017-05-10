@@ -49,15 +49,14 @@ for testing against NSS are as follows.
 # Install mint
 go get github.com/bifurcation/mint
 
-# Environment for NSS
+# Environment for NSS (you'll probably want a new directory)
 NSS_ROOT=<whereever you want to put NSS>
+mkdir $NSS_ROOT
+cd $NSS_ROOT
 export USE_64=1
 export ENABLE_TLS_1_3=1
-export DYLD_LIBRARY_PATH=dist/$PLATFORM/lib
-export LD_LIBRARY_PATH=dist/$PLATFORM/lib
 export HOST=localhost
-# You can just copy this once NSS builds
-export PLATFORM=$(uname -s)$(uname -r | cut -f 1-2 -d . -)_$(uname -m)_${CC:-cc}_glibc_PTH_64_$([ -n "$BUILD_OPT" ] && echo OPT || echo DBG).OBJ
+export DOMSUF=localhost
 
 # Build NSS
 hg clone https://hg.mozilla.org/projects/nss
@@ -65,13 +64,18 @@ hg clone https://hg.mozilla.org/projects/nspr
 cd nss
 make nss_build_all
 
+export PLATFORM=`cat $NSS_ROOT/dist/latest`
+export DYLD_LIBRARY_PATH=$NSS_ROOT/dist/$PLATFORM/lib
+export LD_LIBRARY_PATH=$NSS_ROOT/dist/$PLATFORM/lib
+
 # Run NSS tests (this creates data for the server to use)
 cd tests/ssl_gtests
 ./ssl_gtests.sh
 
 # Test with client=mint server=NSS
 cd $NSS_ROOT
-dist/$PLATFORM/bin/selfserv -d tests_results/security/$HOST/ssl_gtests/ -n rsa -p 4430
+./dist/$PLATFORM/bin/selfserv -d tests_results/security/$HOST.1/ssl_gtests/ -n rsa -p 4430
+# if you get `NSS_Init failed.`, check the path above, particularly around $HOST
 # ...
 go run $GOPATH/src/github.com/bifurcation/mint/bin/mint-client/main.go
 
