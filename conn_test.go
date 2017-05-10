@@ -227,55 +227,6 @@ func assertKeySetEquals(t *testing.T, k1, k2 keySet) {
 	assertByteEquals(t, k1.key, k2.key)
 }
 
-func assertContextEquals(t *testing.T, c, s *cryptoContext) {
-	assertEquals(t, c.suite, s.suite)
-	// XXX: Figure out a way to compare ciphers?
-	assertEquals(t, c.params.hash, s.params.hash)
-	assertEquals(t, c.params.keyLen, s.params.keyLen)
-	assertEquals(t, c.params.ivLen, s.params.ivLen)
-	assertByteEquals(t, c.zero, s.zero)
-
-	assertByteEquals(t, c.h2, s.h2)
-	assertByteEquals(t, c.h3, s.h3)
-	assertByteEquals(t, c.h4, s.h4)
-	assertByteEquals(t, c.h5, s.h5)
-	assertByteEquals(t, c.h6, s.h6)
-
-	assertByteEquals(t, c.pskSecret, s.pskSecret)
-	assertByteEquals(t, c.earlySecret, s.earlySecret)
-
-	if c.binderKey != nil && s.binderKey != nil {
-		assertByteEquals(t, c.binderKey, s.binderKey)
-	}
-
-	if c.earlyTrafficSecret != nil && s.earlyTrafficSecret != nil {
-		assertByteEquals(t, c.earlyTrafficSecret, s.earlyTrafficSecret)
-		assertByteEquals(t, c.earlyExporterSecret, s.earlyExporterSecret)
-		assertKeySetEquals(t, c.clientEarlyTrafficKeys, s.clientEarlyTrafficKeys)
-	}
-
-	assertByteEquals(t, c.dhSecret, s.dhSecret)
-	assertByteEquals(t, c.handshakeSecret, s.handshakeSecret)
-	assertByteEquals(t, c.clientHandshakeTrafficSecret, s.clientHandshakeTrafficSecret)
-	assertByteEquals(t, c.serverHandshakeTrafficSecret, s.serverHandshakeTrafficSecret)
-	assertKeySetEquals(t, c.clientHandshakeKeys, s.clientHandshakeKeys)
-	assertKeySetEquals(t, c.serverHandshakeKeys, s.serverHandshakeKeys)
-
-	assertByteEquals(t, c.serverFinishedKey, s.serverFinishedKey)
-	assertByteEquals(t, c.serverFinishedData, s.serverFinishedData)
-
-	assertByteEquals(t, c.clientFinishedKey, s.clientFinishedKey)
-	assertByteEquals(t, c.clientFinishedData, s.clientFinishedData)
-
-	assertByteEquals(t, c.masterSecret, s.masterSecret)
-	assertByteEquals(t, c.clientTrafficSecret, s.clientTrafficSecret)
-	assertByteEquals(t, c.serverTrafficSecret, s.serverTrafficSecret)
-	assertKeySetEquals(t, c.clientTrafficKeys, s.clientTrafficKeys)
-	assertKeySetEquals(t, c.serverTrafficKeys, s.serverTrafficKeys)
-	assertByteEquals(t, c.exporterSecret, s.exporterSecret)
-	assertByteEquals(t, c.resumptionSecret, s.resumptionSecret)
-}
-
 func TestBasicFlows(t *testing.T) {
 	for _, conf := range []*Config{basicConfig, hrrConfig, alpnConfig, ffdhConfig, x25519Config} {
 		cConn, sConn := pipe()
@@ -297,8 +248,11 @@ func TestBasicFlows(t *testing.T) {
 
 		<-done
 
-		assertDeepEquals(t, &client.state.state.Params, &server.state.state.Params)
-		assertContextEquals(t, &client.state.state.Context, &server.state.state.Context)
+		assertDeepEquals(t, client.state.Params, server.state.Params)
+		assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+		assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+		assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+		assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
 	}
 }
 
@@ -322,9 +276,12 @@ func TestClientAuth(t *testing.T) {
 
 	<-done
 
-	assertDeepEquals(t, &client.state.state.Params, &server.state.state.Params)
-	assertContextEquals(t, &client.state.state.Context, &server.state.state.Context)
-	assert(t, client.state.state.Params.UsingClientAuth, "Session did not negotiate client auth")
+	assertDeepEquals(t, client.state.Params, server.state.Params)
+	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+	assert(t, client.state.Params.UsingClientAuth, "Session did not negotiate client auth")
 }
 
 func TestPSKFlows(t *testing.T) {
@@ -348,9 +305,12 @@ func TestPSKFlows(t *testing.T) {
 
 		<-done
 
-		assertDeepEquals(t, &client.state.state.Params, &server.state.state.Params)
-		assertContextEquals(t, &client.state.state.Context, &server.state.state.Context)
-		assert(t, client.state.state.Params.UsingPSK, "Session did not use the provided PSK")
+		assertDeepEquals(t, client.state.Params, server.state.Params)
+		assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+		assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+		assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+		assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+		assert(t, client.state.Params.UsingPSK, "Session did not use the provided PSK")
 	}
 }
 
@@ -365,6 +325,7 @@ func TestResumption(t *testing.T) {
 
 	var clientAlert, serverAlert Alert
 
+	zeroBuf := []byte{}
 	done := make(chan bool)
 	go func(t *testing.T) {
 		serverAlert = server1.Handshake()
@@ -375,11 +336,14 @@ func TestResumption(t *testing.T) {
 	clientAlert = client1.Handshake()
 	assertEquals(t, clientAlert, AlertNoAlert)
 
-	client1.Read(nil)
+	client1.Read(zeroBuf)
 	<-done
 
-	assertDeepEquals(t, &client1.state.state.Params, &server1.state.state.Params)
-	assertContextEquals(t, &client1.state.state.Context, &server1.state.state.Context)
+	assertDeepEquals(t, client1.state.Params, server1.state.Params)
+	assertCipherSuiteParamsEquals(t, client1.state.cryptoParams, server1.state.cryptoParams)
+	assertByteEquals(t, client1.state.resumptionSecret, server1.state.resumptionSecret)
+	assertByteEquals(t, client1.state.clientTrafficSecret, server1.state.clientTrafficSecret)
+	assertByteEquals(t, client1.state.serverTrafficSecret, server1.state.serverTrafficSecret)
 	assertEquals(t, clientConfig.PSKs.Size(), 1)
 	assertEquals(t, serverConfig.PSKs.Size(), 1)
 
@@ -413,8 +377,12 @@ func TestResumption(t *testing.T) {
 	client2.Read(nil)
 	<-done
 
-	assertDeepEquals(t, &client2.state.state.Params, &server2.state.state.Params)
-	assertContextEquals(t, &client2.state.state.Context, &server2.state.state.Context)
+	assertDeepEquals(t, client2.state.Params, server2.state.Params)
+	assertCipherSuiteParamsEquals(t, client2.state.cryptoParams, server2.state.cryptoParams)
+	assertByteEquals(t, client2.state.resumptionSecret, server2.state.resumptionSecret)
+	assertByteEquals(t, client2.state.clientTrafficSecret, server2.state.clientTrafficSecret)
+	assertByteEquals(t, client2.state.serverTrafficSecret, server2.state.serverTrafficSecret)
+	assert(t, client2.state.Params.UsingPSK, "Session did not use the provided PSK")
 }
 
 func Test0xRTT(t *testing.T) {
@@ -438,9 +406,12 @@ func Test0xRTT(t *testing.T) {
 
 	<-done
 
-	assertDeepEquals(t, &client.state.state.Params, &server.state.state.Params)
-	assertContextEquals(t, &client.state.state.Context, &server.state.state.Context)
-	assert(t, client.state.state.Params.UsingEarlyData, "Session did not negotiate early data")
+	assertDeepEquals(t, client.state.Params, server.state.Params)
+	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+	assert(t, client.state.Params.UsingEarlyData, "Session did not negotiate early data")
 	assertByteEquals(t, client.EarlyData, server.EarlyData)
 }
 
@@ -515,35 +486,34 @@ func TestKeyUpdate(t *testing.T) {
 	assertEquals(t, alert, AlertNoAlert)
 	<-s2c
 
-	clientContext0 := client.state.state.Context
-	serverContext0 := server.state.state.Context
-	assertContextEquals(t, &clientContext0, &serverContext0)
+	clientState0 := client.state
+	serverState0 := server.state
+	assertByteEquals(t, clientState0.serverTrafficSecret, serverState0.serverTrafficSecret)
+	assertByteEquals(t, clientState0.clientTrafficSecret, serverState0.clientTrafficSecret)
 
 	// Null read to trigger key update
 	c2s <- true
 	<-s2c
 	client.Read(zeroBuf)
 
-	clientContext1 := client.state.state.Context
-	serverContext1 := server.state.state.Context
-	assertContextEquals(t, &clientContext1, &serverContext1)
-	assertNotByteEquals(t, clientContext0.serverTrafficKeys.key, clientContext1.serverTrafficKeys.key)
-	assertNotByteEquals(t, clientContext0.serverTrafficKeys.iv, clientContext1.serverTrafficKeys.iv)
-	assertByteEquals(t, clientContext0.clientTrafficKeys.key, clientContext1.clientTrafficKeys.key)
-	assertByteEquals(t, clientContext0.clientTrafficKeys.iv, clientContext1.clientTrafficKeys.iv)
+	clientState1 := client.state
+	serverState1 := server.state
+	assertByteEquals(t, clientState1.serverTrafficSecret, serverState1.serverTrafficSecret)
+	assertByteEquals(t, clientState1.clientTrafficSecret, serverState1.clientTrafficSecret)
+	assertNotByteEquals(t, serverState0.serverTrafficSecret, serverState1.serverTrafficSecret)
+	assertByteEquals(t, clientState0.clientTrafficSecret, clientState1.clientTrafficSecret)
 
 	// Test client-initiated KeyUpdate
 	client.SendKeyUpdate(false)
 	c2s <- true
 	<-s2c
 
-	clientContext2 := client.state.state.Context
-	serverContext2 := server.state.state.Context
-	assertContextEquals(t, &clientContext2, &serverContext2)
-	assertByteEquals(t, clientContext1.serverTrafficKeys.key, clientContext2.serverTrafficKeys.key)
-	assertByteEquals(t, clientContext1.serverTrafficKeys.iv, clientContext2.serverTrafficKeys.iv)
-	assertNotByteEquals(t, clientContext1.clientTrafficKeys.key, clientContext2.clientTrafficKeys.key)
-	assertNotByteEquals(t, clientContext1.clientTrafficKeys.iv, clientContext2.clientTrafficKeys.iv)
+	clientState2 := client.state
+	serverState2 := server.state
+	assertByteEquals(t, clientState2.serverTrafficSecret, serverState2.serverTrafficSecret)
+	assertByteEquals(t, clientState2.clientTrafficSecret, serverState2.clientTrafficSecret)
+	assertByteEquals(t, serverState1.serverTrafficSecret, serverState2.serverTrafficSecret)
+	assertNotByteEquals(t, clientState1.clientTrafficSecret, clientState2.clientTrafficSecret)
 
 	// Test client-initiated with keyUpdateRequested
 	client.SendKeyUpdate(true)
@@ -551,11 +521,10 @@ func TestKeyUpdate(t *testing.T) {
 	<-s2c
 	client.Read(zeroBuf)
 
-	clientContext3 := client.state.state.Context
-	serverContext3 := server.state.state.Context
-	assertContextEquals(t, &clientContext3, &serverContext3)
-	assertNotByteEquals(t, clientContext2.serverTrafficKeys.key, clientContext3.serverTrafficKeys.key)
-	assertNotByteEquals(t, clientContext2.serverTrafficKeys.iv, clientContext3.serverTrafficKeys.iv)
-	assertNotByteEquals(t, clientContext2.clientTrafficKeys.key, clientContext3.clientTrafficKeys.key)
-	assertNotByteEquals(t, clientContext2.clientTrafficKeys.iv, clientContext3.clientTrafficKeys.iv)
+	clientState3 := client.state
+	serverState3 := server.state
+	assertByteEquals(t, clientState3.serverTrafficSecret, serverState3.serverTrafficSecret)
+	assertByteEquals(t, clientState3.clientTrafficSecret, serverState3.clientTrafficSecret)
+	assertNotByteEquals(t, serverState2.serverTrafficSecret, serverState3.serverTrafficSecret)
+	assertNotByteEquals(t, clientState2.clientTrafficSecret, clientState3.clientTrafficSecret)
 }

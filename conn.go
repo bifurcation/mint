@@ -209,7 +209,6 @@ func (c *Conn) extendBuffer(n int) error {
 
 	for len(c.readBuffer) <= n {
 		pt, err := c.in.ReadRecord()
-
 		if pt == nil {
 			return err
 		}
@@ -574,10 +573,6 @@ func (c *Conn) Handshake() Alert {
 		NextProtos: c.config.NextProtos,
 		EarlyData:  c.EarlyData,
 	}
-	connState := connectionState{
-		Caps: caps,
-		Opts: opts,
-	}
 
 	var state HandshakeState
 	var instructions []HandshakeInstruction
@@ -585,7 +580,7 @@ func (c *Conn) Handshake() Alert {
 	connected := false
 
 	if c.isClient {
-		state, instructions, alert = ClientStateStart{state: &connState}.Next(nil)
+		state, instructions, alert = ClientStateStart{Caps: caps, Opts: opts}.Next(nil)
 		if alert != AlertNoAlert {
 			logf(logTypeHandshake, "Error initializing client state: %v", alert)
 			return alert
@@ -601,7 +596,7 @@ func (c *Conn) Handshake() Alert {
 
 		_, connected = state.(StateConnected)
 	} else {
-		state = ServerStateStart{state: &connState}
+		state = ServerStateStart{Caps: caps}
 	}
 
 	for !connected {
