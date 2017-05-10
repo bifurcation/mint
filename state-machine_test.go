@@ -294,7 +294,7 @@ var (
 )
 
 // TODO: Track instructions other than state changes
-func messagesFromInstructions(instructions []HandshakeInstruction) []*HandshakeMessage {
+func messagesFromActions(instructions []HandshakeAction) []*HandshakeMessage {
 	msgs := []*HandshakeMessage{}
 	for _, instr := range instructions {
 		msg, ok := instr.(SendHandshakeMessage)
@@ -325,14 +325,14 @@ func TestStateMachineIntegration(t *testing.T) {
 
 		// Create the ClientHello
 		clientState, clientInstr, alert := clientState.Next(nil)
-		clientToSend := messagesFromInstructions(clientInstr)
+		clientToSend := messagesFromActions(clientInstr)
 		assertEquals(t, alert, AlertNoAlert)
 		t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
 		clientStateSequence = append(clientStateSequence, clientState)
 		assertEquals(t, len(clientToSend), 1)
 
 		for {
-			var clientInstr, serverInstr []HandshakeInstruction
+			var clientInstr, serverInstr []HandshakeAction
 			var alert Alert
 
 			// Client -> Server
@@ -340,7 +340,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			for _, body := range clientToSend {
 				t.Logf("C->S: %d", body.msgType)
 				serverState, serverInstr, alert = serverState.Next(body)
-				serverResponses := messagesFromInstructions(serverInstr)
+				serverResponses := messagesFromActions(serverInstr)
 				assert(t, alert == AlertNoAlert, fmt.Sprintf("Alert from server [%v]", alert))
 				serverStateSequence = append(serverStateSequence, serverState)
 				t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
@@ -352,7 +352,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			for _, body := range serverToSend {
 				t.Logf("S->C: %d", body.msgType)
 				clientState, clientInstr, alert = clientState.Next(body)
-				clientResponses := messagesFromInstructions(clientInstr)
+				clientResponses := messagesFromActions(clientInstr)
 				assert(t, alert == AlertNoAlert, fmt.Sprintf("Alert from client [%v]", alert))
 				clientStateSequence = append(clientStateSequence, clientState)
 				t.Logf("Client: %s", reflect.TypeOf(clientState).Name())

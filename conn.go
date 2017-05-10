@@ -233,7 +233,7 @@ func (c *Conn) extendBuffer(n int) error {
 				hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
 
 				// Advance state machine
-				state, instructions, alert := c.state.Next(hm)
+				state, actions, alert := c.state.Next(hm)
 
 				if alert != AlertNoAlert {
 					logf(logTypeHandshake, "Error in state transition: %v", alert)
@@ -241,10 +241,10 @@ func (c *Conn) extendBuffer(n int) error {
 					return io.EOF
 				}
 
-				for _, instr := range instructions {
-					alert = c.followInstruction(instr)
+				for _, action := range actions {
+					alert = c.takeAction(action)
 					if alert != AlertNoAlert {
-						logf(logTypeHandshake, "Error following instructions: %v", alert)
+						logf(logTypeHandshake, "Error during handshake actions: %v", alert)
 						c.sendAlert(alert)
 						return io.EOF
 					}
@@ -435,31 +435,31 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
-func (c *Conn) followInstruction(instrGeneric HandshakeInstruction) Alert {
+func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 	label := "[server]"
 	if c.isClient {
 		label = "[client]"
 	}
 
-	switch instr := instrGeneric.(type) {
+	switch action := actionGeneric.(type) {
 	case SendHandshakeMessage:
-		err := c.hOut.WriteMessage(instr.Message)
+		err := c.hOut.WriteMessage(action.Message)
 		if err != nil {
 			logf(logTypeHandshake, "%s Error writing handshake message: %v", label, err)
 			return AlertInternalError
 		}
 
 	case RekeyIn:
-		logf(logTypeHandshake, "%s Rekeying in to %s: %+v", label, instr.Label, instr.KeySet)
-		err := c.in.Rekey(instr.KeySet.cipher, instr.KeySet.key, instr.KeySet.iv)
+		logf(logTypeHandshake, "%s Rekeying in to %s: %+v", label, action.Label, action.KeySet)
+		err := c.in.Rekey(action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
 		if err != nil {
 			logf(logTypeHandshake, "%s Unable to rekey inbound: %v", label, err)
 			return AlertInternalError
 		}
 
 	case RekeyOut:
-		logf(logTypeHandshake, "%s Rekeying out to %s: %+v", label, instr.Label, instr.KeySet)
-		err := c.out.Rekey(instr.KeySet.cipher, instr.KeySet.key, instr.KeySet.iv)
+		logf(logTypeHandshake, "%s Rekeying out to %s: %+v", label, action.Label, action.KeySet)
+		err := c.out.Rekey(action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
 		if err != nil {
 			logf(logTypeHandshake, "%s Unable to rekey outbound: %v", label, err)
 			return AlertInternalError
@@ -519,17 +519,17 @@ func (c *Conn) followInstruction(instrGeneric HandshakeInstruction) Alert {
 		}
 
 	case StorePSK:
-		logf(logTypeHandshake, "%s Storing new session ticket with identity [%x]", label, instr.PSK.Identity)
+		logf(logTypeHandshake, "%s Storing new session ticket with identity [%x]", label, action.PSK.Identity)
 		if c.isClient {
 			// Clients look up PSKs based on server name
-			c.config.PSKs.Put(c.config.ServerName, instr.PSK)
+			c.config.PSKs.Put(c.config.ServerName, action.PSK)
 		} else {
 			// Servers look them up based on the identity in the extension
-			c.config.PSKs.Put(hex.EncodeToString(instr.PSK.Identity), instr.PSK)
+			c.config.PSKs.Put(hex.EncodeToString(action.PSK.Identity), action.PSK)
 		}
 
 	default:
-		logf(logTypeHandshake, "%s Unknown instruction type", label)
+		logf(logTypeHandshake, "%s Unknown actionuction type", label)
 		return AlertInternalError
 	}
 
@@ -575,21 +575,21 @@ func (c *Conn) Handshake() Alert {
 	}
 
 	var state HandshakeState
-	var instructions []HandshakeInstruction
+	var actions []HandshakeAction
 	var alert Alert
 	connected := false
 
 	if c.isClient {
-		state, instructions, alert = ClientStateStart{Caps: caps, Opts: opts}.Next(nil)
+		state, actions, alert = ClientStateStart{Caps: caps, Opts: opts}.Next(nil)
 		if alert != AlertNoAlert {
 			logf(logTypeHandshake, "Error initializing client state: %v", alert)
 			return alert
 		}
 
-		for _, instr := range instructions {
-			alert = c.followInstruction(instr)
+		for _, action := range actions {
+			alert = c.takeAction(action)
 			if alert != AlertNoAlert {
-				logf(logTypeHandshake, "Error following instructions: %v", alert)
+				logf(logTypeHandshake, "Error during handshake actions: %v", alert)
 				return alert
 			}
 		}
@@ -610,17 +610,17 @@ func (c *Conn) Handshake() Alert {
 		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
 		// Advance the state machine
-		state, instructions, alert = state.Next(hm)
+		state, actions, alert = state.Next(hm)
 
 		if alert != AlertNoAlert {
 			logf(logTypeHandshake, "Error in state transition: %v", alert)
 			return alert
 		}
 
-		for _, instr := range instructions {
-			alert = c.followInstruction(instr)
+		for _, action := range actions {
+			alert = c.takeAction(action)
 			if alert != AlertNoAlert {
-				logf(logTypeHandshake, "Error following instructions: %v", alert)
+				logf(logTypeHandshake, "Error during handshake actions: %v", alert)
 				c.sendAlert(alert)
 				return alert
 			}
@@ -633,15 +633,15 @@ func (c *Conn) Handshake() Alert {
 
 	// Send NewSessionTicket if acting as server
 	if !c.isClient {
-		instructions, alert := c.state.NewSessionTicket(
+		actions, alert := c.state.NewSessionTicket(
 			c.config.TicketLen,
 			c.config.TicketLifetime,
 			c.config.EarlyDataLifetime)
 
-		for _, instr := range instructions {
-			alert = c.followInstruction(instr)
+		for _, action := range actions {
+			alert = c.takeAction(action)
 			if alert != AlertNoAlert {
-				logf(logTypeHandshake, "Error following instructions: %v", alert)
+				logf(logTypeHandshake, "Error during handshake actions: %v", alert)
 				c.sendAlert(alert)
 				return alert
 			}
@@ -663,18 +663,18 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 	}
 
 	// Create the key update and update state
-	instructions, alert := c.state.KeyUpdate(request)
+	actions, alert := c.state.KeyUpdate(request)
 	if alert != AlertNoAlert {
 		c.sendAlert(alert)
 		return fmt.Errorf("Alert while generating key update: %v", alert)
 	}
 
-	// Follow instructions (send key update and rekey)
-	for _, instr := range instructions {
-		alert = c.followInstruction(instr)
+	// Take actions (send key update and rekey)
+	for _, action := range actions {
+		alert = c.takeAction(action)
 		if alert != AlertNoAlert {
 			c.sendAlert(alert)
-			return fmt.Errorf("Alert while folowing key update instructions: %v", alert)
+			return fmt.Errorf("Alert during key update actions: %v", alert)
 		}
 	}
 
