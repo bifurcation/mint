@@ -1854,6 +1854,7 @@ func (state *StateConnected) NewSessionTicket(length int, lifetime, earlyDataLif
 		IsResumption: true,
 		Identity:     tkt.Ticket,
 		Key:          state.resumptionSecret,
+		NextProto:    state.Params.NextProto,
 	}
 
 	tktm, err := HandshakeMessageFromBody(tkt)
@@ -1919,6 +1920,7 @@ func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []Handsh
 			IsResumption: true,
 			Identity:     body.Ticket,
 			Key:          state.resumptionSecret,
+			NextProto:    state.Params.NextProto,
 		}
 
 		toSend := []HandshakeInstruction{StorePSK{psk}}
