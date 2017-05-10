@@ -319,22 +319,6 @@ func (cv *CertificateVerifyBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, cv)
 }
 
-func (cv *CertificateVerifyBody) ComputeContext(ctx cryptoContext, transcript []*HandshakeMessage) (hashed []byte) {
-	h := ctx.params.hash.New()
-	handshakeContext := []byte{}
-	for _, msg := range transcript {
-		data := msg.Marshal()
-		logf(logTypeHandshake, "Added Message to Handshake Context to be verified: [%d] %x", len(data), data)
-		handshakeContext = append(handshakeContext, data...)
-		h.Write(data)
-	}
-
-	hashed = h.Sum(nil)
-	logf(logTypeHandshake, "Handshake Context to be verified: [%d] %x", len(handshakeContext), handshakeContext)
-	logf(logTypeHandshake, "Handshake Hash to be verified: [%d] %x", len(hashed), hashed)
-	return
-}
-
 func (cv *CertificateVerifyBody) EncodeSignatureInput(data []byte) []byte {
 	const context = "TLS 1.3, server CertificateVerify"
 	sigInput := bytes.Repeat([]byte{0x20}, 64)
@@ -344,17 +328,15 @@ func (cv *CertificateVerifyBody) EncodeSignatureInput(data []byte) []byte {
 	return sigInput
 }
 
-func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, transcript []*HandshakeMessage, ctx cryptoContext) (err error) {
-	hashedWithContext := cv.ComputeContext(ctx, transcript)
-	sigInput := cv.EncodeSignatureInput(hashedWithContext)
+func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, handshakeHash []byte) (err error) {
+	sigInput := cv.EncodeSignatureInput(handshakeHash)
 	cv.Signature, err = sign(cv.Algorithm, privateKey, sigInput)
 	logf(logTypeHandshake, "Signed: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return
 }
 
-func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, transcript []*HandshakeMessage, ctx cryptoContext) error {
-	hashedWithContext := cv.ComputeContext(ctx, transcript)
-	sigInput := cv.EncodeSignatureInput(hashedWithContext)
+func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, handshakeHash []byte) error {
+	sigInput := cv.EncodeSignatureInput(handshakeHash)
 	logf(logTypeHandshake, "About to verify: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return verify(cv.Algorithm, publicKey, sigInput, cv.Signature)
 }

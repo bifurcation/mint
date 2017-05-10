@@ -79,11 +79,11 @@ func TestPSKNegotiation(t *testing.T) {
 	}
 
 	// Test successful negotiation
-	ok, selected, psk, ctx, err := PSKNegotiation(identities, binders, chTrunc, psks)
+	ok, selected, psk, params, err := PSKNegotiation(identities, binders, chTrunc, psks)
 	assertEquals(t, ok, true)
 	assertEquals(t, selected, 1)
 	assertNotNil(t, psk, "PSK not set")
-	assertNotNil(t, ctx.pskSecret, "PSK secret not set")
+	assertEquals(t, params.suite, psk.CipherSuite)
 	assertNotError(t, err, "Valid PSK negotiation failed")
 
 	// Test negotiation failure on binder value failure

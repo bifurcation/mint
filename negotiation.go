@@ -47,7 +47,7 @@ func DHNegotiation(keyShares []KeyShareEntry, groups []NamedGroup) (bool, NamedG
 	return false, 0, nil, nil
 }
 
-func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context []byte, psks PreSharedKeyCache) (bool, int, *PreSharedKey, cryptoContext, error) {
+func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context []byte, psks PreSharedKeyCache) (bool, int, *PreSharedKey, cipherSuiteParams, error) {
 	logf(logTypeNegotiation, "Negotiating PSK offered=[%d] supported=[%d]", len(identities), psks.Size())
 	for i, id := range identities {
 		identityHex := hex.EncodeToString(id.Identity)
@@ -58,26 +58,40 @@ func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context 
 			continue
 		}
 
-		ctx := cryptoContext{}
-		ctx.preInit(psk)
+		params, ok := cipherSuiteMap[psk.CipherSuite]
+		if !ok {
+			err := fmt.Errorf("tls.cryptoinit: Unsupported ciphersuite from PSK [%04x]", psk.CipherSuite)
+			return false, 0, nil, cipherSuiteParams{}, err
+		}
+
+		// Compute binder
+		binderLabel := labelExternalBinder
+		if psk.IsResumption {
+			binderLabel = labelResumptionBinder
+		}
+
+		h0 := params.hash.New().Sum(nil)
+		zero := bytes.Repeat([]byte{0}, params.hash.Size())
+		earlySecret := hkdfExtract(params.hash, zero, psk.Key)
+		binderKey := deriveSecret(params, earlySecret, binderLabel, h0)
 
 		// context = ClientHello[truncated]
 		// context = ClientHello1 + HelloRetryRequest + ClientHello2[truncated]
-		ctxHash := ctx.params.hash.New()
+		ctxHash := params.hash.New()
 		ctxHash.Write(context)
 
-		binder := ctx.computeFinishedData(ctx.binderKey, ctxHash.Sum(nil))
+		binder := computeFinishedData(params, binderKey, ctxHash.Sum(nil))
 		if !bytes.Equal(binder, binders[i].Binder) {
 			logf(logTypeNegotiation, "Binder check failed for identity %x; [%x] != [%x]", psk.Identity, binder, binders[i].Binder)
-			return false, 0, nil, cryptoContext{}, fmt.Errorf("Binder check failed identity %x", psk.Identity)
+			return false, 0, nil, cipherSuiteParams{}, fmt.Errorf("Binder check failed identity %x", psk.Identity)
 		}
 
 		logf(logTypeNegotiation, "Using PSK with identity %x", psk.Identity)
-		return true, i, &psk, ctx, nil
+		return true, i, &psk, params, nil
 	}
 
 	logf(logTypeNegotiation, "Failed to find a usable PSK")
-	return false, 0, nil, cryptoContext{}, nil
+	return false, 0, nil, cipherSuiteParams{}, nil
 }
 
 func PSKModeNegotiation(canDoDH, canDoPSK bool, modes []PSKKeyExchangeMode) (bool, bool) {
