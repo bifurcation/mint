@@ -320,6 +320,8 @@ func (cv *CertificateVerifyBody) Unmarshal(data []byte) (int, error) {
 }
 
 func (cv *CertificateVerifyBody) EncodeSignatureInput(data []byte) []byte {
+	// TODO: Change context for client auth
+	// TODO: Put this in a const
 	const context = "TLS 1.3, server CertificateVerify"
 	sigInput := bytes.Repeat([]byte{0x20}, 64)
 	sigInput = append(sigInput, []byte(context)...)

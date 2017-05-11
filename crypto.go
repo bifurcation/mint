@@ -371,14 +371,6 @@ type ecdsaSignature struct {
 	R, S *big.Int
 }
 
-type pkcs1Opts struct {
-	hash crypto.Hash
-}
-
-func (opts pkcs1Opts) HashFunc() crypto.Hash {
-	return opts.hash
-}
-
 func sign(alg SignatureScheme, privateKey crypto.Signer, sigInput []byte) ([]byte, error) {
 	var opts crypto.SignerOpts
 
@@ -394,7 +386,7 @@ func sign(alg SignatureScheme, privateKey crypto.Signer, sigInput []byte) ([]byt
 		switch {
 		case allowPKCS1 && sigType == signatureAlgorithmRSA_PKCS1:
 			logf(logTypeCrypto, "signing with PKCS1, hashSize=[%d]", hash.Size())
-			opts = &pkcs1Opts{hash: hash}
+			opts = hash
 		case !allowPKCS1 && sigType == signatureAlgorithmRSA_PKCS1:
 			fallthrough
 		case sigType == signatureAlgorithmRSA_PSS:
