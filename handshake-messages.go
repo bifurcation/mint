@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/x509"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/bifurcation/mint/syntax"
@@ -377,11 +378,19 @@ type NewSessionTicketBody struct {
 	Extensions     ExtensionList `tls:"head=2"`
 }
 
-func NewSessionTicket(ticketLen int) (*NewSessionTicketBody, error) {
-	tkt := &NewSessionTicketBody{
-		Ticket: make([]byte, ticketLen),
+func NewSessionTicket(ticketLen int, ticketLifetime uint32) (*NewSessionTicketBody, error) {
+	buf := make([]byte, ticketLen+4)
+	_, err := prng.Read(buf)
+	if err != nil {
+		return nil, err
 	}
-	_, err := prng.Read(tkt.Ticket)
+
+	tkt := &NewSessionTicketBody{
+		TicketLifetime: ticketLifetime,
+		TicketAgeAdd:   binary.BigEndian.Uint32(buf[ticketLen:]),
+		Ticket:         buf[:ticketLen],
+	}
+
 	return tkt, err
 }
 

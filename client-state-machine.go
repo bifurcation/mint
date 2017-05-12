@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto"
 	"hash"
+	"time"
 )
 
 // Client State Machine
@@ -186,7 +187,10 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		psk = &PreSharedKeyExtension{
 			HandshakeType: HandshakeTypeClientHello,
 			Identities: []PSKIdentity{
-				{Identity: key.Identity},
+				{
+					Identity:            key.Identity,
+					ObfuscatedTicketAge: uint32(time.Since(key.ReceivedAt)/time.Millisecond) + key.TicketAgeAdd,
+				},
 			},
 			Binders: []PSKBinderEntry{
 				// Note: Stub to get the length fields right
