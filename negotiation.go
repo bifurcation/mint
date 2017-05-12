@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"time"
 )
 
 func VersionNegotiation(offered, supported []uint16) (bool, uint16) {
@@ -47,6 +48,10 @@ func DHNegotiation(keyShares []KeyShareEntry, groups []NamedGroup) (bool, NamedG
 	return false, 0, nil, nil
 }
 
+const (
+	ticketAgeTolerance uint32 = 5 * 1000 // five seconds in milliseconds
+)
+
 func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context []byte, psks PreSharedKeyCache) (bool, int, *PreSharedKey, cipherSuiteParams, error) {
 	logf(logTypeNegotiation, "Negotiating PSK offered=[%d] supported=[%d]", len(identities), psks.Size())
 	for i, id := range identities {
@@ -56,6 +61,22 @@ func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context 
 		if !ok {
 			logf(logTypeNegotiation, "No PSK for identity %x", identityHex)
 			continue
+		}
+
+		// For resumption, make sure the ticket age is correct
+		if psk.IsResumption {
+			extTicketAge := id.ObfuscatedTicketAge - psk.TicketAgeAdd
+			knownTicketAge := uint32(time.Since(psk.ReceivedAt) / time.Millisecond)
+			ticketAgeDelta := knownTicketAge - extTicketAge
+			if knownTicketAge < extTicketAge {
+				ticketAgeDelta = extTicketAge - knownTicketAge
+			}
+			if ticketAgeDelta > ticketAgeTolerance {
+				logf(logTypeNegotiation, "WARNING potential replay [%x]", psk.Identity)
+				logf(logTypeNegotiation, "Ticket age exceeds tolerance |%d - %d| = [%d] > [%d]",
+					extTicketAge, knownTicketAge, ticketAgeDelta, ticketAgeTolerance)
+				return false, 0, nil, cipherSuiteParams{}, fmt.Errorf("WARNING Potential replay for identity %x", psk.Identity)
+			}
 		}
 
 		params, ok := cipherSuiteMap[psk.CipherSuite]

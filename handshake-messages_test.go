@@ -625,8 +625,7 @@ func TestNewSessionTicketMarshalUnmarshal(t *testing.T) {
 	assertEquals(t, (NewSessionTicketBody{}).Type(), HandshakeTypeNewSessionTicket)
 
 	// Test creation of a new random ticket
-	tkt, err := NewSessionTicket(16)
-	tkt.TicketLifetime = uint32(3)
+	tkt, err := NewSessionTicket(16, 3)
 	assertNotError(t, err, "Failed to create session ticket")
 	assertEquals(t, tkt.TicketLifetime, uint32(3))
 	assertEquals(t, len(tkt.Ticket), 16)

@@ -358,7 +358,20 @@ func TestResumption(t *testing.T) {
 	for _, key := range *clientCache {
 		clientPSK = key
 	}
-	assertDeepEquals(t, clientPSK, serverPSK)
+
+	// Ensure that the PSKs are the same, except with regard to the
+	// receivedAt/expiresAt times, which might differ by a little.
+	assertEquals(t, clientPSK.CipherSuite, serverPSK.CipherSuite)
+	assertEquals(t, clientPSK.IsResumption, serverPSK.IsResumption)
+	assertByteEquals(t, clientPSK.Identity, serverPSK.Identity)
+	assertByteEquals(t, clientPSK.Key, serverPSK.Key)
+	assertEquals(t, clientPSK.NextProto, serverPSK.NextProto)
+	assertEquals(t, clientPSK.TicketAgeAdd, serverPSK.TicketAgeAdd)
+
+	receivedDelta := clientPSK.ReceivedAt.Sub(serverPSK.ReceivedAt) / time.Millisecond
+	expiresDelta := clientPSK.ExpiresAt.Sub(serverPSK.ExpiresAt) / time.Millisecond
+	assert(t, receivedDelta < 10 && receivedDelta > -10, "Unequal received times")
+	assert(t, expiresDelta < 10 && expiresDelta > -10, "Unequal received times")
 
 	// Phase 2: Verify that the session ticket gets used as a PSK
 	cConn2, sConn2 := pipe()

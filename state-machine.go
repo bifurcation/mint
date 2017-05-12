@@ -1,5 +1,9 @@
 package mint
 
+import (
+	"time"
+)
+
 // Marker interface for actions that an implementation should take based on
 // state transitions.
 type HandshakeAction interface{}
@@ -111,13 +115,11 @@ func (state *StateConnected) KeyUpdate(request KeyUpdateRequest) ([]HandshakeAct
 }
 
 func (state *StateConnected) NewSessionTicket(length int, lifetime, earlyDataLifetime uint32) ([]HandshakeAction, Alert) {
-	tkt, err := NewSessionTicket(length)
+	tkt, err := NewSessionTicket(length, lifetime)
 	if err != nil {
 		logf(logTypeHandshake, "[StateConnected] Error generating NewSessionTicket: %v", err)
 		return nil, AlertInternalError
 	}
-
-	tkt.TicketLifetime = lifetime
 
 	err = tkt.Extensions.Add(&TicketEarlyDataInfoExtension{earlyDataLifetime})
 	if err != nil {
@@ -131,6 +133,9 @@ func (state *StateConnected) NewSessionTicket(length int, lifetime, earlyDataLif
 		Identity:     tkt.Ticket,
 		Key:          state.resumptionSecret,
 		NextProto:    state.Params.NextProto,
+		ReceivedAt:   time.Now(),
+		ExpiresAt:    time.Now().Add(time.Duration(tkt.TicketLifetime) * time.Second),
+		TicketAgeAdd: tkt.TicketAgeAdd,
 	}
 
 	tktm, err := HandshakeMessageFromBody(tkt)
@@ -197,6 +202,9 @@ func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []Handsh
 			Identity:     body.Ticket,
 			Key:          state.resumptionSecret,
 			NextProto:    state.Params.NextProto,
+			ReceivedAt:   time.Now(),
+			ExpiresAt:    time.Now().Add(time.Duration(body.TicketLifetime) * time.Second),
+			TicketAgeAdd: body.TicketAgeAdd,
 		}
 
 		toSend := []HandshakeAction{StorePSK{psk}}
