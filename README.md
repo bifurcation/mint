@@ -3,6 +3,8 @@
 mint - A Minimal TLS 1.3 stack
 ==============================
 
+This is some test text.
+
 [![Build Status](https://circleci.com/gh/bifurcation/mint.svg)](https://circleci.com/gh/bifurcation/mint)
 
 This project is primarily a learning effort for me to understand the [TLS
