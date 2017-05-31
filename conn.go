@@ -74,6 +74,7 @@ type Config struct {
 	NextProtos       []string
 	PSKs             PreSharedKeyCache
 	PSKModes         []PSKKeyExchangeMode
+	NonBlocking      bool
 
 	// The same config object can be shared among different connections, so it
 	// needs its own mutex
@@ -185,6 +186,7 @@ type Conn struct {
 	EarlyData []byte
 
 	state             StateConnected
+	hState            HandshakeState
 	handshakeMutex    sync.Mutex
 	handshakeAlert    Alert
 	handshakeComplete bool
@@ -199,142 +201,143 @@ func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
 	c.in = NewRecordLayer(c.conn)
 	c.out = NewRecordLayer(c.conn)
 	c.hIn = NewHandshakeLayer(c.in)
+	c.hIn.nonblocking = c.config.NonBlocking
 	c.hOut = NewHandshakeLayer(c.out)
 	return c
 }
 
-func (c *Conn) extendBuffer(n int) error {
-	// XXX: crypto/tls bounds the number of empty records that can be read.  Should we?
-	// if there's no more data left, stop reading
-	if len(c.in.nextData) == 0 && len(c.readBuffer) > 0 {
-		return nil
+// Read up
+func (c *Conn) consumeRecord() error {
+	pt, err := c.in.ReadRecord()
+	if pt == nil {
+		logf(logTypeIO, "extendBuffer returns error %v", err)
+		return err
 	}
 
-	for len(c.readBuffer) <= n {
-		pt, err := c.in.ReadRecord()
-		if pt == nil {
-			return err
-		}
+	switch pt.contentType {
+	case RecordTypeHandshake:
+		logf(logTypeHandshake, "Received post-handshake message")
+		// We do not support fragmentation of post-handshake handshake messages.
+		// TODO: Factor this more elegantly; coalesce with handshakeLayer.ReadMessage()
+		start := 0
+		for start < len(pt.fragment) {
+			if len(pt.fragment[start:]) < handshakeHeaderLen {
+				return fmt.Errorf("Post-handshake handshake message too short for header")
+			}
 
-		switch pt.contentType {
-		case RecordTypeHandshake:
-			// We do not support fragmentation of post-handshake handshake messages.
-			// TODO: Factor this more elegantly; coalesce with handshakeLayer.ReadMessage()
-			start := 0
-			for start < len(pt.fragment) {
-				if len(pt.fragment[start:]) < handshakeHeaderLen {
-					return fmt.Errorf("Post-handshake handshake message too short for header")
-				}
+			hm := &HandshakeMessage{}
+			hm.msgType = HandshakeType(pt.fragment[start])
+			hmLen := (int(pt.fragment[start+1]) << 16) + (int(pt.fragment[start+2]) << 8) + int(pt.fragment[start+3])
 
-				hm := &HandshakeMessage{}
-				hm.msgType = HandshakeType(pt.fragment[start])
-				hmLen := (int(pt.fragment[start+1]) << 16) + (int(pt.fragment[start+2]) << 8) + int(pt.fragment[start+3])
+			if len(pt.fragment[start+handshakeHeaderLen:]) < hmLen {
+				return fmt.Errorf("Post-handshake handshake message too short for body")
+			}
+			hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
 
-				if len(pt.fragment[start+handshakeHeaderLen:]) < hmLen {
-					return fmt.Errorf("Post-handshake handshake message too short for body")
-				}
-				hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
+			// Advance state machine
+			state, actions, alert := c.state.Next(hm)
 
-				// Advance state machine
-				state, actions, alert := c.state.Next(hm)
+			if alert != AlertNoAlert {
+				logf(logTypeHandshake, "Error in state transition: %v", alert)
+				c.sendAlert(alert)
+				return io.EOF
+			}
 
+			for _, action := range actions {
+				alert = c.takeAction(action)
 				if alert != AlertNoAlert {
-					logf(logTypeHandshake, "Error in state transition: %v", alert)
+					logf(logTypeHandshake, "Error during handshake actions: %v", alert)
 					c.sendAlert(alert)
 					return io.EOF
 				}
-
-				for _, action := range actions {
-					alert = c.takeAction(action)
-					if alert != AlertNoAlert {
-						logf(logTypeHandshake, "Error during handshake actions: %v", alert)
-						c.sendAlert(alert)
-						return io.EOF
-					}
-				}
-
-				// XXX: If we want to support more advanced cases, e.g., post-handshake
-				// authentication, we'll need to allow transitions other than
-				// Connected -> Connected
-				var connected bool
-				c.state, connected = state.(StateConnected)
-				if !connected {
-					logf(logTypeHandshake, "Disconnected after state transition: %v", alert)
-					c.sendAlert(alert)
-					return io.EOF
-				}
-
-				start += handshakeHeaderLen + hmLen
 			}
-		case RecordTypeAlert:
-			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(c.readBuffer), c.readBuffer)
-			if len(pt.fragment) != 2 {
-				c.sendAlert(AlertUnexpectedMessage)
-				return io.EOF
-			}
-			if Alert(pt.fragment[1]) == AlertCloseNotify {
+
+			// XXX: If we want to support more advanced cases, e.g., post-handshake
+			// authentication, we'll need to allow transitions other than
+			// Connected -> Connected
+			var connected bool
+			c.state, connected = state.(StateConnected)
+			if !connected {
+				logf(logTypeHandshake, "Disconnected after state transition: %v", alert)
+				c.sendAlert(alert)
 				return io.EOF
 			}
 
-			switch pt.fragment[0] {
-			case AlertLevelWarning:
-				// drop on the floor
-			case AlertLevelError:
-				return Alert(pt.fragment[1])
-			default:
-				c.sendAlert(AlertUnexpectedMessage)
-				return io.EOF
-			}
-
-		case RecordTypeApplicationData:
-			c.readBuffer = append(c.readBuffer, pt.fragment...)
-			logf(logTypeIO, "extended buffer: [%d] %x", len(c.readBuffer), c.readBuffer)
+			start += handshakeHeaderLen + hmLen
+		}
+	case RecordTypeAlert:
+		logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(c.readBuffer), c.readBuffer)
+		if len(pt.fragment) != 2 {
+			c.sendAlert(AlertUnexpectedMessage)
+			return io.EOF
+		}
+		if Alert(pt.fragment[1]) == AlertCloseNotify {
+			return io.EOF
 		}
 
-		if err != nil {
-			return err
+		switch pt.fragment[0] {
+		case AlertLevelWarning:
+			// drop on the floor
+		case AlertLevelError:
+			return Alert(pt.fragment[1])
+		default:
+			c.sendAlert(AlertUnexpectedMessage)
+			return io.EOF
 		}
 
-		// if there's no more data left, stop reading
-		if len(c.in.nextData) == 0 {
-			return nil
-		}
-
-		// if we're over the limit and the next record is not an alert, exit
-		if len(c.readBuffer) == n && RecordType(c.in.nextData[0]) != RecordTypeAlert {
-			return nil
-		}
+	case RecordTypeApplicationData:
+		c.readBuffer = append(c.readBuffer, pt.fragment...)
+		logf(logTypeIO, "extended buffer: [%d] %x", len(c.readBuffer), c.readBuffer)
 	}
-	return nil
+
+	return err
 }
 
-// Read application data until the buffer is full.  Handshake and alert records
+// Read application data up to the size of buffer.  Handshake and alert records
 // are consumed by the Conn object directly.
 func (c *Conn) Read(buffer []byte) (int, error) {
+	logf(logTypeHandshake, "conn.Read with buffer = %d", len(buffer))
 	if alert := c.Handshake(); alert != AlertNoAlert {
 		return 0, alert
+	}
+
+	if len(buffer) == 0 {
+		return 0, nil
 	}
 
 	// Lock the input channel
 	c.in.Lock()
 	defer c.in.Unlock()
+	for len(c.readBuffer) == 0 {
+		err := c.consumeRecord()
 
-	n := len(buffer)
-	err := c.extendBuffer(n)
+		// err can be nil if consumeRecord processed a non app-data
+		// record.
+		if err != nil {
+			if c.config.NonBlocking || err != frameReaderWouldBlock {
+				logf(logTypeIO, "conn.Read returns err=%v", err)
+				return 0, err
+			}
+		}
+	}
+
 	var read int
-	if len(c.readBuffer) < n {
+	n := len(buffer)
+	logf(logTypeIO, "conn.Read input buffer now has len %d", len(c.readBuffer))
+	if len(c.readBuffer) <= n {
 		buffer = buffer[:len(c.readBuffer)]
 		copy(buffer, c.readBuffer)
 		read = len(c.readBuffer)
 		c.readBuffer = c.readBuffer[:0]
 	} else {
-		logf(logTypeIO, "read buffer larger than than input buffer")
+		logf(logTypeIO, "read buffer larger than input buffer (%d > %d)", len(c.readBuffer), n)
 		copy(buffer[:n], c.readBuffer[:n])
 		c.readBuffer = c.readBuffer[n:]
 		read = n
 	}
 
-	return read, err
+	logf(logTypeVerbose, "Returning %v", string(buffer))
+	return read, nil
 }
 
 // Write application data
@@ -479,14 +482,14 @@ func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 	case ReadPastEarlyData:
 		logf(logTypeHandshake, "%s Reading past early data...", label)
 		// Scan past all records that fail to decrypt
-		_, err := c.in.PeekRecordType()
+		_, err := c.in.PeekRecordType(!c.config.NonBlocking)
 		if err == nil {
 			break
 		}
 		_, ok := err.(DecryptError)
 
 		for ok {
-			_, err = c.in.PeekRecordType()
+			_, err = c.in.PeekRecordType(!c.config.NonBlocking)
 			if err == nil {
 				break
 			}
@@ -495,15 +498,17 @@ func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 
 	case ReadEarlyData:
 		logf(logTypeHandshake, "%s Reading early data...", label)
-		t, err := c.in.PeekRecordType()
+		t, err := c.in.PeekRecordType(!c.config.NonBlocking)
 		if err != nil {
-			logf(logTypeHandshake, "%s Error reading record type: %v", label, err)
+			logf(logTypeHandshake, "%s Error reading record type (1): %v", label, err)
 			return AlertInternalError
 		}
-		logf(logTypeHandshake, "%s Got record type: %v", label, t)
+		logf(logTypeHandshake, "%s Got record type(1): %v", label, t)
 
 		for t == RecordTypeApplicationData {
-			// Read a record into the buffer
+			// Read a record into the buffer. Note that this is safe
+			// in blocking mode because we read the record in in
+			// PeekRecordType.
 			pt, err := c.in.ReadRecord()
 			if err != nil {
 				logf(logTypeHandshake, "%s Error reading early data record: %v", label, err)
@@ -513,13 +518,14 @@ func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 			logf(logTypeHandshake, "%s Read early data: %x", label, pt.fragment)
 			c.EarlyData = append(c.EarlyData, pt.fragment...)
 
-			t, err = c.in.PeekRecordType()
+			t, err = c.in.PeekRecordType(!c.config.NonBlocking)
 			if err != nil {
-				logf(logTypeHandshake, "%s Error reading record type: %v", label, err)
+				logf(logTypeHandshake, "%s Error reading record type (2): %v", label, err)
 				return AlertInternalError
 			}
-			logf(logTypeHandshake, "%s Got record type: %v", label, t)
+			logf(logTypeHandshake, "%s Got record type (2): %v", label, t)
 		}
+		logf(logTypeHandshake, "%s Done reading early data", label)
 
 	case StorePSK:
 		logf(logTypeHandshake, "%s Storing new session ticket with identity [%x]", label, action.PSK.Identity)
@@ -539,19 +545,10 @@ func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 	return AlertNoAlert
 }
 
-// Handshake causes a TLS handshake on the connection.  The `isClient` member
-// determines whether a client or server handshake is performed.  If a
-// handshake has already been performed, then its result will be returned.
-func (c *Conn) Handshake() Alert {
-	// TODO Lock handshakeMutex
-	// TODO Remove CloseNotify hack
-	if c.handshakeAlert != AlertNoAlert && c.handshakeAlert != AlertCloseNotify {
-		logf(logTypeHandshake, "Pre-existing handshake error: %v", c.handshakeAlert)
-		return c.handshakeAlert
-	}
-	if c.handshakeComplete {
-		return AlertNoAlert
-	}
+func (c *Conn) HandshakeSetup() Alert {
+	var state HandshakeState
+	var actions []HandshakeAction
+	var alert Alert
 
 	if err := c.config.Init(c.isClient); err != nil {
 		logf(logTypeHandshake, "Error initializing config: %v", err)
@@ -577,11 +574,6 @@ func (c *Conn) Handshake() Alert {
 		EarlyData:  c.EarlyData,
 	}
 
-	var state HandshakeState
-	var actions []HandshakeAction
-	var alert Alert
-	connected := false
-
 	if c.isClient {
 		state, actions, alert = ClientStateStart{Caps: caps, Opts: opts}.Next(nil)
 		if alert != AlertNoAlert {
@@ -596,17 +588,52 @@ func (c *Conn) Handshake() Alert {
 				return alert
 			}
 		}
-
-		_, connected = state.(StateConnected)
 	} else {
 		state = ServerStateStart{Caps: caps}
 	}
+
+	c.hState = state
+
+	return AlertNoAlert
+}
+
+// Handshake causes a TLS handshake on the connection.  The `isClient` member
+// determines whether a client or server handshake is performed.  If a
+// handshake has already been performed, then its result will be returned.
+func (c *Conn) Handshake() Alert {
+	label := "[server]"
+	if c.isClient {
+		label = "[client]"
+	}
+
+	// TODO Lock handshakeMutex
+	// TODO Remove CloseNotify hack
+	if c.handshakeAlert != AlertNoAlert && c.handshakeAlert != AlertCloseNotify {
+		logf(logTypeHandshake, "Pre-existing handshake error: %v", c.handshakeAlert)
+		return c.handshakeAlert
+	}
+	if c.handshakeComplete {
+		return AlertNoAlert
+	}
+
+	var alert Alert
+	if c.hState == nil {
+		alert = c.HandshakeSetup()
+		if alert != AlertNoAlert {
+			return alert
+		}
+	}
+
+	state := c.hState
+	_, connected := state.(StateConnected)
+
+	var actions []HandshakeAction
 
 	for !connected {
 		// Read a handshake message
 		hm, err := c.hIn.ReadMessage()
 		if err != nil {
-			logf(logTypeHandshake, "Error reading message: %v", err)
+			logf(logTypeHandshake, "%s Error reading message: %v", label, err)
 			c.sendAlert(AlertCloseNotify)
 			return AlertCloseNotify
 		}
@@ -620,7 +647,8 @@ func (c *Conn) Handshake() Alert {
 			return alert
 		}
 
-		for _, action := range actions {
+		for index, action := range actions {
+			logf(logTypeHandshake, "%s taking next action (%d)", label, index)
 			alert = c.takeAction(action)
 			if alert != AlertNoAlert {
 				logf(logTypeHandshake, "Error during handshake actions: %v", alert)

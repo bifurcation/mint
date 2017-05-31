@@ -33,6 +33,10 @@ func assertNotError(t *testing.T, err error, msg string) {
 	assert(t, err == nil, msg)
 }
 
+func assertNil(t *testing.T, x interface{}, msg string) {
+	assert(t, x == nil, msg)
+}
+
 func assertNotNil(t *testing.T, x interface{}, msg string) {
 	assert(t, x != nil, msg)
 }

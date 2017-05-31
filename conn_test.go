@@ -325,18 +325,21 @@ func TestResumption(t *testing.T) {
 
 	var clientAlert, serverAlert Alert
 
-	zeroBuf := []byte{}
 	done := make(chan bool)
 	go func(t *testing.T) {
 		serverAlert = server1.Handshake()
 		assertEquals(t, serverAlert, AlertNoAlert)
+		server1.Write([]byte{'a'})
 		done <- true
 	}(t)
 
 	clientAlert = client1.Handshake()
 	assertEquals(t, clientAlert, AlertNoAlert)
 
-	client1.Read(zeroBuf)
+	tmpBuf := make([]byte, 1)
+	n, err := client1.Read(tmpBuf)
+	assertNil(t, err, "Couldn't read one byte")
+	assertEquals(t, 1, n)
 	<-done
 
 	assertDeepEquals(t, client1.state.Params, server1.state.Params)
@@ -469,33 +472,43 @@ func TestKeyUpdate(t *testing.T) {
 	client := Client(cConn, conf)
 	server := Server(sConn, conf)
 
-	zeroBuf := []byte{}
+	oneBuf := []byte{'a'}
 	c2s := make(chan bool)
 	s2c := make(chan bool)
 	go func(t *testing.T) {
 		alert := server.Handshake()
 		assertEquals(t, alert, AlertNoAlert)
+
+		// Send a single byte so that the client can consume NST.
+		server.Write(oneBuf)
 		s2c <- true
 
 		// Test server-initiated KeyUpdate
 		<-c2s
 		err := server.SendKeyUpdate(false)
 		assertNotError(t, err, "Key update send failed")
+
+		// Write a single byte so that the client can read it
+		// after KeyUpdate.
+		server.Write(oneBuf)
 		s2c <- true
 
 		// Null read to trigger key update
 		<-c2s
-		server.Read(zeroBuf)
+		server.Read(oneBuf)
 		s2c <- true
 
 		// Null read to trigger key update and KeyUpdate response
 		<-c2s
-		server.Read(zeroBuf)
+		server.Read(oneBuf)
+		server.Write(oneBuf)
 		s2c <- true
 	}(t)
 
 	alert := client.Handshake()
-	client.Read(zeroBuf)
+
+	// Read NST.
+	client.Read(oneBuf)
 	assertEquals(t, alert, AlertNoAlert)
 	<-s2c
 
@@ -507,7 +520,8 @@ func TestKeyUpdate(t *testing.T) {
 	// Null read to trigger key update
 	c2s <- true
 	<-s2c
-	client.Read(zeroBuf)
+	client.Read(oneBuf)
+	logf(logTypeHandshake, "Client read key update")
 
 	clientState1 := client.state
 	serverState1 := server.state
@@ -518,6 +532,7 @@ func TestKeyUpdate(t *testing.T) {
 
 	// Test client-initiated KeyUpdate
 	client.SendKeyUpdate(false)
+	client.Write(oneBuf)
 	c2s <- true
 	<-s2c
 
@@ -530,9 +545,10 @@ func TestKeyUpdate(t *testing.T) {
 
 	// Test client-initiated with keyUpdateRequested
 	client.SendKeyUpdate(true)
+	client.Write(oneBuf)
 	c2s <- true
 	<-s2c
-	client.Read(zeroBuf)
+	client.Read(oneBuf)
 
 	clientState3 := client.state
 	serverState3 := server.state
