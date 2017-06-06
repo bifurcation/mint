@@ -46,6 +46,7 @@ const (
 	AlertBadCertificateHashValue     Alert = 114
 	AlertUnknownPSKIdentity          Alert = 115
 	AlertNoApplicationProtocol       Alert = 120
+	AlertWouldBlock			 Alert = 254
 	AlertNoAlert                     Alert = 255
 )
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/x509"
 	"io"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -67,6 +68,46 @@ func (p *pipeConn) SetDeadline(t time.Time) error      { return nil }
 func (p *pipeConn) SetReadDeadline(t time.Time) error  { return nil }
 func (p *pipeConn) SetWriteDeadline(t time.Time) error { return nil }
 
+type bufferedConn struct {
+	buffer bytes.Buffer
+	w net.Conn
+}
+
+func (b *bufferedConn) Write(buf []byte) (n int, err error) {
+	return b.buffer.Write(buf)
+}
+
+func (p *bufferedConn) Read(data []byte) (n int, err error) {
+	return p.w.Read(data)
+}
+func (p *bufferedConn) Close() error {
+	return nil
+}
+
+func (p *bufferedConn) LocalAddr() net.Addr                { return nil }
+func (p *bufferedConn) RemoteAddr() net.Addr               { return nil }
+func (p *bufferedConn) SetDeadline(t time.Time) error      { return nil }
+func (p *bufferedConn) SetReadDeadline(t time.Time) error  { return nil }
+func (p *bufferedConn) SetWriteDeadline(t time.Time) error { return nil }
+
+func (b *bufferedConn) Flush() error {
+	buf := b.buffer.Bytes()
+	
+	n, err := b.w.Write(buf)
+	if err != nil {
+		return err
+	}
+	if n != len(buf) {
+		return fmt.Errorf("Incomplete flush")
+	}
+	b.buffer.Reset()
+	return nil
+}
+		
+func newBufferedConn(p net.Conn) *bufferedConn {
+	return &bufferedConn{bytes.Buffer{}, p}
+}
+	
 var (
 	serverName = "example.com"
 
@@ -158,6 +199,12 @@ var (
 	basicConfig = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
+	}
+
+	nbConfig = &Config{
+		ServerName:   serverName,
+		Certificates: certificates,
+		NonBlocking : true,
 	}
 
 	hrrConfig = &Config{
@@ -556,4 +603,60 @@ func TestKeyUpdate(t *testing.T) {
 	assertByteEquals(t, clientState3.clientTrafficSecret, serverState3.clientTrafficSecret)
 	assertNotByteEquals(t, serverState2.serverTrafficSecret, serverState3.serverTrafficSecret)
 	assertNotByteEquals(t, clientState2.clientTrafficSecret, clientState3.clientTrafficSecret)
+}
+
+func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
+	cConn, sConn := pipe()
+
+	// Wrap these in a buffer so we can simulate blocking
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+
+	client := Client(cbConn, nbConfig)
+	server := Server(sbConn, nbConfig)
+
+	var clientAlert, serverAlert Alert
+
+	// Send ClientHello
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertWouldBlock)
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+	
+	// Release ClientHello
+	cbConn.Flush()
+
+	// Process ClientHello, send server first flight.
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+	
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertWouldBlock)
+
+	// Release server first flight
+	sbConn.Flush()
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+
+	// Release client's second flight.
+	cbConn.Flush()
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertNoAlert)
+	
+	assertDeepEquals(t, client.state.Params, server.state.Params)
+	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+
+	buf := []byte{'a', 'b', 'c'}
+	n, err := client.Write(buf)
+	assertNotError(t, err, "Couldn't write")
+	assertEquals(t, n, len(buf))
+
+	// read := make([]byte, 5)
+	// n, err = server.Read(buf)
 }

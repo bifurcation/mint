@@ -3,7 +3,6 @@
 package mint
 
 import (
-	"fmt"
 )
 
 type framing interface {
@@ -16,8 +15,6 @@ const (
 	kFrameReaderHdr  = 0
 	kFrameReaderBody = 1
 )
-
-var frameReaderWouldBlock = fmt.Errorf("Would have blocked")
 
 type frameNextAction func(f *frameReader) error
 
@@ -73,7 +70,7 @@ func (f *frameReader) process() (hdr []byte, body []byte, err error) {
 		f.writeOffset += copied
 		if f.writeOffset < len(f.working) {
 			logf(logTypeFrameReader, "Read would have blocked 1")
-			return nil, nil, frameReaderWouldBlock
+			return nil, nil, WouldBlock
 		}
 		// Reset the write offset, because we are now full.
 		f.writeOffset = 0
@@ -100,5 +97,5 @@ func (f *frameReader) process() (hdr []byte, body []byte, err error) {
 	}
 
 	logf(logTypeFrameReader, "Read would have blocked 2")
-	return nil, nil, frameReaderWouldBlock
+	return nil, nil, WouldBlock
 }

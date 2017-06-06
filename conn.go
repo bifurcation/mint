@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var WouldBlock = fmt.Errorf("Would have blocked")
+
 type Certificate struct {
 	Chain      []*x509.Certificate
 	PrivateKey crypto.Signer
@@ -293,6 +295,7 @@ func (c *Conn) consumeRecord() error {
 	return err
 }
 
+
 // Read application data up to the size of buffer.  Handshake and alert records
 // are consumed by the Conn object directly.
 func (c *Conn) Read(buffer []byte) (int, error) {
@@ -314,7 +317,7 @@ func (c *Conn) Read(buffer []byte) (int, error) {
 		// err can be nil if consumeRecord processed a non app-data
 		// record.
 		if err != nil {
-			if c.config.NonBlocking || err != frameReaderWouldBlock {
+			if c.config.NonBlocking || err != WouldBlock {
 				logf(logTypeIO, "conn.Read returns err=%v", err)
 				return 0, err
 			}
@@ -618,11 +621,15 @@ func (c *Conn) Handshake() Alert {
 
 	var alert Alert
 	if c.hState == nil {
+		logf(logTypeHandshake, "%s First time through handshake, setting up", label)
 		alert = c.HandshakeSetup()
 		if alert != AlertNoAlert {
 			return alert
 		}
+	} else {
+		logf(logTypeHandshake, "Re-entering handshake, state=%v", c.hState)
 	}
+	
 
 	state := c.hState
 	_, connected := state.(StateConnected)
@@ -632,6 +639,10 @@ func (c *Conn) Handshake() Alert {
 	for !connected {
 		// Read a handshake message
 		hm, err := c.hIn.ReadMessage()
+		if err == WouldBlock {
+			logf(logTypeHandshake, "%s Would block reading message: %v", label, err)
+			return AlertWouldBlock
+		}
 		if err != nil {
 			logf(logTypeHandshake, "%s Error reading message: %v", label, err)
 			c.sendAlert(AlertCloseNotify)
@@ -646,7 +657,7 @@ func (c *Conn) Handshake() Alert {
 			logf(logTypeHandshake, "Error in state transition: %v", alert)
 			return alert
 		}
-
+		
 		for index, action := range actions {
 			logf(logTypeHandshake, "%s taking next action (%d)", label, index)
 			alert = c.takeAction(action)
@@ -656,6 +667,9 @@ func (c *Conn) Handshake() Alert {
 				return alert
 			}
 		}
+
+		c.hState = state
+		logf(logTypeHandshake, "%s state is now %s", c.GetHsState())
 
 		_, connected = state.(StateConnected)
 	}
@@ -710,4 +724,8 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 	}
 
 	return nil
+}
+
+func (c *Conn) GetHsState() string {
+	return reflect.TypeOf(c.hState).Name()
 }
