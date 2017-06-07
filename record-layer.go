@@ -190,12 +190,40 @@ func (r *RecordLayer) nextRecord() (*TLSPlaintext, error) {
 		return r.cachedRecord, r.cachedError
 	}
 
-	var header, body []byte
+	// Loop until one of three things happens:
+	//
+	// 1. We get a frame
+	// 2. We try to read off the socket and get nothing, in which case
+	//    return frameReaderWouldBlock
+	// 3. We get an error.
 	err := frameReaderWouldBlock
+	var header, body []byte
+	
+	for err != nil {
+		if r.frame.needed() > 0 {
+			buf := make([]byte, recordHeaderLen + maxFragmentLen)
+			n, err := r.conn.Read(buf)
+			if err != nil {
+				logf(logTypeIO, "Error reading, %v", err)
+				return nil, err
+			}
+			
+			if n == 0 {
+				return nil, frameReaderWouldBlock
+			}
 
-	header, body, err = r.frame.readChunk()
-	if err != nil {
-		return nil, err
+			logf(logTypeIO, "Read %v bytes", n)
+			
+			buf = buf[:n]
+			r.frame.addChunk(buf)
+		}
+
+		header, body, err = r.frame.process()
+		// Loop around on frameReaderWouldBlock to see if some
+		// data is now available.
+		if err != nil && err != frameReaderWouldBlock {
+			return nil, err
+		}
 	}
 
 	pt := &TLSPlaintext{}
