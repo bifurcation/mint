@@ -100,9 +100,9 @@ func HandshakeMessageFromBody(body HandshakeMessageBody) (*HandshakeMessage, err
 }
 
 type HandshakeLayer struct {
-	nonblocking bool   // Should we operate in nonblocking mode
-	conn  *RecordLayer // Used for reading/writing records
-	frame *frameReader // The buffered frame reader
+	nonblocking bool         // Should we operate in nonblocking mode
+	conn        *RecordLayer // Used for reading/writing records
+	frame       *frameReader // The buffered frame reader
 }
 
 type handshakeLayerFrameDetails struct{}
@@ -123,7 +123,7 @@ func (d handshakeLayerFrameDetails) frameLen(hdr []byte) (int, error) {
 func NewHandshakeLayer(r *RecordLayer) *HandshakeLayer {
 	h := HandshakeLayer{}
 	h.conn = r
-	h.frame = newFrameReader(nil, &handshakeLayerFrameDetails{})
+	h.frame = newFrameReader(&handshakeLayerFrameDetails{})
 	return &h
 }
 

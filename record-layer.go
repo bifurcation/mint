@@ -65,7 +65,7 @@ func (d recordLayerFrameDetails) frameLen(hdr []byte) (int, error) {
 func NewRecordLayer(conn io.ReadWriter) *RecordLayer {
 	r := RecordLayer{}
 	r.conn = conn
-	r.frame = newFrameReader(conn, recordLayerFrameDetails{})
+	r.frame = newFrameReader(recordLayerFrameDetails{})
 	r.ivLength = 0
 	return &r
 }
@@ -198,22 +198,22 @@ func (r *RecordLayer) nextRecord() (*TLSPlaintext, error) {
 	// 3. We get an error.
 	err := frameReaderWouldBlock
 	var header, body []byte
-	
+
 	for err != nil {
 		if r.frame.needed() > 0 {
-			buf := make([]byte, recordHeaderLen + maxFragmentLen)
+			buf := make([]byte, recordHeaderLen+maxFragmentLen)
 			n, err := r.conn.Read(buf)
 			if err != nil {
 				logf(logTypeIO, "Error reading, %v", err)
 				return nil, err
 			}
-			
+
 			if n == 0 {
 				return nil, frameReaderWouldBlock
 			}
 
 			logf(logTypeIO, "Read %v bytes", n)
-			
+
 			buf = buf[:n]
 			r.frame.addChunk(buf)
 		}

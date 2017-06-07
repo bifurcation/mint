@@ -4,7 +4,6 @@ package mint
 
 import (
 	"fmt"
-	"io"
 )
 
 type framing interface {
@@ -23,7 +22,6 @@ var frameReaderWouldBlock = fmt.Errorf("Would have blocked")
 type frameNextAction func(f *frameReader) error
 
 type frameReader struct {
-	conn        io.Reader
 	details     framing
 	state       uint8
 	header      []byte
@@ -33,10 +31,9 @@ type frameReader struct {
 	remainder   []byte
 }
 
-func newFrameReader(r io.Reader, d framing) *frameReader {
+func newFrameReader(d framing) *frameReader {
 	hdr := make([]byte, d.headerLen())
 	return &frameReader{
-		r,
 		d,
 		kFrameReaderHdr,
 		hdr,
@@ -59,49 +56,6 @@ func (f *frameReader) needed() int {
 		return 0
 	}
 	return tmp
-}
-
-func (f *frameReader) readChunk() (hdr []byte, body []byte, err error) {
-	var buf []byte
-
-	// Loop until one of three things happens:
-	//
-	// 1. We process a record
-	// 2. We try to read off the socket and get nothing, in which case
-	//    return frameReaderWouldBlock
-	// 3. We get an error.
-	//
-	err = frameReaderWouldBlock
-	for err != nil {
-		if f.needed() > 0 {
-			logf(logTypeFrameReader, "Reading from input needed=%v", f.needed())
-			buf = make([]byte, f.details.defaultReadLen())
-			n, err := f.conn.Read(buf)
-			if err != nil {
-				logf(logTypeFrameReader, "Error reading, %v", err)
-				return nil, nil, err
-			}
-			// OK, we know the socket is empty, so return frameReaderWouldBlock
-			if n == 0 {
-				return nil, nil, frameReaderWouldBlock
-			}
-
-			logf(logTypeFrameReader, "Read %v bytes", n)
-			if n > 0 {
-				buf = buf[:n]
-				f.addChunk(buf)
-			}
-		}
-
-		// See if we're ready.
-		hdr, body, err = f.process()
-		if err != nil && err != frameReaderWouldBlock {
-			return nil, nil, err
-		}
-	}
-
-	// We finally have a frame
-	return hdr, body, nil
 }
 
 func (f *frameReader) addChunk(in []byte) {
