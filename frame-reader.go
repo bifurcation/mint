@@ -7,7 +7,7 @@ import (
 	"io"
 )
 
-type frameDetails interface {
+type framing interface {
 	headerLen() int
 	defaultReadLen() int
 	frameLen(hdr []byte) (int, error)
@@ -24,16 +24,16 @@ type frameNextAction func(f *frameReader) error
 
 type frameReader struct {
 	conn        io.Reader
-	details     frameDetails
+	details     framing
 	state       uint8
-	hdr         []byte
+	header      []byte
 	body        []byte
 	working     []byte
 	writeOffset int
 	remainder   []byte
 }
 
-func newFrameReader(r io.Reader, d frameDetails) *frameReader {
+func newFrameReader(r io.Reader, d framing) *frameReader {
 	hdr := make([]byte, d.headerLen())
 	return &frameReader{
 		r,
@@ -126,14 +126,14 @@ func (f *frameReader) process() (hdr []byte, body []byte, err error) {
 
 		// We have read a full frame
 		if f.state == kFrameReaderBody {
-			logf(logTypeFrameReader, "Returning frame hdr=%h len=%d buffered=%d", f.hdr, len(f.body), len(f.remainder))
+			logf(logTypeFrameReader, "Returning frame hdr=%h len=%d buffered=%d", f.header, len(f.body), len(f.remainder))
 			f.state = kFrameReaderHdr
-			f.working = f.hdr
-			return dup(f.hdr), dup(f.body), nil
+			f.working = f.header
+			return dup(f.header), dup(f.body), nil
 		}
 
 		// We have read the header
-		bodyLen, err := f.details.frameLen(f.hdr)
+		bodyLen, err := f.details.frameLen(f.header)
 		if err != nil {
 			return nil, nil, err
 		}
