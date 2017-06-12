@@ -46,6 +46,7 @@ const (
 	AlertBadCertificateHashValue     Alert = 114
 	AlertUnknownPSKIdentity          Alert = 115
 	AlertNoApplicationProtocol       Alert = 120
+	AlertWouldBlock			 Alert = 254
 	AlertNoAlert                     Alert = 255
 )
 
@@ -81,6 +82,7 @@ var alertText = map[Alert]string{
 	AlertUnknownPSKIdentity:          "unknown PSK identity",
 	AlertNoApplicationProtocol:       "no application protocol",
 	AlertNoRenegotiation:             "no renegotiation",
+	AlertWouldBlock:		  "would have blocked",
 	AlertNoAlert:                     "no alert",
 }
 

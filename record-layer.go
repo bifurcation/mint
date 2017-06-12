@@ -167,7 +167,7 @@ func (r *RecordLayer) PeekRecordType(block bool) (RecordType, error) {
 		if err == nil {
 			break
 		}
-		if !block || err != frameReaderWouldBlock {
+		if !block || err != WouldBlock {
 			return 0, err
 		}
 	}
@@ -194,9 +194,9 @@ func (r *RecordLayer) nextRecord() (*TLSPlaintext, error) {
 	//
 	// 1. We get a frame
 	// 2. We try to read off the socket and get nothing, in which case
-	//    return frameReaderWouldBlock
+	//    return WouldBlock
 	// 3. We get an error.
-	err := frameReaderWouldBlock
+	err := WouldBlock
 	var header, body []byte
 
 	for err != nil {
@@ -209,7 +209,7 @@ func (r *RecordLayer) nextRecord() (*TLSPlaintext, error) {
 			}
 
 			if n == 0 {
-				return nil, frameReaderWouldBlock
+				return nil, WouldBlock
 			}
 
 			logf(logTypeIO, "Read %v bytes", n)
@@ -219,9 +219,9 @@ func (r *RecordLayer) nextRecord() (*TLSPlaintext, error) {
 		}
 
 		header, body, err = r.frame.process()
-		// Loop around on frameReaderWouldBlock to see if some
+		// Loop around on WouldBlock to see if some
 		// data is now available.
-		if err != nil && err != frameReaderWouldBlock {
+		if err != nil && err != WouldBlock {
 			return nil, err
 		}
 	}

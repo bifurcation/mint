@@ -173,13 +173,13 @@ func (h *HandshakeLayer) sendAlert(err Alert) error {
 
 func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 	var hdr, body []byte
-	err := frameReaderWouldBlock
+	err := WouldBlock
 
 	for {
 		if h.frame.needed() > 0 {
 			err = h.readRecord()
 		}
-		if err != nil && (h.nonblocking || err != frameReaderWouldBlock) {
+		if err != nil && (h.nonblocking || err != WouldBlock) {
 			return nil, err
 		}
 
@@ -187,7 +187,7 @@ func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 		if err == nil {
 			break
 		}
-		if err != nil && (h.nonblocking || err != frameReaderWouldBlock) {
+		if err != nil && (h.nonblocking || err != WouldBlock) {
 			return nil, err
 		}
 	}

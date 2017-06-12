@@ -2,7 +2,9 @@ package mint
 
 import (
 	"bytes"
+	"fmt"
 	"net"
+	"io"
 	"testing"
 )
 
@@ -292,3 +294,44 @@ func TestOverSocket(t *testing.T) {
 	assertEquals(t, ptIn.contentType, ptOut.contentType)
 	assertByteEquals(t, ptIn.fragment, ptOut.fragment)
 }
+
+type NoEofReader struct {
+	r *bytes.Buffer
+}
+
+func (p *NoEofReader) Read(data []byte) (n int, err error) {
+	n, err = p.r.Read(data)
+
+	// Suppress bytes.Buffer's EOF on an empty buffer
+	if err == io.EOF {
+		err = nil
+	}
+	return
+}
+
+func (p *NoEofReader) Write(data []byte) (n int, err error) {
+	return 0, fmt.Errorf("Not allowed")
+}
+
+func TestNonblockingRecord(t *testing.T) {
+	key := unhex(keyHex)
+	iv := unhex(ivHex)
+	plaintext := unhex(plaintextHex)
+	ciphertext1 := unhex(ciphertext1Hex)
+
+	// Add the prefix, which should cause blocking.
+	b := bytes.NewBuffer(ciphertext1[:1])
+	r := NewRecordLayer(&NoEofReader{b})
+	r.Rekey(newAESGCM, key, iv)
+	pt, err := r.ReadRecord()
+	assertEquals(t, err, WouldBlock)
+
+	// Now the rest of the record, which lets us decrypt it
+	b.Write(ciphertext1[1:])
+	pt, err = r.ReadRecord()
+	assertNotError(t, err, "Failed to decrypt valid record")
+	assertEquals(t, pt.contentType, RecordTypeAlert)
+	assertByteEquals(t, pt.fragment, plaintext[5:])
+}
+	
+	
