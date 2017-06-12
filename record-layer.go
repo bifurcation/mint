@@ -37,6 +37,7 @@ type RecordLayer struct {
 	sync.Mutex
 
 	conn         io.ReadWriter // The underlying connection
+	frame        *frameReader  // The buffered frame reader
 	nextData     []byte        // The next record to send
 	cachedRecord *TLSPlaintext // Last record read, cached to enable "peek"
 	cachedError  error         // Error on the last record read
@@ -47,9 +48,24 @@ type RecordLayer struct {
 	cipher   cipher.AEAD // AEAD cipher
 }
 
+type recordLayerFrameDetails struct{}
+
+func (d recordLayerFrameDetails) headerLen() int {
+	return recordHeaderLen
+}
+
+func (d recordLayerFrameDetails) defaultReadLen() int {
+	return recordHeaderLen + maxFragmentLen
+}
+
+func (d recordLayerFrameDetails) frameLen(hdr []byte) (int, error) {
+	return (int(hdr[3]) << 8) | int(hdr[4]), nil
+}
+
 func NewRecordLayer(conn io.ReadWriter) *RecordLayer {
 	r := RecordLayer{}
 	r.conn = conn
+	r.frame = newFrameReader(recordLayerFrameDetails{})
 	r.ivLength = 0
 	return &r
 }
@@ -142,35 +158,19 @@ func (r *RecordLayer) decrypt(pt *TLSPlaintext) (*TLSPlaintext, int, error) {
 	return out, padLen, nil
 }
 
-func (r *RecordLayer) readFullBuffer(data []byte) error {
-	buffer := make([]byte, cap(data)+recordHeaderLen)
-
-	var index int
-	copy(buffer, r.nextData)
-	index = len(r.nextData)
+func (r *RecordLayer) PeekRecordType(block bool) (RecordType, error) {
+	var pt *TLSPlaintext
+	var err error
 
 	for {
-		m, err := r.conn.Read(buffer[index:])
-		if m+index >= cap(data) {
-			// TODO(bradfitz,agl): slightly suspicious
-			// that we're throwing away r.Read's err here.
-			copy(data[:cap(data)], buffer)
-			r.nextData = buffer[cap(data) : m+index]
-			return nil
+		pt, err = r.nextRecord()
+		if err == nil {
+			break
 		}
-		if err != nil {
-			return err
+		if !block || err != frameReaderWouldBlock {
+			return 0, err
 		}
-		index = index + m
 	}
-}
-
-func (r *RecordLayer) PeekRecordType() (RecordType, error) {
-	pt, err := r.nextRecord()
-	if err != nil {
-		return RecordType(0), err
-	}
-
 	return pt.contentType, nil
 }
 
@@ -186,16 +186,47 @@ func (r *RecordLayer) ReadRecord() (*TLSPlaintext, error) {
 
 func (r *RecordLayer) nextRecord() (*TLSPlaintext, error) {
 	if r.cachedRecord != nil {
+		logf(logTypeIO, "Returning cached record")
 		return r.cachedRecord, r.cachedError
 	}
 
-	pt := &TLSPlaintext{}
-	header := make([]byte, recordHeaderLen)
-	err := r.readFullBuffer(header)
-	if err != nil {
-		return nil, err
+	// Loop until one of three things happens:
+	//
+	// 1. We get a frame
+	// 2. We try to read off the socket and get nothing, in which case
+	//    return frameReaderWouldBlock
+	// 3. We get an error.
+	err := frameReaderWouldBlock
+	var header, body []byte
+
+	for err != nil {
+		if r.frame.needed() > 0 {
+			buf := make([]byte, recordHeaderLen+maxFragmentLen)
+			n, err := r.conn.Read(buf)
+			if err != nil {
+				logf(logTypeIO, "Error reading, %v", err)
+				return nil, err
+			}
+
+			if n == 0 {
+				return nil, frameReaderWouldBlock
+			}
+
+			logf(logTypeIO, "Read %v bytes", n)
+
+			buf = buf[:n]
+			r.frame.addChunk(buf)
+		}
+
+		header, body, err = r.frame.process()
+		// Loop around on frameReaderWouldBlock to see if some
+		// data is now available.
+		if err != nil && err != frameReaderWouldBlock {
+			return nil, err
+		}
 	}
 
+	pt := &TLSPlaintext{}
 	// Validate content type
 	switch RecordType(header[0]) {
 	default:
@@ -215,12 +246,8 @@ func (r *RecordLayer) nextRecord() (*TLSPlaintext, error) {
 		return nil, fmt.Errorf("tls.record: Ciphertext size too big")
 	}
 
-	// Attempt to read fragment
 	pt.fragment = make([]byte, size)
-	err = r.readFullBuffer(pt.fragment[:0])
-	if err != nil {
-		return nil, err
-	}
+	copy(pt.fragment, body)
 
 	// Attempt to decrypt fragment
 	if r.cipher != nil {

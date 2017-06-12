@@ -100,40 +100,57 @@ func HandshakeMessageFromBody(body HandshakeMessageBody) (*HandshakeMessage, err
 }
 
 type HandshakeLayer struct {
-	conn   *RecordLayer // Used for reading/writing records
-	buffer []byte       // Read buffer
+	nonblocking bool         // Should we operate in nonblocking mode
+	conn        *RecordLayer // Used for reading/writing records
+	frame       *frameReader // The buffered frame reader
+}
+
+type handshakeLayerFrameDetails struct{}
+
+func (d handshakeLayerFrameDetails) headerLen() int {
+	return handshakeHeaderLen
+}
+
+func (d handshakeLayerFrameDetails) defaultReadLen() int {
+	return handshakeHeaderLen + maxFragmentLen
+}
+
+func (d handshakeLayerFrameDetails) frameLen(hdr []byte) (int, error) {
+	logf(logTypeIO, "Header=%x", hdr)
+	return (int(hdr[1]) << 16) | (int(hdr[2]) << 8) | int(hdr[3]), nil
 }
 
 func NewHandshakeLayer(r *RecordLayer) *HandshakeLayer {
 	h := HandshakeLayer{}
 	h.conn = r
-	h.buffer = []byte{}
+	h.frame = newFrameReader(&handshakeLayerFrameDetails{})
 	return &h
 }
 
-func (h *HandshakeLayer) extendBuffer(n int) error {
-	for len(h.buffer) < n {
-		pt, err := h.conn.ReadRecord()
-		if err != nil {
-			return err
-		}
-
-		if pt.contentType != RecordTypeHandshake &&
-			pt.contentType != RecordTypeAlert {
-			return fmt.Errorf("tls.handshakelayer: Unexpected record type %d", pt.contentType)
-		}
-
-		if pt.contentType == RecordTypeAlert {
-			logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(h.buffer), h.buffer)
-			if len(pt.fragment) < 2 {
-				h.sendAlert(AlertUnexpectedMessage)
-				return io.EOF
-			}
-			return Alert(pt.fragment[1])
-		}
-
-		h.buffer = append(h.buffer, pt.fragment...)
+func (h *HandshakeLayer) readRecord() error {
+	logf(logTypeIO, "Trying to read record")
+	pt, err := h.conn.ReadRecord()
+	if err != nil {
+		return err
 	}
+
+	if pt.contentType != RecordTypeHandshake &&
+		pt.contentType != RecordTypeAlert {
+		return fmt.Errorf("tls.handshakelayer: Unexpected record type %d", pt.contentType)
+	}
+
+	if pt.contentType == RecordTypeAlert {
+		logf(logTypeIO, "read alert %v", pt.fragment[1])
+		if len(pt.fragment) < 2 {
+			h.sendAlert(AlertUnexpectedMessage)
+			return io.EOF
+		}
+		return Alert(pt.fragment[1])
+	}
+
+	logf(logTypeIO, "read handshake record of len %v", len(pt.fragment))
+	h.frame.addChunk(pt.fragment)
+
 	return nil
 }
 
@@ -155,24 +172,34 @@ func (h *HandshakeLayer) sendAlert(err Alert) error {
 }
 
 func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
-	// Read the header
-	err := h.extendBuffer(handshakeHeaderLen)
-	if err != nil {
-		return nil, err
+	var hdr, body []byte
+	err := frameReaderWouldBlock
+
+	for {
+		if h.frame.needed() > 0 {
+			err = h.readRecord()
+		}
+		if err != nil && (h.nonblocking || err != frameReaderWouldBlock) {
+			return nil, err
+		}
+
+		hdr, body, err = h.frame.process()
+		if err == nil {
+			break
+		}
+		if err != nil && (h.nonblocking || err != frameReaderWouldBlock) {
+			return nil, err
+		}
 	}
+
+	logf(logTypeHandshake, "read handshake message")
 
 	hm := &HandshakeMessage{}
-	hm.msgType = HandshakeType(h.buffer[0])
-	hmLen := (int(h.buffer[1]) << 16) + (int(h.buffer[2]) << 8) + int(h.buffer[3])
+	hm.msgType = HandshakeType(hdr[0])
 
-	// Read the body
-	err = h.extendBuffer(handshakeHeaderLen + hmLen)
-	if err != nil {
-		return nil, err
-	}
+	hm.body = make([]byte, len(body))
+	copy(hm.body, body)
 
-	hm.body = h.buffer[handshakeHeaderLen : handshakeHeaderLen+hmLen]
-	h.buffer = h.buffer[handshakeHeaderLen+hmLen:]
 	return hm, nil
 }
 

@@ -17,6 +17,8 @@ const (
 	logTypeHandshake   = "handshake"
 	logTypeNegotiation = "negotiation"
 	logTypeIO          = "io"
+	logTypeFrameReader = "frame"
+	logTypeVerbose     = "verbose"
 )
 
 var (
