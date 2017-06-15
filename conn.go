@@ -677,7 +677,7 @@ func (c *Conn) Handshake() Alert {
 	c.state = state.(StateConnected)
 
 	// Send NewSessionTicket if acting as server
-	if !c.isClient {
+	if !c.isClient && c.config.SendSessionTickets {
 		actions, alert := c.state.NewSessionTicket(
 			c.config.TicketLen,
 			c.config.TicketLifetime,
