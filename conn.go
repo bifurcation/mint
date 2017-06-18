@@ -295,7 +295,6 @@ func (c *Conn) consumeRecord() error {
 	return err
 }
 
-
 // Read application data up to the size of buffer.  Handshake and alert records
 // are consumed by the Conn object directly.
 func (c *Conn) Read(buffer []byte) (int, error) {
@@ -629,7 +628,6 @@ func (c *Conn) Handshake() Alert {
 	} else {
 		logf(logTypeHandshake, "Re-entering handshake, state=%v", c.hState)
 	}
-	
 
 	state := c.hState
 	_, connected := state.(StateConnected)
@@ -657,7 +655,7 @@ func (c *Conn) Handshake() Alert {
 			logf(logTypeHandshake, "Error in state transition: %v", alert)
 			return alert
 		}
-		
+
 		for index, action := range actions {
 			logf(logTypeHandshake, "%s taking next action (%d)", label, index)
 			alert = c.takeAction(action)
@@ -728,4 +726,21 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 
 func (c *Conn) GetHsState() string {
 	return reflect.TypeOf(c.hState).Name()
+}
+
+func (c *Conn) ComputeExporter(label string, context []byte, keyLength int) ([]byte, error) {
+	_, ok := c.hState.(StateConnected)
+	if !ok {
+		return nil, fmt.Errorf("Cannot compute exporter when state is not connected")
+	}
+
+	if c.state.exporterSecret == nil {
+		return nil, fmt.Errorf("Internal error: no exporter secret")
+	}
+
+	h0 := c.state.cryptoParams.hash.New().Sum(nil)
+	tmpSecret := deriveSecret(c.state.cryptoParams, c.state.exporterSecret, label, h0)
+
+	hc := c.state.cryptoParams.hash.New().Sum(context)
+	return hkdfExpandLabel(c.state.cryptoParams.hash, tmpSecret, "exporter", hc, keyLength), nil
 }

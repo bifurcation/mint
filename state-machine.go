@@ -87,6 +87,7 @@ type StateConnected struct {
 	resumptionSecret    []byte
 	clientTrafficSecret []byte
 	serverTrafficSecret []byte
+	exporterSecret      []byte
 }
 
 func (state *StateConnected) KeyUpdate(request KeyUpdateRequest) ([]HandshakeAction, Alert) {
