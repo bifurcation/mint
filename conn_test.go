@@ -3,8 +3,8 @@ package mint
 import (
 	"bytes"
 	"crypto/x509"
-	"io"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"testing"
@@ -70,7 +70,7 @@ func (p *pipeConn) SetWriteDeadline(t time.Time) error { return nil }
 
 type bufferedConn struct {
 	buffer bytes.Buffer
-	w net.Conn
+	w      net.Conn
 }
 
 func (b *bufferedConn) Write(buf []byte) (n int, err error) {
@@ -92,7 +92,7 @@ func (p *bufferedConn) SetWriteDeadline(t time.Time) error { return nil }
 
 func (b *bufferedConn) Flush() error {
 	buf := b.buffer.Bytes()
-	
+
 	n, err := b.w.Write(buf)
 	if err != nil {
 		return err
@@ -103,11 +103,11 @@ func (b *bufferedConn) Flush() error {
 	b.buffer.Reset()
 	return nil
 }
-		
+
 func newBufferedConn(p net.Conn) *bufferedConn {
 	return &bufferedConn{bytes.Buffer{}, p}
 }
-	
+
 var (
 	serverName = "example.com"
 
@@ -204,7 +204,7 @@ var (
 	nbConfig = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
-		NonBlocking : true,
+		NonBlocking:  true,
 	}
 
 	hrrConfig = &Config{
@@ -274,6 +274,12 @@ func assertKeySetEquals(t *testing.T, k1, k2 keySet) {
 	assertByteEquals(t, k1.key, k2.key)
 }
 
+func computeExporter(t *testing.T, c *Conn, label string, length int) []byte {
+	res, err := c.ComputeExporter(label, []byte{}, length)
+	assertNotError(t, err, "Could not compute exporter")
+	return res
+}
+
 func TestBasicFlows(t *testing.T) {
 	for _, conf := range []*Config{basicConfig, hrrConfig, alpnConfig, ffdhConfig, x25519Config} {
 		cConn, sConn := pipe()
@@ -300,6 +306,10 @@ func TestBasicFlows(t *testing.T) {
 		assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
 		assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
 		assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+		assertByteEquals(t, client.state.exporterSecret, server.state.exporterSecret)
+		assertByteEquals(t, computeExporter(t, client, "E", 20), computeExporter(t, server, "E", 20))
+		assertNotByteEquals(t, computeExporter(t, client, "E", 20), computeExporter(t, server, "E", 21))
+		assertNotByteEquals(t, computeExporter(t, client, "E", 20), computeExporter(t, server, "F", 20))
 	}
 }
 
@@ -622,14 +632,14 @@ func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
 	assertEquals(t, clientAlert, AlertWouldBlock)
 	serverAlert = server.Handshake()
 	assertEquals(t, serverAlert, AlertWouldBlock)
-	
+
 	// Release ClientHello
 	cbConn.Flush()
 
 	// Process ClientHello, send server first flight.
 	serverAlert = server.Handshake()
 	assertEquals(t, serverAlert, AlertWouldBlock)
-	
+
 	clientAlert = client.Handshake()
 	assertEquals(t, clientAlert, AlertWouldBlock)
 
@@ -645,7 +655,7 @@ func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
 	cbConn.Flush()
 	serverAlert = server.Handshake()
 	assertEquals(t, serverAlert, AlertNoAlert)
-	
+
 	assertDeepEquals(t, client.state.Params, server.state.Params)
 	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
 	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)

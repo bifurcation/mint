@@ -523,6 +523,9 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 	serverTrafficKeys := makeTrafficKeys(params, serverTrafficSecret)
 	toSend = append(toSend, RekeyOut{Label: "application", KeySet: serverTrafficKeys})
 
+	exporterSecret := deriveSecret(params, masterSecret, labelExporterSecret, h4)
+	logf(logTypeCrypto, "server exporter secret: [%d] %x", len(exporterSecret), exporterSecret)
+
 	if state.Params.UsingEarlyData {
 		clientEarlyTrafficKeys := makeTrafficKeys(params, state.clientEarlyTrafficSecret)
 
@@ -536,6 +539,7 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 			clientHandshakeTrafficSecret: clientHandshakeTrafficSecret,
 			clientTrafficSecret:          clientTrafficSecret,
 			serverTrafficSecret:          serverTrafficSecret,
+			exporterSecret:               exporterSecret,
 		}
 		toSend = append(toSend, []HandshakeAction{
 			RekeyIn{Label: "early", KeySet: clientEarlyTrafficKeys},
@@ -558,6 +562,7 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 		clientHandshakeTrafficSecret: clientHandshakeTrafficSecret,
 		clientTrafficSecret:          clientTrafficSecret,
 		serverTrafficSecret:          serverTrafficSecret,
+		exporterSecret:               exporterSecret,
 	}
 	nextState, moreToSend, alert := waitFlight2.Next(nil)
 	toSend = append(toSend, moreToSend...)
@@ -573,6 +578,7 @@ type ServerStateWaitEOED struct {
 	handshakeHash                hash.Hash
 	clientTrafficSecret          []byte
 	serverTrafficSecret          []byte
+	exporterSecret               []byte
 }
 
 func (state ServerStateWaitEOED) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
@@ -603,6 +609,7 @@ func (state ServerStateWaitEOED) Next(hm *HandshakeMessage) (HandshakeState, []H
 		clientHandshakeTrafficSecret: state.clientHandshakeTrafficSecret,
 		clientTrafficSecret:          state.clientTrafficSecret,
 		serverTrafficSecret:          state.serverTrafficSecret,
+		exporterSecret:               state.exporterSecret,
 	}
 	nextState, moreToSend, alert := waitFlight2.Next(nil)
 	toSend = append(toSend, moreToSend...)
@@ -618,6 +625,7 @@ type ServerStateWaitFlight2 struct {
 	handshakeHash                hash.Hash
 	clientTrafficSecret          []byte
 	serverTrafficSecret          []byte
+	exporterSecret               []byte
 }
 
 func (state ServerStateWaitFlight2) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
@@ -637,6 +645,7 @@ func (state ServerStateWaitFlight2) Next(hm *HandshakeMessage) (HandshakeState, 
 			clientHandshakeTrafficSecret: state.clientHandshakeTrafficSecret,
 			clientTrafficSecret:          state.clientTrafficSecret,
 			serverTrafficSecret:          state.serverTrafficSecret,
+			exporterSecret:               state.exporterSecret,
 		}
 		return nextState, nil, AlertNoAlert
 	}
@@ -650,6 +659,7 @@ func (state ServerStateWaitFlight2) Next(hm *HandshakeMessage) (HandshakeState, 
 		handshakeHash:                state.handshakeHash,
 		clientTrafficSecret:          state.clientTrafficSecret,
 		serverTrafficSecret:          state.serverTrafficSecret,
+		exporterSecret:               state.exporterSecret,
 	}
 	return nextState, nil, AlertNoAlert
 }
@@ -663,6 +673,7 @@ type ServerStateWaitCert struct {
 	handshakeHash                hash.Hash
 	clientTrafficSecret          []byte
 	serverTrafficSecret          []byte
+	exporterSecret               []byte
 }
 
 func (state ServerStateWaitCert) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
@@ -692,6 +703,7 @@ func (state ServerStateWaitCert) Next(hm *HandshakeMessage) (HandshakeState, []H
 			handshakeHash:                state.handshakeHash,
 			clientTrafficSecret:          state.clientTrafficSecret,
 			serverTrafficSecret:          state.serverTrafficSecret,
+			exporterSecret:               state.exporterSecret,
 		}
 		return nextState, nil, AlertNoAlert
 	}
@@ -707,6 +719,7 @@ func (state ServerStateWaitCert) Next(hm *HandshakeMessage) (HandshakeState, []H
 		clientTrafficSecret:          state.clientTrafficSecret,
 		serverTrafficSecret:          state.serverTrafficSecret,
 		clientCertificate:            cert,
+		exporterSecret:               state.exporterSecret,
 	}
 	return nextState, nil, AlertNoAlert
 }
@@ -722,6 +735,7 @@ type ServerStateWaitCV struct {
 	handshakeHash       hash.Hash
 	clientTrafficSecret []byte
 	serverTrafficSecret []byte
+	exporterSecret      []byte
 
 	clientCertificate *CertificateBody
 }
@@ -771,6 +785,7 @@ func (state ServerStateWaitCV) Next(hm *HandshakeMessage) (HandshakeState, []Han
 		handshakeHash:                state.handshakeHash,
 		clientTrafficSecret:          state.clientTrafficSecret,
 		serverTrafficSecret:          state.serverTrafficSecret,
+		exporterSecret:               state.exporterSecret,
 	}
 	return nextState, nil, AlertNoAlert
 }
@@ -785,6 +800,7 @@ type ServerStateWaitFinished struct {
 	handshakeHash       hash.Hash
 	clientTrafficSecret []byte
 	serverTrafficSecret []byte
+	exporterSecret      []byte
 }
 
 func (state ServerStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
@@ -831,6 +847,7 @@ func (state ServerStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 		resumptionSecret:    resumptionSecret,
 		clientTrafficSecret: state.clientTrafficSecret,
 		serverTrafficSecret: state.serverTrafficSecret,
+		exporterSecret:      state.exporterSecret,
 	}
 	toSend := []HandshakeAction{
 		RekeyIn{Label: "application", KeySet: clientTrafficKeys},
