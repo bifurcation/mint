@@ -323,32 +323,32 @@ func TestHKDF(t *testing.T) {
 	hkdfInput := unhex(hkdfInputHex)
 	hkdfSalt := unhex(hkdfSaltHex)
 	hkdfInfo := unhex(hkdfInfoHex)
-	hkdfExtractOutput := unhex(hkdfExtractOutputHex)
-	hkdfExtractZeroOutput := unhex(hkdfExtractZeroOutputHex)
-	hkdfExpandOutput := unhex(hkdfExpandOutputHex)
+	HkdfExtractOutput := unhex(hkdfExtractOutputHex)
+	HkdfExtractZeroOutput := unhex(hkdfExtractZeroOutputHex)
+	HkdfExpandOutput := unhex(hkdfExpandOutputHex)
 	hkdfHash := unhex(hkdfHashHex)
 	hkdfEncodedLabel := unhex(hkdfEncodedLabelHex)
-	hkdfExpandLabelOutput := unhex(hkdfExpandLabelOutputHex)
+	HkdfExpandLabelOutput := unhex(hkdfExpandLabelOutputHex)
 
-	// Test hkdfExtract is correct with salt
-	out := hkdfExtract(hash, hkdfSalt, hkdfInput)
-	assertByteEquals(t, out, hkdfExtractOutput)
+	// Test HkdfExtract is correct with salt
+	out := HkdfExtract(hash, hkdfSalt, hkdfInput)
+	assertByteEquals(t, out, HkdfExtractOutput)
 
-	// Test hkdfExtract is correct without salt
-	out = hkdfExtract(hash, nil, hkdfInput)
-	assertByteEquals(t, out, hkdfExtractZeroOutput)
+	// Test HkdfExtract is correct without salt
+	out = HkdfExtract(hash, nil, hkdfInput)
+	assertByteEquals(t, out, HkdfExtractZeroOutput)
 
-	// Test hkdfExpand is correct
-	out = hkdfExpand(hash, hkdfExtractOutput, hkdfInfo, hkdfExpandLen)
-	assertByteEquals(t, out, hkdfExpandOutput)
+	// Test HkdfExpand is correct
+	out = HkdfExpand(hash, HkdfExtractOutput, hkdfInfo, hkdfExpandLen)
+	assertByteEquals(t, out, HkdfExpandOutput)
 
 	// Test hkdfEncodeLabel is correct
 	out = hkdfEncodeLabel(hkdfLabel, hkdfHash, hkdfExpandLen)
 	assertByteEquals(t, out, hkdfEncodedLabel)
 
 	// This is pro-forma, just for the coverage
-	out = hkdfExpandLabel(hash, hkdfSalt, hkdfLabel, hkdfHash, hkdfExpandLen)
-	assertByteEquals(t, out, hkdfExpandLabelOutput)
+	out = HkdfExpandLabel(hash, hkdfSalt, hkdfLabel, hkdfHash, hkdfExpandLen)
+	assertByteEquals(t, out, HkdfExpandLabelOutput)
 }
 
 func random(n int) []byte {

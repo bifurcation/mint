@@ -53,12 +53,12 @@ func assertNotByteEquals(t *testing.T, a, b []byte) {
 	assert(t, !bytes.Equal(a, b), fmt.Sprintf("%+v == %+v", hex.EncodeToString(a), hex.EncodeToString(b)))
 }
 
-func assertCipherSuiteParamsEquals(t *testing.T, a, b cipherSuiteParams) {
-	assertEquals(t, a.suite, b.suite)
+func assertCipherSuiteParamsEquals(t *testing.T, a, b CipherSuiteParams) {
+	assertEquals(t, a.Suite, b.Suite)
 	// Can't compare aeadFactory values
-	assertEquals(t, a.hash, b.hash)
-	assertEquals(t, a.keyLen, b.keyLen)
-	assertEquals(t, a.ivLen, b.ivLen)
+	assertEquals(t, a.Hash, b.Hash)
+	assertEquals(t, a.KeyLen, b.KeyLen)
+	assertEquals(t, a.IvLen, b.IvLen)
 }
 
 func assertDeepEquals(t *testing.T, a, b interface{}) {

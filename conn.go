@@ -172,9 +172,9 @@ var (
 )
 
 type ConnectionState struct {
-	HandshakeComplete bool                // TLS handshake is complete
-	CipherSuite       CipherSuite         // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
-	PeerCertificates  []*x509.Certificate // certificate chain presented by remote peer
+	HandshakeState   string              // string representation of the handshake state.
+	CipherSuite      CipherSuiteParams   // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
+	PeerCertificates []*x509.Certificate // certificate chain presented by remote peer TODO(ekr@rtfm.com): implement
 }
 
 // Conn implements the net.Conn interface, as with "crypto/tls"
@@ -738,9 +738,21 @@ func (c *Conn) ComputeExporter(label string, context []byte, keyLength int) ([]b
 		return nil, fmt.Errorf("Internal error: no exporter secret")
 	}
 
-	h0 := c.state.cryptoParams.hash.New().Sum(nil)
+	h0 := c.state.cryptoParams.Hash.New().Sum(nil)
 	tmpSecret := deriveSecret(c.state.cryptoParams, c.state.exporterSecret, label, h0)
 
-	hc := c.state.cryptoParams.hash.New().Sum(context)
-	return hkdfExpandLabel(c.state.cryptoParams.hash, tmpSecret, "exporter", hc, keyLength), nil
+	hc := c.state.cryptoParams.Hash.New().Sum(context)
+	return HkdfExpandLabel(c.state.cryptoParams.Hash, tmpSecret, "exporter", hc, keyLength), nil
+}
+
+func (c *Conn) GetConnectionState() ConnectionState {
+	state := ConnectionState{
+		HandshakeState: c.GetHsState(),
+	}
+
+	if c.handshakeComplete {
+		state.CipherSuite = cipherSuiteMap[c.state.Params.CipherSuite]
+	}
+
+	return state
 }

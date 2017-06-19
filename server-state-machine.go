@@ -131,7 +131,7 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	canDoPSK := false
 	var selectedPSK int
 	var psk *PreSharedKey
-	var params cipherSuiteParams
+	var params CipherSuiteParams
 	if len(clientPSK.Identities) > 0 {
 		contextBase := []byte{}
 		if state.helloRetryRequest != nil {
@@ -191,7 +191,7 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		}
 
 		params := cipherSuiteMap[connParams.CipherSuite]
-		h := params.hash.New()
+		h := params.Hash.New()
 		h.Write(clientHello.Marshal())
 		firstClientHello := &HandshakeMessage{
 			msgType: HandshakeTypeMessageHash,
@@ -250,12 +250,12 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	connParams.UsingEarlyData = EarlyDataNegotiation(connParams.UsingPSK, gotEarlyData, state.Caps.AllowEarlyData)
 	if connParams.UsingEarlyData {
 
-		h := params.hash.New()
+		h := params.Hash.New()
 		h.Write(clientHello.Marshal())
 		chHash := h.Sum(nil)
 
-		zero := bytes.Repeat([]byte{0}, params.hash.Size())
-		earlySecret := hkdfExtract(params.hash, zero, pskSecret)
+		zero := bytes.Repeat([]byte{0}, params.Hash.Size())
+		earlySecret := HkdfExtract(params.Hash, zero, pskSecret)
 		clientEarlyTrafficSecret = deriveSecret(params, earlySecret, labelEarlyTrafficSecret, chHash)
 	}
 
@@ -357,34 +357,34 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 	}
 
 	// Start up the handshake hash
-	handshakeHash := params.hash.New()
+	handshakeHash := params.Hash.New()
 	handshakeHash.Write(state.firstClientHello.Marshal())
 	handshakeHash.Write(state.helloRetryRequest.Marshal())
 	handshakeHash.Write(state.clientHello.Marshal())
 	handshakeHash.Write(serverHello.Marshal())
 
 	// Compute handshake secrets
-	zero := bytes.Repeat([]byte{0}, params.hash.Size())
+	zero := bytes.Repeat([]byte{0}, params.Hash.Size())
 
 	var earlySecret []byte
 	if state.Params.UsingPSK {
-		earlySecret = hkdfExtract(params.hash, zero, state.pskSecret)
+		earlySecret = HkdfExtract(params.Hash, zero, state.pskSecret)
 	} else {
-		earlySecret = hkdfExtract(params.hash, zero, zero)
+		earlySecret = HkdfExtract(params.Hash, zero, zero)
 	}
 
 	if state.dhSecret == nil {
 		state.dhSecret = zero
 	}
 
-	h0 := params.hash.New().Sum(nil)
+	h0 := params.Hash.New().Sum(nil)
 	h2 := handshakeHash.Sum(nil)
 	preHandshakeSecret := deriveSecret(params, earlySecret, labelDerived, h0)
-	handshakeSecret := hkdfExtract(params.hash, preHandshakeSecret, state.dhSecret)
+	handshakeSecret := HkdfExtract(params.Hash, preHandshakeSecret, state.dhSecret)
 	clientHandshakeTrafficSecret := deriveSecret(params, handshakeSecret, labelClientHandshakeTrafficSecret, h2)
 	serverHandshakeTrafficSecret := deriveSecret(params, handshakeSecret, labelServerHandshakeTrafficSecret, h2)
 	preMasterSecret := deriveSecret(params, handshakeSecret, labelDerived, h0)
-	masterSecret := hkdfExtract(params.hash, preMasterSecret, zero)
+	masterSecret := HkdfExtract(params.Hash, preMasterSecret, zero)
 
 	logf(logTypeCrypto, "early secret (init!): [%d] %x", len(earlySecret), earlySecret)
 	logf(logTypeCrypto, "handshake secret: [%d] %x", len(handshakeSecret), handshakeSecret)
@@ -472,7 +472,7 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 		handshakeHash.Write(certm.Marshal())
 
 		certificateVerify := &CertificateVerifyBody{Algorithm: state.certScheme}
-		logf(logTypeHandshake, "Creating CertVerify: %04x %v", state.certScheme, params.hash)
+		logf(logTypeHandshake, "Creating CertVerify: %04x %v", state.certScheme, params.Hash)
 
 		hcv := handshakeHash.Sum(nil)
 		logf(logTypeHandshake, "Handshake Hash to be verified: [%d] %x", len(hcv), hcv)
@@ -572,7 +572,7 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 type ServerStateWaitEOED struct {
 	AuthCertificate              func(chain []CertificateEntry) error
 	Params                       ConnectionParameters
-	cryptoParams                 cipherSuiteParams
+	cryptoParams                 CipherSuiteParams
 	masterSecret                 []byte
 	clientHandshakeTrafficSecret []byte
 	handshakeHash                hash.Hash
@@ -619,7 +619,7 @@ func (state ServerStateWaitEOED) Next(hm *HandshakeMessage) (HandshakeState, []H
 type ServerStateWaitFlight2 struct {
 	AuthCertificate              func(chain []CertificateEntry) error
 	Params                       ConnectionParameters
-	cryptoParams                 cipherSuiteParams
+	cryptoParams                 CipherSuiteParams
 	masterSecret                 []byte
 	clientHandshakeTrafficSecret []byte
 	handshakeHash                hash.Hash
@@ -667,7 +667,7 @@ func (state ServerStateWaitFlight2) Next(hm *HandshakeMessage) (HandshakeState, 
 type ServerStateWaitCert struct {
 	AuthCertificate              func(chain []CertificateEntry) error
 	Params                       ConnectionParameters
-	cryptoParams                 cipherSuiteParams
+	cryptoParams                 CipherSuiteParams
 	masterSecret                 []byte
 	clientHandshakeTrafficSecret []byte
 	handshakeHash                hash.Hash
@@ -727,7 +727,7 @@ func (state ServerStateWaitCert) Next(hm *HandshakeMessage) (HandshakeState, []H
 type ServerStateWaitCV struct {
 	AuthCertificate func(chain []CertificateEntry) error
 	Params          ConnectionParameters
-	cryptoParams    cipherSuiteParams
+	cryptoParams    CipherSuiteParams
 
 	masterSecret                 []byte
 	clientHandshakeTrafficSecret []byte
@@ -792,7 +792,7 @@ func (state ServerStateWaitCV) Next(hm *HandshakeMessage) (HandshakeState, []Han
 
 type ServerStateWaitFinished struct {
 	Params       ConnectionParameters
-	cryptoParams cipherSuiteParams
+	cryptoParams CipherSuiteParams
 
 	masterSecret                 []byte
 	clientHandshakeTrafficSecret []byte
@@ -809,7 +809,7 @@ func (state ServerStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	fin := &FinishedBody{VerifyDataLen: state.cryptoParams.hash.Size()}
+	fin := &FinishedBody{VerifyDataLen: state.cryptoParams.Hash.Size()}
 	_, err := fin.Unmarshal(hm.body)
 	if err != nil {
 		logf(logTypeHandshake, "[ServerStateWaitFinished] Error decoding message %v", err)
