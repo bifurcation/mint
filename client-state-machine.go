@@ -153,7 +153,7 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 
 		compatibleSuites := []CipherSuite{}
 		for _, suite := range ch.CipherSuites {
-			if cipherSuiteMap[suite].hash == params.hash {
+			if cipherSuiteMap[suite].Hash == params.Hash {
 				compatibleSuites = append(compatibleSuites, suite)
 			}
 		}
@@ -194,17 +194,17 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 			},
 			Binders: []PSKBinderEntry{
 				// Note: Stub to get the length fields right
-				{Binder: bytes.Repeat([]byte{0x00}, params.hash.Size())},
+				{Binder: bytes.Repeat([]byte{0x00}, params.Hash.Size())},
 			},
 		}
 		ch.Extensions.Add(psk)
 
 		// Compute the binder key
-		h0 := params.hash.New().Sum(nil)
-		zero := bytes.Repeat([]byte{0}, params.hash.Size())
+		h0 := params.Hash.New().Sum(nil)
+		zero := bytes.Repeat([]byte{0}, params.Hash.Size())
 
-		earlyHash = params.hash
-		earlySecret = hkdfExtract(params.hash, zero, key.Key)
+		earlyHash = params.Hash
+		earlySecret = HkdfExtract(params.Hash, zero, key.Key)
 		logf(logTypeCrypto, "early secret: [%d] %x", len(earlySecret), earlySecret)
 
 		binderLabel := labelExternalBinder
@@ -221,7 +221,7 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 			return nil, nil, AlertInternalError
 		}
 
-		truncHash := params.hash.New()
+		truncHash := params.Hash.New()
 		truncHash.Write(trunc)
 
 		binder := computeFinishedData(params, binderKey, truncHash.Sum(nil))
@@ -235,7 +235,7 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		clientHello, _ = HandshakeMessageFromBody(ch)
 
 		// Compute early traffic keys
-		h := params.hash.New()
+		h := params.Hash.New()
 		h.Write(clientHello.Marshal())
 		chHash := h.Sum(nil)
 
@@ -351,7 +351,7 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 		// Hash the body into a pseudo-message
 		// XXX: Ignoring some errors here
 		params := cipherSuiteMap[hrr.CipherSuite]
-		h := params.hash.New()
+		h := params.Hash.New()
 		h.Write(state.clientHello.Marshal())
 		firstClientHello := &HandshakeMessage{
 			msgType: HandshakeTypeMessageHash,
@@ -420,39 +420,39 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 		}
 
 		// Start up the handshake hash
-		handshakeHash := params.hash.New()
+		handshakeHash := params.Hash.New()
 		handshakeHash.Write(state.firstClientHello.Marshal())
 		handshakeHash.Write(state.helloRetryRequest.Marshal())
 		handshakeHash.Write(state.clientHello.Marshal())
 		handshakeHash.Write(hm.Marshal())
 
 		// Compute handshake secrets
-		zero := bytes.Repeat([]byte{0}, params.hash.Size())
+		zero := bytes.Repeat([]byte{0}, params.Hash.Size())
 
 		var earlySecret []byte
 		if state.Params.UsingPSK {
-			if params.hash != state.earlyHash {
+			if params.Hash != state.earlyHash {
 				logf(logTypeCrypto, "Change of hash between early and normal init early=[%02x] suite=[%04x] hash=[%02x]",
-					state.earlyHash, suite, params.hash)
+					state.earlyHash, suite, params.Hash)
 			}
 
 			earlySecret = state.earlySecret
 		} else {
-			earlySecret = hkdfExtract(params.hash, zero, zero)
+			earlySecret = HkdfExtract(params.Hash, zero, zero)
 		}
 
 		if dhSecret == nil {
 			dhSecret = zero
 		}
 
-		h0 := params.hash.New().Sum(nil)
+		h0 := params.Hash.New().Sum(nil)
 		h2 := handshakeHash.Sum(nil)
 		preHandshakeSecret := deriveSecret(params, earlySecret, labelDerived, h0)
-		handshakeSecret := hkdfExtract(params.hash, preHandshakeSecret, dhSecret)
+		handshakeSecret := HkdfExtract(params.Hash, preHandshakeSecret, dhSecret)
 		clientHandshakeTrafficSecret := deriveSecret(params, handshakeSecret, labelClientHandshakeTrafficSecret, h2)
 		serverHandshakeTrafficSecret := deriveSecret(params, handshakeSecret, labelServerHandshakeTrafficSecret, h2)
 		preMasterSecret := deriveSecret(params, handshakeSecret, labelDerived, h0)
-		masterSecret := hkdfExtract(params.hash, preMasterSecret, zero)
+		masterSecret := HkdfExtract(params.Hash, preMasterSecret, zero)
 
 		logf(logTypeCrypto, "early secret: [%d] %x", len(earlySecret), earlySecret)
 		logf(logTypeCrypto, "handshake secret: [%d] %x", len(handshakeSecret), handshakeSecret)
@@ -485,7 +485,7 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 type ClientStateWaitEE struct {
 	AuthCertificate              func(chain []CertificateEntry) error
 	Params                       ConnectionParameters
-	cryptoParams                 cipherSuiteParams
+	cryptoParams                 CipherSuiteParams
 	handshakeHash                hash.Hash
 	certificates                 []*Certificate
 	masterSecret                 []byte
@@ -549,7 +549,7 @@ func (state ClientStateWaitEE) Next(hm *HandshakeMessage) (HandshakeState, []Han
 type ClientStateWaitCertCR struct {
 	AuthCertificate              func(chain []CertificateEntry) error
 	Params                       ConnectionParameters
-	cryptoParams                 cipherSuiteParams
+	cryptoParams                 CipherSuiteParams
 	handshakeHash                hash.Hash
 	certificates                 []*Certificate
 	masterSecret                 []byte
@@ -617,7 +617,7 @@ func (state ClientStateWaitCertCR) Next(hm *HandshakeMessage) (HandshakeState, [
 type ClientStateWaitCert struct {
 	AuthCertificate func(chain []CertificateEntry) error
 	Params          ConnectionParameters
-	cryptoParams    cipherSuiteParams
+	cryptoParams    CipherSuiteParams
 	handshakeHash   hash.Hash
 
 	certificates             []*Certificate
@@ -662,7 +662,7 @@ func (state ClientStateWaitCert) Next(hm *HandshakeMessage) (HandshakeState, []H
 type ClientStateWaitCV struct {
 	AuthCertificate func(chain []CertificateEntry) error
 	Params          ConnectionParameters
-	cryptoParams    cipherSuiteParams
+	cryptoParams    CipherSuiteParams
 	handshakeHash   hash.Hash
 
 	certificates             []*Certificate
@@ -724,7 +724,7 @@ func (state ClientStateWaitCV) Next(hm *HandshakeMessage) (HandshakeState, []Han
 
 type ClientStateWaitFinished struct {
 	Params        ConnectionParameters
-	cryptoParams  cipherSuiteParams
+	cryptoParams  CipherSuiteParams
 	handshakeHash hash.Hash
 
 	certificates             []*Certificate
@@ -842,7 +842,7 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 			logf(logTypeHandshake, "Handshake Hash to be verified: [%d] %x", len(hcv), hcv)
 
 			certificateVerify := &CertificateVerifyBody{Algorithm: certScheme}
-			logf(logTypeHandshake, "Creating CertVerify: %04x %v", certScheme, state.cryptoParams.hash)
+			logf(logTypeHandshake, "Creating CertVerify: %04x %v", certScheme, state.cryptoParams.Hash)
 
 			err = certificateVerify.Sign(cert.PrivateKey, hcv)
 			if err != nil {
