@@ -274,8 +274,8 @@ func assertKeySetEquals(t *testing.T, k1, k2 keySet) {
 	assertByteEquals(t, k1.key, k2.key)
 }
 
-func computeExporter(t *testing.T, c *Conn, label string, length int) []byte {
-	res, err := c.ComputeExporter(label, []byte{}, length)
+func computeExporter(t *testing.T, c *Conn, label string, context []byte, length int) []byte {
+	res, err := c.ComputeExporter(label, context, length)
 	assertNotError(t, err, "Could not compute exporter")
 	return res
 }
@@ -307,9 +307,15 @@ func TestBasicFlows(t *testing.T) {
 		assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
 		assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
 		assertByteEquals(t, client.state.exporterSecret, server.state.exporterSecret)
-		assertByteEquals(t, computeExporter(t, client, "E", 20), computeExporter(t, server, "E", 20))
-		assertNotByteEquals(t, computeExporter(t, client, "E", 20), computeExporter(t, server, "E", 21))
-		assertNotByteEquals(t, computeExporter(t, client, "E", 20), computeExporter(t, server, "F", 20))
+
+		emptyContext := []byte{}
+
+		assertByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 20))
+		assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 21))
+		assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "F", emptyContext, 20))
+		assertByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'A'}, 20))
+		assertNotByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'B'}, 20))
+		
 	}
 }
 
