@@ -729,8 +729,8 @@ func (c *Conn) GetHsState() string {
 }
 
 func (c *Conn) ComputeExporter(label string, context []byte, keyLength int) ([]byte, error) {
-	_, ok := c.hState.(StateConnected)
-	if !ok {
+	_, connected := c.hState.(StateConnected)
+	if !connected {
 		return nil, fmt.Errorf("Cannot compute exporter when state is not connected")
 	}
 
