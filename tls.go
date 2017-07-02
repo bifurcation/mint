@@ -40,6 +40,9 @@ func (l *Listener) Accept() (c net.Conn, err error) {
 	}
 	server := Server(c, l.config)
 	err = server.Handshake()
+	if err == AlertNoAlert {
+		err = nil
+	}
 	c = server
 	return
 }
