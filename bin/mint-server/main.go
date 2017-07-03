@@ -13,6 +13,7 @@ var port string
 func main() {
 	var config mint.Config
 	config.SendSessionTickets = true
+	config.ServerName = "localhost"
 	config.Init(false)
 
 	flag.StringVar(&port, "port", "4430", "port")
@@ -58,6 +59,7 @@ func handleClient(conn net.Conn) {
 			log.Printf("server: write: %s", err)
 			break
 		}
+		break
 	}
 	log.Println("server: conn: closed")
 }
