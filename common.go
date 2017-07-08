@@ -1,7 +1,7 @@
 package mint
 
 var (
-	supportedVersion uint16 = 0x7f14 // draft-20
+	supportedVersion uint16 = 0x7f15 // draft-21
 
 	// Flags for some minor compat issues
 	allowWrongVersionNumber = true
