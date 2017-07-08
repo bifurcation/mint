@@ -198,11 +198,12 @@ var (
 		"000a000d0006000404030503" // extensions
 
 	// NewSessionTicket test cases
-	ticketValidHex = "00010203" + "04050607" + "000408090a0b" + "0006eeff00021122"
+	ticketValidHex = "00010203" + "04050607" + "0408090a0b" + "00040c0d0e0f" + "0006eeff00021122"
 	ticketValidIn  = NewSessionTicketBody{
 		TicketLifetime: 0x00010203,
 		TicketAgeAdd:   0x04050607,
-		Ticket:         []byte{0x08, 0x09, 0x0a, 0x0b},
+		TicketNonce:    []byte{0x08, 0x09, 0x0a, 0x0b},
+		Ticket:         []byte{0x0c, 0x0d, 0x0e, 0x0f},
 		Extensions: []Extension{
 			{
 				ExtensionType: 0xeeff,

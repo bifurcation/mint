@@ -573,6 +573,7 @@ const (
 	labelResumptionSecret               = "res master"
 	labelDerived                        = "derived"
 	labelFinished                       = "finished"
+	labelResumption                     = "resumption"
 )
 
 // struct HkdfLabel {
