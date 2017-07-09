@@ -3,8 +3,8 @@ package mint
 import (
 	"bytes"
 	"fmt"
-	"net"
 	"io"
+	"net"
 	"testing"
 )
 
@@ -333,5 +333,3 @@ func TestNonblockingRecord(t *testing.T) {
 	assertEquals(t, pt.contentType, RecordTypeAlert)
 	assertByteEquals(t, pt.fragment, plaintext[5:])
 }
-	
-	

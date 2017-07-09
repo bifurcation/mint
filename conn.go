@@ -728,3 +728,20 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 func (c *Conn) GetHsState() string {
 	return reflect.TypeOf(c.hState).Name()
 }
+
+func (c *Conn) ComputeExporter(label string, context []byte, keyLength int) ([]byte, error) {
+	_, connected := c.hState.(StateConnected)
+	if !connected {
+		return nil, fmt.Errorf("Cannot compute exporter when state is not connected")
+	}
+
+	if c.state.exporterSecret == nil {
+		return nil, fmt.Errorf("Internal error: no exporter secret")
+	}
+
+	h0 := c.state.cryptoParams.hash.New().Sum(nil)
+	tmpSecret := deriveSecret(c.state.cryptoParams, c.state.exporterSecret, label, h0)
+
+	hc := c.state.cryptoParams.hash.New().Sum(context)
+	return hkdfExpandLabel(c.state.cryptoParams.hash, tmpSecret, "exporter", hc, keyLength), nil
+}

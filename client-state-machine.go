@@ -777,6 +777,9 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 	clientTrafficKeys := makeTrafficKeys(state.cryptoParams, clientTrafficSecret)
 	serverTrafficKeys := makeTrafficKeys(state.cryptoParams, serverTrafficSecret)
 
+	exporterSecret := deriveSecret(state.cryptoParams, state.masterSecret, labelExporterSecret, h4)
+	logf(logTypeCrypto, "client exporter secret: [%d] %x", len(exporterSecret), exporterSecret)
+
 	// Assemble client's second flight
 	toSend := []HandshakeAction{}
 
@@ -895,6 +898,7 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 		resumptionSecret:    resumptionSecret,
 		clientTrafficSecret: clientTrafficSecret,
 		serverTrafficSecret: serverTrafficSecret,
+		exporterSecret:      exporterSecret,
 	}
 	return nextState, toSend, AlertNoAlert
 }
