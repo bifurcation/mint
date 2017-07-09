@@ -127,11 +127,14 @@ func (state *StateConnected) NewSessionTicket(length int, lifetime, earlyDataLif
 		return nil, AlertInternalError
 	}
 
+	resumptionKey := hkdfExpandLabel(state.cryptoParams.hash, state.resumptionSecret,
+		labelResumption, tkt.TicketNonce, state.cryptoParams.hash.Size())
+
 	newPSK := PreSharedKey{
 		CipherSuite:  state.cryptoParams.suite,
 		IsResumption: true,
 		Identity:     tkt.Ticket,
-		Key:          state.resumptionSecret,
+		Key:          resumptionKey,
 		NextProto:    state.Params.NextProto,
 		ReceivedAt:   time.Now(),
 		ExpiresAt:    time.Now().Add(time.Duration(tkt.TicketLifetime) * time.Second),
@@ -196,11 +199,14 @@ func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []Handsh
 			return nil, nil, AlertUnexpectedMessage
 		}
 
+		resumptionKey := hkdfExpandLabel(state.cryptoParams.hash, state.resumptionSecret,
+			labelResumption, body.TicketNonce, state.cryptoParams.hash.Size())
+
 		psk := PreSharedKey{
 			CipherSuite:  state.cryptoParams.suite,
 			IsResumption: true,
 			Identity:     body.Ticket,
-			Key:          state.resumptionSecret,
+			Key:          resumptionKey,
 			NextProto:    state.Params.NextProto,
 			ReceivedAt:   time.Now(),
 			ExpiresAt:    time.Now().Add(time.Duration(body.TicketLifetime) * time.Second),

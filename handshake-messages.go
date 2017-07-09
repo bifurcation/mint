@@ -368,18 +368,22 @@ func (cr *CertificateRequestBody) Unmarshal(data []byte) (int, error) {
 // struct {
 //     uint32 ticket_lifetime;
 //     uint32 ticket_age_add;
+//		 opaque ticket_nonce<1..255>;
 //     opaque ticket<1..2^16-1>;
 //     Extension extensions<0..2^16-2>;
 // } NewSessionTicket;
 type NewSessionTicketBody struct {
 	TicketLifetime uint32
 	TicketAgeAdd   uint32
+	TicketNonce    []byte        `tls:"head=1,min=1"`
 	Ticket         []byte        `tls:"head=2,min=1"`
 	Extensions     ExtensionList `tls:"head=2"`
 }
 
+const ticketNonceLen = 16
+
 func NewSessionTicket(ticketLen int, ticketLifetime uint32) (*NewSessionTicketBody, error) {
-	buf := make([]byte, ticketLen+4)
+	buf := make([]byte, 4+ticketNonceLen+ticketLen)
 	_, err := prng.Read(buf)
 	if err != nil {
 		return nil, err
@@ -387,8 +391,9 @@ func NewSessionTicket(ticketLen int, ticketLifetime uint32) (*NewSessionTicketBo
 
 	tkt := &NewSessionTicketBody{
 		TicketLifetime: ticketLifetime,
-		TicketAgeAdd:   binary.BigEndian.Uint32(buf[ticketLen:]),
-		Ticket:         buf[:ticketLen],
+		TicketAgeAdd:   binary.BigEndian.Uint32(buf[:4]),
+		TicketNonce:    buf[4 : 4+ticketNonceLen],
+		Ticket:         buf[4+ticketNonceLen:],
 	}
 
 	return tkt, err
