@@ -176,6 +176,7 @@ type ConnectionState struct {
 	HandshakeState   string              // string representation of the handshake state.
 	CipherSuite      CipherSuiteParams   // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
 	PeerCertificates []*x509.Certificate // certificate chain presented by remote peer TODO(ekr@rtfm.com): implement
+	NextProto        string              // Selected ALPN proto
 }
 
 // Conn implements the net.Conn interface, as with "crypto/tls"
@@ -753,6 +754,7 @@ func (c *Conn) GetConnectionState() ConnectionState {
 
 	if c.handshakeComplete {
 		state.CipherSuite = cipherSuiteMap[c.state.Params.CipherSuite]
+		state.NextProto = c.state.Params.NextProto
 	}
 
 	return state
