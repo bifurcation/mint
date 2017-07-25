@@ -83,21 +83,22 @@ type ConnectionParameters struct {
 type StateConnected struct {
 	Params              ConnectionParameters
 	isClient            bool
-	cryptoParams        cipherSuiteParams
+	cryptoParams        CipherSuiteParams
 	resumptionSecret    []byte
 	clientTrafficSecret []byte
 	serverTrafficSecret []byte
+	exporterSecret      []byte
 }
 
 func (state *StateConnected) KeyUpdate(request KeyUpdateRequest) ([]HandshakeAction, Alert) {
 	var trafficKeys keySet
 	if state.isClient {
-		state.clientTrafficSecret = hkdfExpandLabel(state.cryptoParams.hash, state.clientTrafficSecret,
-			labelClientApplicationTrafficSecret, []byte{}, state.cryptoParams.hash.Size())
+		state.clientTrafficSecret = HkdfExpandLabel(state.cryptoParams.Hash, state.clientTrafficSecret,
+			labelClientApplicationTrafficSecret, []byte{}, state.cryptoParams.Hash.Size())
 		trafficKeys = makeTrafficKeys(state.cryptoParams, state.clientTrafficSecret)
 	} else {
-		state.serverTrafficSecret = hkdfExpandLabel(state.cryptoParams.hash, state.serverTrafficSecret,
-			labelServerApplicationTrafficSecret, []byte{}, state.cryptoParams.hash.Size())
+		state.serverTrafficSecret = HkdfExpandLabel(state.cryptoParams.Hash, state.serverTrafficSecret,
+			labelServerApplicationTrafficSecret, []byte{}, state.cryptoParams.Hash.Size())
 		trafficKeys = makeTrafficKeys(state.cryptoParams, state.serverTrafficSecret)
 	}
 
@@ -127,11 +128,11 @@ func (state *StateConnected) NewSessionTicket(length int, lifetime, earlyDataLif
 		return nil, AlertInternalError
 	}
 
-	resumptionKey := hkdfExpandLabel(state.cryptoParams.hash, state.resumptionSecret,
-		labelResumption, tkt.TicketNonce, state.cryptoParams.hash.Size())
+	resumptionKey := HkdfExpandLabel(state.cryptoParams.Hash, state.resumptionSecret,
+		labelResumption, tkt.TicketNonce, state.cryptoParams.Hash.Size())
 
 	newPSK := PreSharedKey{
-		CipherSuite:  state.cryptoParams.suite,
+		CipherSuite:  state.cryptoParams.Suite,
 		IsResumption: true,
 		Identity:     tkt.Ticket,
 		Key:          resumptionKey,
@@ -170,12 +171,12 @@ func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []Handsh
 	case *KeyUpdateBody:
 		var trafficKeys keySet
 		if !state.isClient {
-			state.clientTrafficSecret = hkdfExpandLabel(state.cryptoParams.hash, state.clientTrafficSecret,
-				labelClientApplicationTrafficSecret, []byte{}, state.cryptoParams.hash.Size())
+			state.clientTrafficSecret = HkdfExpandLabel(state.cryptoParams.Hash, state.clientTrafficSecret,
+				labelClientApplicationTrafficSecret, []byte{}, state.cryptoParams.Hash.Size())
 			trafficKeys = makeTrafficKeys(state.cryptoParams, state.clientTrafficSecret)
 		} else {
-			state.serverTrafficSecret = hkdfExpandLabel(state.cryptoParams.hash, state.serverTrafficSecret,
-				labelServerApplicationTrafficSecret, []byte{}, state.cryptoParams.hash.Size())
+			state.serverTrafficSecret = HkdfExpandLabel(state.cryptoParams.Hash, state.serverTrafficSecret,
+				labelServerApplicationTrafficSecret, []byte{}, state.cryptoParams.Hash.Size())
 			trafficKeys = makeTrafficKeys(state.cryptoParams, state.serverTrafficSecret)
 		}
 
@@ -199,11 +200,11 @@ func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []Handsh
 			return nil, nil, AlertUnexpectedMessage
 		}
 
-		resumptionKey := hkdfExpandLabel(state.cryptoParams.hash, state.resumptionSecret,
-			labelResumption, body.TicketNonce, state.cryptoParams.hash.Size())
+		resumptionKey := HkdfExpandLabel(state.cryptoParams.Hash, state.resumptionSecret,
+			labelResumption, body.TicketNonce, state.cryptoParams.Hash.Size())
 
 		psk := PreSharedKey{
-			CipherSuite:  state.cryptoParams.suite,
+			CipherSuite:  state.cryptoParams.Suite,
 			IsResumption: true,
 			Identity:     body.Ticket,
 			Key:          resumptionKey,
