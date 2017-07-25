@@ -2,8 +2,6 @@
 // This is used for both TLS Records and TLS Handshake Messages
 package mint
 
-import ()
-
 type framing interface {
 	headerLen() int
 	defaultReadLen() int

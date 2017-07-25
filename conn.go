@@ -747,7 +747,7 @@ func (c *Conn) ComputeExporter(label string, context []byte, keyLength int) ([]b
 	return HkdfExpandLabel(c.state.cryptoParams.Hash, tmpSecret, "exporter", hc, keyLength), nil
 }
 
-func (c *Conn) GetConnectionState() ConnectionState {
+func (c *Conn) State() ConnectionState {
 	state := ConnectionState{
 		HandshakeState: c.GetHsState(),
 	}
