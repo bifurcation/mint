@@ -173,7 +173,7 @@ func (h *HandshakeLayer) sendAlert(err Alert) error {
 
 func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 	var hdr, body []byte
-	err := error(nil)
+	var err error
 
 	for {
 		logf(logTypeHandshake, "ReadMessage() buffered=%v", len(h.frame.remainder))
