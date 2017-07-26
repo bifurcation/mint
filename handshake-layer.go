@@ -173,10 +173,12 @@ func (h *HandshakeLayer) sendAlert(err Alert) error {
 
 func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 	var hdr, body []byte
-	err := WouldBlock
+	var err error
 
 	for {
+		logf(logTypeHandshake, "ReadMessage() buffered=%v", len(h.frame.remainder))
 		if h.frame.needed() > 0 {
+			logf(logTypeHandshake, "Trying to read a new record")
 			err = h.readRecord()
 		}
 		if err != nil && (h.nonblocking || err != WouldBlock) {

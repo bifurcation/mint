@@ -29,12 +29,12 @@ var prng = rand.Reader
 
 type aeadFactory func(key []byte) (cipher.AEAD, error)
 
-type cipherSuiteParams struct {
-	suite  CipherSuite
-	cipher aeadFactory // Cipher factory
-	hash   crypto.Hash // Hash function
-	keyLen int         // Key length in octets
-	ivLen  int         // IV length in octets
+type CipherSuiteParams struct {
+	Suite  CipherSuite
+	Cipher aeadFactory // Cipher factory
+	Hash   crypto.Hash // Hash function
+	KeyLen int         // Key length in octets
+	IvLen  int         // IV length in octets
 }
 
 type signatureAlgorithm uint8
@@ -89,20 +89,20 @@ var (
 		return cipher.NewGCMWithNonceSize(block, 12)
 	}
 
-	cipherSuiteMap = map[CipherSuite]cipherSuiteParams{
+	cipherSuiteMap = map[CipherSuite]CipherSuiteParams{
 		TLS_AES_128_GCM_SHA256: {
-			suite:  TLS_AES_128_GCM_SHA256,
-			cipher: newAESGCM,
-			hash:   crypto.SHA256,
-			keyLen: 16,
-			ivLen:  12,
+			Suite:  TLS_AES_128_GCM_SHA256,
+			Cipher: newAESGCM,
+			Hash:   crypto.SHA256,
+			KeyLen: 16,
+			IvLen:  12,
 		},
 		TLS_AES_256_GCM_SHA384: {
-			suite:  TLS_AES_256_GCM_SHA384,
-			cipher: newAESGCM,
-			hash:   crypto.SHA384,
-			keyLen: 32,
-			ivLen:  12,
+			Suite:  TLS_AES_256_GCM_SHA384,
+			Cipher: newAESGCM,
+			Hash:   crypto.SHA384,
+			KeyLen: 32,
+			IvLen:  12,
 		},
 	}
 
@@ -540,7 +540,7 @@ func verify(alg SignatureScheme, publicKey crypto.PublicKey, sigInput []byte, si
 
 // From RFC 5869
 // PRK = HMAC-Hash(salt, IKM)
-func hkdfExtract(hash crypto.Hash, saltIn, input []byte) []byte {
+func HkdfExtract(hash crypto.Hash, saltIn, input []byte) []byte {
 	salt := saltIn
 
 	// if [salt is] not provided, it is set to a string of HashLen zeros
@@ -573,6 +573,7 @@ const (
 	labelResumptionSecret               = "res master"
 	labelDerived                        = "derived"
 	labelFinished                       = "finished"
+	labelResumption                     = "resumption"
 )
 
 // struct HkdfLabel {
@@ -596,7 +597,7 @@ func hkdfEncodeLabel(labelIn string, hashValue []byte, outLen int) []byte {
 	return hkdfLabel
 }
 
-func hkdfExpand(hash crypto.Hash, prk, info []byte, outLen int) []byte {
+func HkdfExpand(hash crypto.Hash, prk, info []byte, outLen int) []byte {
 	out := []byte{}
 	T := []byte{}
 	i := byte(1)
@@ -614,9 +615,9 @@ func hkdfExpand(hash crypto.Hash, prk, info []byte, outLen int) []byte {
 	return out[:outLen]
 }
 
-func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []byte, outLen int) []byte {
+func HkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []byte, outLen int) []byte {
 	info := hkdfEncodeLabel(label, hashValue, outLen)
-	derived := hkdfExpand(hash, secret, info, outLen)
+	derived := HkdfExpand(hash, secret, info, outLen)
 
 	logf(logTypeCrypto, "HKDF Expand: label=[tls13 ] + '%s',requested length=%d\n", label, outLen)
 	logf(logTypeCrypto, "PRK [%d]: %x\n", len(secret), secret)
@@ -627,13 +628,13 @@ func hkdfExpandLabel(hash crypto.Hash, secret []byte, label string, hashValue []
 	return derived
 }
 
-func deriveSecret(params cipherSuiteParams, secret []byte, label string, messageHash []byte) []byte {
-	return hkdfExpandLabel(params.hash, secret, label, messageHash, params.hash.Size())
+func deriveSecret(params CipherSuiteParams, secret []byte, label string, messageHash []byte) []byte {
+	return HkdfExpandLabel(params.Hash, secret, label, messageHash, params.Hash.Size())
 }
 
-func computeFinishedData(params cipherSuiteParams, baseKey []byte, input []byte) []byte {
-	macKey := hkdfExpandLabel(params.hash, baseKey, labelFinished, []byte{}, params.hash.Size())
-	mac := hmac.New(params.hash.New, macKey)
+func computeFinishedData(params CipherSuiteParams, baseKey []byte, input []byte) []byte {
+	macKey := HkdfExpandLabel(params.Hash, baseKey, labelFinished, []byte{}, params.Hash.Size())
+	mac := hmac.New(params.Hash.New, macKey)
 	mac.Write(input)
 	return mac.Sum(nil)
 }
@@ -644,11 +645,11 @@ type keySet struct {
 	iv     []byte
 }
 
-func makeTrafficKeys(params cipherSuiteParams, secret []byte) keySet {
+func makeTrafficKeys(params CipherSuiteParams, secret []byte) keySet {
 	logf(logTypeCrypto, "making traffic keys: secret=%x", secret)
 	return keySet{
-		cipher: params.cipher,
-		key:    hkdfExpandLabel(params.hash, secret, "key", []byte{}, params.keyLen),
-		iv:     hkdfExpandLabel(params.hash, secret, "iv", []byte{}, params.ivLen),
+		cipher: params.Cipher,
+		key:    HkdfExpandLabel(params.Hash, secret, "key", []byte{}, params.KeyLen),
+		iv:     HkdfExpandLabel(params.Hash, secret, "iv", []byte{}, params.IvLen),
 	}
 }
