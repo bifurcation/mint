@@ -106,7 +106,7 @@ const (
 	FFDHE3072 NamedGroup = 257
 	FFDHE4096 NamedGroup = 258
 	FFDHE6144 NamedGroup = 259
-	FFDHE8192 NamedGroup = 250
+	FFDHE8192 NamedGroup = 260
 )
 
 // enum {...} PskKeyExchangeMode;
