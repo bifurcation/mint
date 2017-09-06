@@ -36,6 +36,11 @@ type HandshakeState interface {
 	Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert)
 }
 
+type AppExtensionHandler interface {
+	Send(hs HandshakeType, el *ExtensionList) error
+	Receive(hs HandshakeType, el *ExtensionList) error
+}
+
 // Capabilities objects represent the capabilities of a TLS client or server,
 // as an input to TLS negotiation
 type Capabilities struct {
@@ -46,6 +51,7 @@ type Capabilities struct {
 	PSKs             PreSharedKeyCache
 	Certificates     []*Certificate
 	AuthCertificate  func(chain []CertificateEntry) error
+	ExtensionHandler AppExtensionHandler
 
 	// For client
 	PSKModes []PSKKeyExchangeMode

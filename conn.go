@@ -198,6 +198,8 @@ type Conn struct {
 	readBuffer []byte
 	in, out    *RecordLayer
 	hIn, hOut  *HandshakeLayer
+
+	extHandler AppExtensionHandler
 }
 
 func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
@@ -571,6 +573,7 @@ func (c *Conn) HandshakeSetup() Alert {
 		RequireClientAuth: c.config.RequireClientAuth,
 		NextProtos:        c.config.NextProtos,
 		Certificates:      c.config.Certificates,
+		ExtensionHandler:  c.extHandler,
 	}
 	opts := ConnectionOptions{
 		ServerName: c.config.ServerName,
@@ -758,4 +761,13 @@ func (c *Conn) State() ConnectionState {
 	}
 
 	return state
+}
+
+func (c *Conn) SetExtensionHandler(h AppExtensionHandler) error {
+	if c.hState != nil {
+		return fmt.Errorf("Can't set extension handler after setup")
+	}
+
+	c.extHandler = h
+	return nil
 }

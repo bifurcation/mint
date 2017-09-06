@@ -132,6 +132,15 @@ func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		}
 	}
 
+	// Run the external extension handler.
+	if state.Caps.ExtensionHandler != nil {
+		err := state.Caps.ExtensionHandler.Send(HandshakeTypeClientHello, &ch.Extensions)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error running external extension sender [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+	}
+
 	// Handle PSK and EarlyData just before transmitting, so that we can
 	// calculate the PSK binder value
 	var psk *PreSharedKeyExtension
@@ -338,6 +347,15 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 		// Narrow the supported ciphersuites to the server-provided one
 		state.Caps.CipherSuites = []CipherSuite{hrr.CipherSuite}
 
+		// Handle external extensions.
+		if state.Caps.ExtensionHandler != nil {
+			err := state.Caps.ExtensionHandler.Receive(HandshakeTypeHelloRetryRequest, &hrr.Extensions)
+			if err != nil {
+				logf(logTypeHandshake, "[ClientWaitSH] Error running external extension handler [%v]", err)
+				return nil, nil, AlertInternalError
+			}
+		}
+
 		// The only thing we know how to respond to in an HRR is the Cookie
 		// extension, so if there is either no Cookie extension or anything other
 		// than a Cookie extension, we have to fail.
@@ -384,6 +402,15 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 		if !supportedCipherSuite {
 			logf(logTypeHandshake, "[ClientStateWaitSH] Unsupported ciphersuite [%04x]", sh.CipherSuite)
 			return nil, nil, AlertHandshakeFailure
+		}
+
+		// Handle external extensions.
+		if state.Caps.ExtensionHandler != nil {
+			err := state.Caps.ExtensionHandler.Receive(HandshakeTypeServerHello, &sh.Extensions)
+			if err != nil {
+				logf(logTypeHandshake, "[ClientWaitSH] Error running external extension handler [%v]", err)
+				return nil, nil, AlertInternalError
+			}
 		}
 
 		// Do PSK or key agreement depending on extensions
@@ -464,6 +491,7 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 
 		logf(logTypeHandshake, "[ClientStateWaitSH] -> [ClientStateWaitEE]")
 		nextState := ClientStateWaitEE{
+			Caps:                         state.Caps,
 			Params:                       state.Params,
 			cryptoParams:                 params,
 			handshakeHash:                handshakeHash,
@@ -483,6 +511,7 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 }
 
 type ClientStateWaitEE struct {
+	Caps                         Capabilities
 	AuthCertificate              func(chain []CertificateEntry) error
 	Params                       ConnectionParameters
 	cryptoParams                 CipherSuiteParams
@@ -504,6 +533,15 @@ func (state ClientStateWaitEE) Next(hm *HandshakeMessage) (HandshakeState, []Han
 	if err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitEE] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
+	}
+
+	// Handle external extensions.
+	if state.Caps.ExtensionHandler != nil {
+		err := state.Caps.ExtensionHandler.Receive(HandshakeTypeEncryptedExtensions, &ee.Extensions)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientWaitStateEE] Error running external extension handler [%v]", err)
+			return nil, nil, AlertInternalError
+		}
 	}
 
 	serverALPN := ALPNExtension{}
