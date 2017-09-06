@@ -180,7 +180,7 @@ func main() {
 	if certChain != nil && priv != nil {
 		log.Printf("Loading cert: %v key: %v", certFile, keyFile)
 		config.Certificates = []*mint.Certificate{
-			&mint.Certificate{
+			{
 				Chain:      certChain,
 				PrivateKey: priv,
 			},

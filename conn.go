@@ -100,8 +100,8 @@ func (c *Config) Clone() *Config {
 		RequireCookie:      c.RequireCookie,
 		RequireClientAuth:  c.RequireClientAuth,
 
-		Certificates: c.Certificates,
-		// AuthCertificate:  c.AuthCertificate,
+		Certificates:     c.Certificates,
+		AuthCertificate:  c.AuthCertificate,
 		CipherSuites:     c.CipherSuites,
 		Groups:           c.Groups,
 		SignatureSchemes: c.SignatureSchemes,
@@ -160,14 +160,14 @@ func (c *Config) Init(isClient bool) error {
 	return nil
 }
 
-func (c Config) ValidForServer() bool {
+func (c *Config) ValidForServer() bool {
 	return (reflect.ValueOf(c.PSKs).IsValid() && c.PSKs.Size() > 0) ||
 		(len(c.Certificates) > 0 &&
 			len(c.Certificates[0].Chain) > 0 &&
 			c.Certificates[0].PrivateKey != nil)
 }
 
-func (c Config) ValidForClient() bool {
+func (c *Config) ValidForClient() bool {
 	return len(c.ServerName) > 0
 }
 
@@ -698,7 +698,7 @@ func (c *Conn) Handshake() Alert {
 		}
 
 		c.hState = state
-		logf(logTypeHandshake, "%s state is now %s", c.GetHsState())
+		logf(logTypeHandshake, "state is now %s", c.GetHsState())
 
 		_, connected = state.(StateConnected)
 	}
