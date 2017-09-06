@@ -83,6 +83,35 @@ type Config struct {
 	mutex sync.RWMutex
 }
 
+// Clone returns a shallow clone of c. It is safe to clone a Config that is
+// being used concurrently by a TLS client or server.
+func (c *Config) Clone() *Config {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return &Config{
+		ServerName: c.ServerName,
+
+		SendSessionTickets: c.SendSessionTickets,
+		TicketLifetime:     c.TicketLifetime,
+		TicketLen:          c.TicketLen,
+		EarlyDataLifetime:  c.EarlyDataLifetime,
+		AllowEarlyData:     c.AllowEarlyData,
+		RequireCookie:      c.RequireCookie,
+		RequireClientAuth:  c.RequireClientAuth,
+
+		Certificates: c.Certificates,
+		// AuthCertificate:  c.AuthCertificate,
+		CipherSuites:     c.CipherSuites,
+		Groups:           c.Groups,
+		SignatureSchemes: c.SignatureSchemes,
+		NextProtos:       c.NextProtos,
+		PSKs:             c.PSKs,
+		PSKModes:         c.PSKModes,
+		NonBlocking:      c.NonBlocking,
+	}
+}
+
 func (c *Config) Init(isClient bool) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
