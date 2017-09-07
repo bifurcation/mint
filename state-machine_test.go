@@ -70,6 +70,7 @@ var (
 				PSKs:             &PSKMapCache{},
 				Certificates:     certificates,
 				RequireCookie:    true,
+				CookieHandler:    &defaultCookieHandler{},
 			},
 			clientStateSequence: []HandshakeState{
 				ClientStateStart{},

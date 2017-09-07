@@ -59,8 +59,9 @@ import (
 
 type ServerStateStart struct {
 	Caps Capabilities
+	conn *Conn
 
-	cookie            []byte
+	cookieSent        bool
 	firstClientHello  *HandshakeMessage
 	helloRetryRequest *HandshakeMessage
 }
@@ -128,8 +129,8 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		return nil, nil, AlertProtocolVersion
 	}
 
-	if state.Caps.RequireCookie && state.cookie != nil && !bytes.Equal(state.cookie, clientCookie.Cookie) {
-		logf(logTypeHandshake, "[ServerStateStart] Cookie mismatch [%x] != [%x]", clientCookie.Cookie, state.cookie)
+	if state.Caps.RequireCookie && state.cookieSent && !state.Caps.CookieHandler.Validate(state.conn, clientCookie) {
+		logf(logTypeHandshake, "[ServerStateStart] Cookie mismatch")
 		return nil, nil, AlertAccessDenied
 	}
 
@@ -178,8 +179,8 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	// NB: Need to do this here because it's after ciphersuite selection, which
 	// has to be after PSK selection.
 	// XXX: Doing this statefully for now, could be stateless
-	if state.Caps.RequireCookie && state.cookie == nil {
-		cookie, err := NewCookie()
+	if state.Caps.RequireCookie && !state.cookieSent {
+		cookie, err := state.Caps.CookieHandler.Generate(state.conn)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateStart] Error generating cookie [%v]", err)
 			return nil, nil, AlertInternalError
@@ -218,7 +219,8 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 
 		nextState := ServerStateStart{
 			Caps:              state.Caps,
-			cookie:            cookie.Cookie,
+			conn:              state.conn,
+			cookieSent:        true,
 			firstClientHello:  firstClientHello,
 			helloRetryRequest: helloRetryRequest,
 		}
