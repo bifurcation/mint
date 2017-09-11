@@ -478,7 +478,7 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 		return nextState, toSend, AlertNoAlert
 	}
 
-	logf(logTypeHandshake, "[ClientStateWaitSH] Unexpected message [%s]", hm.msgType)
+	logf(logTypeHandshake, "[ClientStateWaitSH] Unexpected message [%d]", hm.msgType)
 	return nil, nil, AlertUnexpectedMessage
 }
 

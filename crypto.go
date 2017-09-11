@@ -212,7 +212,6 @@ func ffdheKeyShareFromPrime(p *big.Int) (priv, pub *big.Int, err error) {
 			return
 		}
 	}
-	return
 }
 
 func newKeyShare(group NamedGroup) (pub []byte, priv []byte, err error) {
