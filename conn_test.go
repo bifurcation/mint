@@ -676,3 +676,111 @@ func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
 	// read := make([]byte, 5)
 	// n, err = server.Read(buf)
 }
+
+type testExtensionHandler struct {
+	sent map[HandshakeType]bool
+	rcvd map[HandshakeType]bool
+}
+
+func newTestExtensionHandler() *testExtensionHandler {
+	return &testExtensionHandler{
+		make(map[HandshakeType]bool),
+		make(map[HandshakeType]bool),
+	}
+}
+
+type testExtensionBody struct {
+	t HandshakeType
+}
+
+const (
+	testExtensionType = ExtensionType(240) // Dummy type.
+)
+
+func (t testExtensionBody) Type() ExtensionType {
+	return testExtensionType
+}
+
+func (t testExtensionBody) Marshal() ([]byte, error) {
+	return []byte{byte(t.t)}, nil
+}
+
+func (t *testExtensionBody) Unmarshal(data []byte) (int, error) {
+	if len(data) != 1 {
+		return 0, fmt.Errorf("Illegal length")
+	}
+
+	t.t = HandshakeType(data[0])
+	return 1, nil
+}
+
+func (t *testExtensionHandler) Send(hs HandshakeType, el *ExtensionList) error {
+	t.sent[hs] = true
+	el.Add(&testExtensionBody{t: hs})
+	return nil
+}
+
+func (t *testExtensionHandler) Receive(hs HandshakeType, el *ExtensionList) error {
+	var body testExtensionBody
+
+	ok := el.Find(&body)
+	if !ok {
+		return fmt.Errorf("Couldn't find extension")
+	}
+
+	if hs != body.t {
+		return fmt.Errorf("Does not match hs type")
+	}
+
+	t.rcvd[hs] = true
+	return nil
+}
+
+func (h *testExtensionHandler) Check(t *testing.T, hs []HandshakeType) {
+	assertEquals(t, len(hs), len(h.sent))
+	assertEquals(t, len(hs), len(h.rcvd))
+
+	for _, ht := range hs {
+		v, ok := h.sent[ht]
+		assert(t, ok, "Cannot find handshake type in sent")
+		assert(t, v, "Value wasn't true in sent")
+		v, ok = h.rcvd[ht]
+		assert(t, ok, "Cannot find handshake type in rcvd")
+		assert(t, v, "Value wasn't true in rcvd")
+	}
+}
+
+func TestExternalExtensions(t *testing.T) {
+	cConn, sConn := pipe()
+
+	var handler = newTestExtensionHandler()
+	client := Client(cConn, basicConfig)
+	client.SetExtensionHandler(handler)
+	server := Server(sConn, basicConfig)
+	server.SetExtensionHandler(handler)
+
+	var clientAlert, serverAlert Alert
+
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+
+	<-done
+
+	assertDeepEquals(t, client.state.Params, server.state.Params)
+	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+	handler.Check(t, []HandshakeType{
+		HandshakeTypeClientHello,
+		HandshakeTypeServerHello,
+		HandshakeTypeEncryptedExtensions,
+	})
+}

@@ -92,6 +92,15 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	clientPSKModes := new(PSKKeyExchangeModesExtension)
 	clientCookie := new(CookieExtension)
 
+	// Handle external extensions.
+	if state.Caps.ExtensionHandler != nil {
+		err := state.Caps.ExtensionHandler.Receive(HandshakeTypeClientHello, &ch.Extensions)
+		if err != nil {
+			logf(logTypeHandshake, "[ServerStateStart] Error running external extension handler [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+	}
+
 	gotSupportedVersions := ch.Extensions.Find(supportedVersions)
 	gotServerName := ch.Extensions.Find(serverName)
 	gotSupportedGroups := ch.Extensions.Find(supportedGroups)
@@ -183,6 +192,15 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 			CipherSuite: connParams.CipherSuite,
 		}
 		hrr.Extensions.Add(cookie)
+
+		// Run the external extension handler.
+		if state.Caps.ExtensionHandler != nil {
+			err := state.Caps.ExtensionHandler.Send(HandshakeTypeHelloRetryRequest, &hrr.Extensions)
+			if err != nil {
+				logf(logTypeHandshake, "[ServerStateStart] Error running external extension sender [%v]", err)
+				return nil, nil, AlertInternalError
+			}
+		}
 
 		helloRetryRequest, err := HandshakeMessageFromBody(hrr)
 		if err != nil {
@@ -343,6 +361,15 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 		}
 	}
 
+	// Run the external extension handler.
+	if state.Caps.ExtensionHandler != nil {
+		err := state.Caps.ExtensionHandler.Send(HandshakeTypeServerHello, &sh.Extensions)
+		if err != nil {
+			logf(logTypeHandshake, "[ServerStateNegotiated] Error running external extension sender [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+	}
+
 	serverHello, err := HandshakeMessageFromBody(sh)
 	if err != nil {
 		logf(logTypeHandshake, "[ServerStateNegotiated] Error marshaling ServerHello [%v]", err)
@@ -414,6 +441,16 @@ func (state ServerStateNegotiated) Next(hm *HandshakeMessage) (HandshakeState, [
 		}
 	}
 	ee := &EncryptedExtensionsBody{eeList}
+
+	// Run the external extension handler.
+	if state.Caps.ExtensionHandler != nil {
+		err := state.Caps.ExtensionHandler.Send(HandshakeTypeEncryptedExtensions, &ee.Extensions)
+		if err != nil {
+			logf(logTypeHandshake, "[ServerStateNegotiated] Error running external extension sender [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+	}
+
 	eem, err := HandshakeMessageFromBody(ee)
 	if err != nil {
 		logf(logTypeHandshake, "[ServerStateNegotiated] Error marshaling EncryptedExtensions [%v]", err)
