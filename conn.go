@@ -83,6 +83,35 @@ type Config struct {
 	mutex sync.RWMutex
 }
 
+// Clone returns a shallow clone of c. It is safe to clone a Config that is
+// being used concurrently by a TLS client or server.
+func (c *Config) Clone() *Config {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return &Config{
+		ServerName: c.ServerName,
+
+		SendSessionTickets: c.SendSessionTickets,
+		TicketLifetime:     c.TicketLifetime,
+		TicketLen:          c.TicketLen,
+		EarlyDataLifetime:  c.EarlyDataLifetime,
+		AllowEarlyData:     c.AllowEarlyData,
+		RequireCookie:      c.RequireCookie,
+		RequireClientAuth:  c.RequireClientAuth,
+
+		Certificates:     c.Certificates,
+		AuthCertificate:  c.AuthCertificate,
+		CipherSuites:     c.CipherSuites,
+		Groups:           c.Groups,
+		SignatureSchemes: c.SignatureSchemes,
+		NextProtos:       c.NextProtos,
+		PSKs:             c.PSKs,
+		PSKModes:         c.PSKModes,
+		NonBlocking:      c.NonBlocking,
+	}
+}
+
 func (c *Config) Init(isClient bool) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -131,14 +160,14 @@ func (c *Config) Init(isClient bool) error {
 	return nil
 }
 
-func (c Config) ValidForServer() bool {
+func (c *Config) ValidForServer() bool {
 	return (reflect.ValueOf(c.PSKs).IsValid() && c.PSKs.Size() > 0) ||
 		(len(c.Certificates) > 0 &&
 			len(c.Certificates[0].Chain) > 0 &&
 			c.Certificates[0].PrivateKey != nil)
 }
 
-func (c Config) ValidForClient() bool {
+func (c *Config) ValidForClient() bool {
 	return len(c.ServerName) > 0
 }
 
@@ -672,7 +701,7 @@ func (c *Conn) Handshake() Alert {
 		}
 
 		c.hState = state
-		logf(logTypeHandshake, "%s state is now %s", c.GetHsState())
+		logf(logTypeHandshake, "state is now %s", c.GetHsState())
 
 		_, connected = state.(StateConnected)
 	}

@@ -379,12 +379,12 @@ func TestPSKFlows(t *testing.T) {
 
 func TestResumption(t *testing.T) {
 	// Phase 1: Verify that the session ticket gets sent and stored
-	clientConfig := *resumptionConfig
-	serverConfig := *resumptionConfig
+	clientConfig := resumptionConfig.Clone()
+	serverConfig := resumptionConfig.Clone()
 
 	cConn1, sConn1 := pipe()
-	client1 := Client(cConn1, &clientConfig)
-	server1 := Server(sConn1, &serverConfig)
+	client1 := Client(cConn1, clientConfig)
+	server1 := Server(sConn1, serverConfig)
 
 	var clientAlert, serverAlert Alert
 
@@ -441,8 +441,8 @@ func TestResumption(t *testing.T) {
 
 	// Phase 2: Verify that the session ticket gets used as a PSK
 	cConn2, sConn2 := pipe()
-	client2 := Client(cConn2, &clientConfig)
-	server2 := Server(sConn2, &serverConfig)
+	client2 := Client(cConn2, clientConfig)
+	server2 := Server(sConn2, serverConfig)
 
 	go func(t *testing.T) {
 		serverAlert = server2.Handshake()
