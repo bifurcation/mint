@@ -74,7 +74,7 @@ func (f *frameReader) process() (hdr []byte, body []byte, err error) {
 
 		// We have read a full frame
 		if f.state == kFrameReaderBody {
-			logf(logTypeFrameReader, "Returning frame hdr=%h len=%d buffered=%d", f.header, len(f.body), len(f.remainder))
+			logf(logTypeFrameReader, "Returning frame hdr=%#x len=%d buffered=%d", f.header, len(f.body), len(f.remainder))
 			f.state = kFrameReaderHdr
 			f.working = f.header
 			return dup(f.header), dup(f.body), nil
