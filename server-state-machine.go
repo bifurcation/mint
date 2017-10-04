@@ -129,7 +129,7 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		return nil, nil, AlertProtocolVersion
 	}
 
-	if state.Caps.RequireCookie && state.cookieSent && !state.Caps.CookieHandler.Validate(state.conn, clientCookie) {
+	if state.Caps.RequireCookie && state.cookieSent && !state.Caps.CookieHandler.Validate(state.conn, clientCookie.Cookie) {
 		logf(logTypeHandshake, "[ServerStateStart] Cookie mismatch")
 		return nil, nil, AlertAccessDenied
 	}
@@ -180,7 +180,7 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	// has to be after PSK selection.
 	// XXX: Doing this statefully for now, could be stateless
 	if state.Caps.RequireCookie && !state.cookieSent {
-		cookie, err := state.Caps.CookieHandler.Generate(state.conn)
+		data, err := state.Caps.CookieHandler.Generate(state.conn)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateStart] Error generating cookie [%v]", err)
 			return nil, nil, AlertInternalError
@@ -192,7 +192,7 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 			Version:     supportedVersion,
 			CipherSuite: connParams.CipherSuite,
 		}
-		hrr.Extensions.Add(cookie)
+		hrr.Extensions.Add(&CookieExtension{Cookie: data})
 
 		// Run the external extension handler.
 		if state.Caps.ExtensionHandler != nil {

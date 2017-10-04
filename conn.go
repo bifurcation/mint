@@ -39,11 +39,11 @@ type PreSharedKeyCache interface {
 type PSKMapCache map[string]PreSharedKey
 
 // A CookieHandler does two things:
-// - generates cookies that are sent to the client in the HelloRetryRequest
-// - validates cookies sent by the client in a ClientHello
+// - generates a byte string that is sent as a part of a cookie to the client in the HelloRetryRequest
+// - validates this byte string echoed by the client in the ClientHello
 type CookieHandler interface {
-	Generate(*Conn) (*CookieExtension, error)
-	Validate(*Conn, *CookieExtension) bool
+	Generate(*Conn) ([]byte, error)
+	Validate(*Conn, []byte) bool
 }
 
 func (cache PSKMapCache) Get(key string) (psk PreSharedKey, ok bool) {

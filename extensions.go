@@ -573,15 +573,14 @@ type defaultCookieHandler struct {
 var _ CookieHandler = &defaultCookieHandler{}
 
 // NewRandomCookie generates a cookie with DefaultCookieLength bytes of random data
-func (h *defaultCookieHandler) Generate(*Conn) (*CookieExtension, error) {
+func (h *defaultCookieHandler) Generate(*Conn) ([]byte, error) {
 	h.data = make([]byte, defaultCookieLength)
 	if _, err := prng.Read(h.data); err != nil {
 		return nil, err
 	}
-	cookie := &CookieExtension{Cookie: h.data}
-	return cookie, nil
+	return h.data, nil
 }
 
-func (h *defaultCookieHandler) Validate(_ *Conn, c *CookieExtension) bool {
-	return bytes.Equal(h.data, c.Cookie)
+func (h *defaultCookieHandler) Validate(_ *Conn, data []byte) bool {
+	return bytes.Equal(h.data, data)
 }
