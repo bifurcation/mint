@@ -179,20 +179,23 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	// NB: Need to do this here because it's after ciphersuite selection, which
 	// has to be after PSK selection.
 	// XXX: Doing this statefully for now, could be stateless
+	var cookieData []byte
 	if state.Caps.RequireCookie && !state.cookieSent {
-		data, err := state.Caps.CookieHandler.Generate(state.conn)
+		var err error
+		cookieData, err = state.Caps.CookieHandler.Generate(state.conn)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateStart] Error generating cookie [%v]", err)
 			return nil, nil, AlertInternalError
 		}
-
+	}
+	if cookieData != nil {
 		// Ignoring errors because everything here is newly constructed, so there
 		// shouldn't be marshal errors
 		hrr := &HelloRetryRequestBody{
 			Version:     supportedVersion,
 			CipherSuite: connParams.CipherSuite,
 		}
-		hrr.Extensions.Add(&CookieExtension{Cookie: data})
+		hrr.Extensions.Add(&CookieExtension{Cookie: cookieData})
 
 		// Run the external extension handler.
 		if state.Caps.ExtensionHandler != nil {
