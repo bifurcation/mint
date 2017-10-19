@@ -25,7 +25,7 @@ func (m *mockHandshakeMessageReader) ReadMessage() (*HandshakeMessage, Alert) {
 func messagesFromActions(instructions []HandshakeAction) []*HandshakeMessage {
 	msgs := []*HandshakeMessage{}
 	for _, instr := range instructions {
-		msg, ok := instr.(SendHandshakeMessage)
+		msg, ok := instr.(QueueHandshakeMessage)
 		if !ok {
 			continue
 		}
@@ -345,12 +345,18 @@ func TestStateMachineIntegration(t *testing.T) {
 
 	for caseName, params := range stateMachineIntegrationCases {
 		t.Run(caseName, func(t *testing.T) {
+			chsCtx := HandshakeContext{
+				hOut: &HandshakeLayer{},
+			}
+			shsCtx := chsCtx
 			var clientState, serverState HandshakeState
 			clientState = ClientStateStart{
-				Caps: params.clientCapabilities,
-				Opts: params.clientOptions,
+				Caps:  params.clientCapabilities,
+				Opts:  params.clientOptions,
+				hsCtx: chsCtx,
 			}
-			serverState = ServerStateStart{Caps: params.serverCapabilities}
+			serverState = ServerStateStart{Caps: params.serverCapabilities, hsCtx: shsCtx}
+
 			t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
 			t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
 

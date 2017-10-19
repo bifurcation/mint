@@ -213,3 +213,28 @@ func (s State) String() string {
 		return fmt.Sprintf("unknown state: %d", s)
 	}
 }
+
+// Epochs for DTLS (also used for key phase labelling)
+type Epoch uint16
+
+const (
+	EpochClear           Epoch = 0
+	EpochEarlyData       Epoch = 1
+	EpochHandshakeData   Epoch = 2
+	EpochApplicationData Epoch = 3
+	EpochUpdate          Epoch = 4
+)
+
+func (e Epoch) label() string {
+	switch e {
+	case EpochClear:
+		return "clear"
+	case EpochEarlyData:
+		return "early data"
+	case EpochHandshakeData:
+		return "handshake"
+	case EpochApplicationData:
+		return "application data"
+	}
+	return "Application data (updated)"
+}

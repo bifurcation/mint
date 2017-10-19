@@ -28,6 +28,7 @@ var (
 	tinyMessageIn = &HandshakeMessage{
 		msgType: messageType,
 		body:    []byte{0, 0, 0, 0},
+		length:  4,
 	}
 	tinyMessageHex = "0100000400000000"
 
@@ -50,10 +51,12 @@ var (
 	shortMessageIn = &HandshakeMessage{
 		msgType: messageType,
 		body:    shortMessageBody,
+		length:  uint32(len(shortMessageBody)),
 	}
 	longMessageIn = &HandshakeMessage{
 		msgType: messageType,
 		body:    longMessageBody,
+		length:  uint32(len(longMessageBody)),
 	}
 	tooLongMessageIn = &HandshakeMessage{
 		msgType: messageType,
@@ -83,6 +86,13 @@ func TestMessageMarshal(t *testing.T) {
 	assertByteEquals(t, out, tinyMessage)
 }
 
+func newTestHandshakeMessage(t HandshakeType, m []byte) HandshakeMessage {
+	return HandshakeMessage{
+		msgType: t,
+		body:    m,
+	}
+}
+
 func TestMessageToBody(t *testing.T) {
 	// Borrowing serialized bodies from handshake-messages_test.go
 	chValid := unhex(chValidHex)
@@ -94,47 +104,47 @@ func TestMessageToBody(t *testing.T) {
 	ticketValid := unhex(ticketValidHex)
 
 	// Test successful marshal of ClientHello
-	hm := HandshakeMessage{HandshakeTypeClientHello, chValid}
+	hm := newTestHandshakeMessage(HandshakeTypeClientHello, chValid)
 	_, err := hm.ToBody()
 	assertNotError(t, err, "Failed to convert ClientHello body")
 
 	// Test successful marshal of ServerHello
-	hm = HandshakeMessage{HandshakeTypeServerHello, shValid}
+	hm = newTestHandshakeMessage(HandshakeTypeServerHello, shValid)
 	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert ServerHello body")
 
 	// Test successful marshal of EncryptedExtensions
-	hm = HandshakeMessage{HandshakeTypeEncryptedExtensions, encExtValid}
+	hm = newTestHandshakeMessage(HandshakeTypeEncryptedExtensions, encExtValid)
 	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert EncryptedExtensions body")
 
 	// Test successful marshal of Certificate
-	hm = HandshakeMessage{HandshakeTypeCertificate, certValid}
+	hm = newTestHandshakeMessage(HandshakeTypeCertificate, certValid)
 	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert Certificate body")
 
 	// Test successful marshal of CertificateVerify
-	hm = HandshakeMessage{HandshakeTypeCertificateVerify, certVerifyValid}
+	hm = newTestHandshakeMessage(HandshakeTypeCertificateVerify, certVerifyValid)
 	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert CertificateVerify body")
 
 	// Test successful marshal of Finished
-	hm = HandshakeMessage{HandshakeTypeFinished, finValid}
+	hm = newTestHandshakeMessage(HandshakeTypeFinished, finValid)
 	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert Finished body")
 
 	// Test successful marshal of NewSessionTicket
-	hm = HandshakeMessage{HandshakeTypeNewSessionTicket, ticketValid}
+	hm = newTestHandshakeMessage(HandshakeTypeNewSessionTicket, ticketValid)
 	_, err = hm.ToBody()
 	assertNotError(t, err, "Failed to convert NewSessionTicket body")
 
 	// Test failure on unsupported body type
-	hm = HandshakeMessage{HandshakeTypeHelloRetryRequest, []byte{}}
+	hm = newTestHandshakeMessage(HandshakeTypeHelloRetryRequest, []byte{})
 	_, err = hm.ToBody()
 	assertError(t, err, "Converted an unsupported message")
 
 	// Test failure on marshal failure
-	hm = HandshakeMessage{HandshakeTypeClientHello, []byte{}}
+	hm = newTestHandshakeMessage(HandshakeTypeClientHello, []byte{})
 	_, err = hm.ToBody()
 	assertError(t, err, "Converted an empty message")
 
@@ -143,15 +153,18 @@ func TestMessageToBody(t *testing.T) {
 func TestMessageFromBody(t *testing.T) {
 	chValid := unhex(chValidHex)
 
+	b := bytes.NewBuffer(nil)
+	h := NewHandshakeLayerTLS(NewRecordLayerTLS(b))
+
 	// Test successful conversion
-	hm, err := HandshakeMessageFromBody(&chValidIn)
+	hm, err := h.HandshakeMessageFromBody(&chValidIn)
 	assertNotError(t, err, "Failed to convert ClientHello body to message")
 	assertEquals(t, hm.msgType, chValidIn.Type())
 	assertByteEquals(t, hm.body, chValid)
 
 	// Test conversion failure on marshal failure
 	chValidIn.CipherSuites = []CipherSuite{}
-	hm, err = HandshakeMessageFromBody(&chValidIn)
+	hm, err = h.HandshakeMessageFromBody(&chValidIn)
 	assertError(t, err, "Converted a ClientHello that should not have marshaled")
 	chValidIn.CipherSuites = chCipherSuites
 }
@@ -165,21 +178,21 @@ func TestReadHandshakeMessage(t *testing.T) {
 
 	// Test successful read of a message in a single record
 	b := bytes.NewBuffer(short)
-	h := NewHandshakeLayer(NewRecordLayer(b))
+	h := NewHandshakeLayerTLS(NewRecordLayerTLS(b))
 	hm, err := h.ReadMessage()
 	assertNotError(t, err, "Failed to read a short handshake message")
 	assertDeepEquals(t, hm, shortMessageIn)
 
 	// Test successful read of a message split across records
 	b = bytes.NewBuffer(long)
-	h = NewHandshakeLayer(NewRecordLayer(b))
+	h = NewHandshakeLayerTLS(NewRecordLayerTLS(b))
 	hm, err = h.ReadMessage()
 	assertNotError(t, err, "Failed to read a long handshake message")
 	assertDeepEquals(t, hm, longMessageIn)
 
 	// Test successful read of multiple messages sequentially
 	b = bytes.NewBuffer(shortLongShort)
-	h = NewHandshakeLayer(NewRecordLayer(b))
+	h = NewHandshakeLayerTLS(NewRecordLayerTLS(b))
 	hm1, err := h.ReadMessage()
 	assertNotError(t, err, "Failed to read first handshake message")
 	assertDeepEquals(t, hm1, shortMessageIn)
@@ -191,60 +204,181 @@ func TestReadHandshakeMessage(t *testing.T) {
 	assertDeepEquals(t, hm3, shortMessageIn)
 
 	// Test read failure on inability to read header
-	b = bytes.NewBuffer(short[:handshakeHeaderLen-1])
-	h = NewHandshakeLayer(NewRecordLayer(b))
+	b = bytes.NewBuffer(short[:handshakeHeaderLenTLS-1])
+	h = NewHandshakeLayerTLS(NewRecordLayerTLS(b))
 	hm, err = h.ReadMessage()
 	assertError(t, err, "Read handshake message with an incomplete header")
 
 	// Test read failure on inability to read body
 	b = bytes.NewBuffer(insufficientData)
-	h = NewHandshakeLayer(NewRecordLayer(b))
+	h = NewHandshakeLayerTLS(NewRecordLayerTLS(b))
 	hm, err = h.ReadMessage()
 	assertError(t, err, "Read handshake message with an incomplete body")
 
 	// Test read failure on receiving a non-handshake record
 	b = bytes.NewBuffer(nonHandshake)
-	h = NewHandshakeLayer(NewRecordLayer(b))
+	h = NewHandshakeLayerTLS(NewRecordLayerTLS(b))
 	hm, err = h.ReadMessage()
 	assertError(t, err, "Read handshake message from a non-handshake record")
+}
+
+func testWriteHandshakeMessage(h *HandshakeLayer, hm *HandshakeMessage) error {
+	hm.cipher = h.conn.cipher
+	return h.WriteMessage(hm)
 }
 
 func TestWriteHandshakeMessage(t *testing.T) {
 	short := unhex(shortHex)
 	long := unhex(longHex)
-	shortLongShort := unhex(shortLongShortHex)
 
 	// Test successful write of single message
 	b := bytes.NewBuffer(nil)
-	h := NewHandshakeLayer(NewRecordLayer(b))
-	err := h.WriteMessage(shortMessageIn)
+	h := NewHandshakeLayerTLS(NewRecordLayerTLS(b))
+	err := testWriteHandshakeMessage(h, shortMessageIn)
 	assertNotError(t, err, "Failed to write valid short message")
 	assertByteEquals(t, b.Bytes(), short)
 
 	// Test successful write of single long message
 	b = bytes.NewBuffer(nil)
-	h = NewHandshakeLayer(NewRecordLayer(b))
-	err = h.WriteMessage(longMessageIn)
+	h = NewHandshakeLayerTLS(NewRecordLayerTLS(b))
+	err = testWriteHandshakeMessage(h, longMessageIn)
 	assertNotError(t, err, "Failed to write valid long message")
 	assertByteEquals(t, b.Bytes(), long)
 
-	// Test successful write of multiple messages sequentially
-	b = bytes.NewBuffer(nil)
-	h = NewHandshakeLayer(NewRecordLayer(b))
-	err = h.WriteMessages([]*HandshakeMessage{shortMessageIn, longMessageIn, shortMessageIn})
-	assertNotError(t, err, "Failed to write valid long message")
-	assertByteEquals(t, b.Bytes(), shortLongShort)
-
 	// Test write failure on message too large
 	b = bytes.NewBuffer(nil)
-	h = NewHandshakeLayer(NewRecordLayer(b))
-	err = h.WriteMessage(tooLongMessageIn)
+	h = NewHandshakeLayerTLS(NewRecordLayerTLS(b))
+	err = testWriteHandshakeMessage(h, tooLongMessageIn)
 	assertError(t, err, "Wrote a message exceeding the length bound")
 
 	// Test write failure on underlying write failure
-	h = NewHandshakeLayer(NewRecordLayer(ErrorReadWriter{}))
-	err = h.WriteMessage(longMessageIn)
+	h = NewHandshakeLayerTLS(NewRecordLayerTLS(ErrorReadWriter{}))
+	err = testWriteHandshakeMessage(h, longMessageIn)
 	assertError(t, err, "Write succeeded despite error in full fragment send")
-	err = h.WriteMessage(shortMessageIn)
+	err = testWriteHandshakeMessage(h, shortMessageIn)
 	assertError(t, err, "Write succeeded despite error in last fragment send")
+}
+
+type testReassembleFixture struct {
+	t     *testing.T
+	h     *HandshakeLayer
+	r     *RecordLayer
+	rd    *pipeConn
+	wr    *pipeConn
+	m0    *HandshakeMessage
+	m0f0  *HandshakeMessage
+	m0f1  *HandshakeMessage
+	m0f2  *HandshakeMessage
+	m0f1x *HandshakeMessage
+	m0f1y *HandshakeMessage
+	m1    *HandshakeMessage
+}
+
+func newTestReassembleFixture(t *testing.T) *testReassembleFixture {
+	f := testReassembleFixture{t: t}
+	// Make two messages, m0 and m1, with m0 fragmented
+	m0 := make([]byte, 2048)
+	for i, _ := range m0 {
+		m0[i] = byte(i % 13)
+	}
+	f.m0 = newHsFragment(m0, 0, 0, 2048)
+	f.m0f0 = newHsFragment(m0, 0, 0, 1024)
+	f.m0f1 = newHsFragment(m0, 0, 1024, 512)
+	f.m0f2 = newHsFragment(m0, 0, 1536, 512)
+	f.m0f1x = newHsFragment(m0, 0, 512, 1000)
+	f.m0f1y = newHsFragment(m0, 0, 512, 1048)
+
+	m1 := make([]byte, 2048)
+	for i, _ := range m1 {
+		m1[i] = byte(i % 23)
+	}
+	f.m1 = newHsFragment(m1, 1, 0, 2048)
+	f.rd, f.wr = pipe()
+	f.r = NewRecordLayerDTLS(f.rd)
+	f.h = NewHandshakeLayerDTLS(f.r)
+	f.h.nonblocking = true
+
+	return &f
+}
+
+func newHsFragment(full []byte, seq uint32, offset uint32, fragLen uint32) *HandshakeMessage {
+	return &HandshakeMessage{
+		HandshakeTypeClientHello,
+		seq,
+		full[offset : offset+fragLen],
+		true,
+		offset,
+		uint32(len(full)),
+		nil,
+		nil,
+	}
+}
+
+func (f *testReassembleFixture) addFragment(in *HandshakeMessage, expected *HandshakeMessage) {
+	if in != nil {
+		b := in.Marshal()
+		r := []byte{byte(RecordTypeHandshake), 0xfe, 0xff,
+			0, 0, 0, 0, 0, 0, 0, 0,
+			byte((len(b) >> 8) & 0xff), byte(len(b) & 0xff)}
+		r = append(r, b...)
+		f.wr.Write(r)
+	}
+	h2, err := f.h.ReadMessage()
+	if expected == nil {
+		assertEquals(f.t, (*HandshakeMessage)(nil), h2)
+		assertEquals(f.t, WouldBlock, err)
+	} else {
+		assertNotError(f.t, err, "Error reading handshake")
+		assertEquals(f.t, expected.seq, h2.seq)
+		assertByteEquals(f.t, expected.body, h2.body)
+	}
+}
+
+func TestHandshakeDTLSInOrder(t *testing.T) {
+	f := newTestReassembleFixture(t)
+
+	f.addFragment(f.m0, f.m0)
+	f.addFragment(f.m0, nil) // Should block
+	f.addFragment(f.m1, f.m1)
+}
+
+func TestHandshakeDTLSOutOfOrder(t *testing.T) {
+	f := newTestReassembleFixture(t)
+
+	f.addFragment(f.m1, nil)
+	f.addFragment(f.m0, f.m0)
+	f.addFragment(nil, f.m1)
+}
+
+func TestHandshakeDTLSNonOverlappingFragments(t *testing.T) {
+	f := newTestReassembleFixture(t)
+
+	f.addFragment(f.m0f0, nil)
+	f.addFragment(f.m0f1, nil)
+	f.addFragment(f.m0f2, f.m0)
+}
+
+func TestHandshakeDTLSNonOverlappingFragmentsOO(t *testing.T) {
+	f := newTestReassembleFixture(t)
+
+	f.addFragment(f.m0f0, nil)
+	f.addFragment(f.m0f2, nil)
+	f.addFragment(f.m0f1, f.m0)
+}
+
+func TestHandshakeDTLSOverlappingFragments1(t *testing.T) {
+	f := newTestReassembleFixture(t)
+
+	f.addFragment(f.m0f0, nil)
+	f.addFragment(f.m0f1, nil)
+	f.addFragment(f.m0f1x, nil)
+	f.addFragment(f.m0f2, f.m0)
+}
+
+func TestHandshakeDTLSOverlappingFragments2(t *testing.T) {
+	f := newTestReassembleFixture(t)
+
+	f.addFragment(f.m0f0, nil)
+	f.addFragment(f.m0f1y, nil)
+	f.addFragment(f.m0f2, f.m0)
 }

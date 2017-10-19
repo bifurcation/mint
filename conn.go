@@ -101,6 +101,7 @@ type Config struct {
 	PSKs             PreSharedKeyCache
 	PSKModes         []PSKKeyExchangeMode
 	NonBlocking      bool
+	UseDTLS          bool
 
 	// The same config object can be shared among different connections, so it
 	// needs its own mutex
@@ -135,6 +136,7 @@ func (c *Config) Clone() *Config {
 		PSKs:             c.PSKs,
 		PSKModes:         c.PSKModes,
 		NonBlocking:      c.NonBlocking,
+		UseDTLS:          c.UseDTLS,
 	}
 }
 
@@ -252,18 +254,25 @@ type Conn struct {
 
 	readBuffer []byte
 	in, out    *RecordLayer
-	hIn, hOut  *HandshakeLayer
+	hsCtx      HandshakeContext
 
 	extHandler AppExtensionHandler
 }
 
 func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
 	c := &Conn{conn: conn, config: config, isClient: isClient}
-	c.in = NewRecordLayer(c.conn)
-	c.out = NewRecordLayer(c.conn)
-	c.hIn = NewHandshakeLayer(c.in)
-	c.hIn.nonblocking = c.config.NonBlocking
-	c.hOut = NewHandshakeLayer(c.out)
+	if !config.UseDTLS {
+		c.in = NewRecordLayerTLS(c.conn)
+		c.out = NewRecordLayerTLS(c.conn)
+		c.hsCtx.hIn = NewHandshakeLayerTLS(c.in)
+		c.hsCtx.hOut = NewHandshakeLayerTLS(c.out)
+	} else {
+		c.in = NewRecordLayerDTLS(c.conn)
+		c.out = NewRecordLayerDTLS(c.conn)
+		c.hsCtx.hIn = NewHandshakeLayerDTLS(c.in)
+		c.hsCtx.hOut = NewHandshakeLayerDTLS(c.out)
+	}
+	c.hsCtx.hIn.nonblocking = c.config.NonBlocking
 	return c
 }
 
@@ -281,8 +290,12 @@ func (c *Conn) consumeRecord() error {
 		// We do not support fragmentation of post-handshake handshake messages.
 		// TODO: Factor this more elegantly; coalesce with handshakeLayer.ReadMessage()
 		start := 0
+		headerLen := handshakeHeaderLenTLS
+		if c.config.UseDTLS {
+			headerLen = handshakeHeaderLenDTLS
+		}
 		for start < len(pt.fragment) {
-			if len(pt.fragment[start:]) < handshakeHeaderLen {
+			if len(pt.fragment[start:]) < headerLen {
 				return fmt.Errorf("Post-handshake handshake message too short for header")
 			}
 
@@ -290,10 +303,10 @@ func (c *Conn) consumeRecord() error {
 			hm.msgType = HandshakeType(pt.fragment[start])
 			hmLen := (int(pt.fragment[start+1]) << 16) + (int(pt.fragment[start+2]) << 8) + int(pt.fragment[start+3])
 
-			if len(pt.fragment[start+handshakeHeaderLen:]) < hmLen {
+			if len(pt.fragment[start+headerLen:]) < hmLen {
 				return fmt.Errorf("Post-handshake handshake message too short for body")
 			}
-			hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
+			hm.body = pt.fragment[start+headerLen : start+headerLen+hmLen]
 
 			// XXX: If we want to support more advanced cases, e.g., post-handshake
 			// authentication, we'll need to allow transitions other than
@@ -322,7 +335,7 @@ func (c *Conn) consumeRecord() error {
 				return io.EOF
 			}
 
-			start += handshakeHeaderLen + hmLen
+			start += headerLen + hmLen
 		}
 	case RecordTypeAlert:
 		logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(c.readBuffer), c.readBuffer)
@@ -510,24 +523,31 @@ func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 	}
 
 	switch action := actionGeneric.(type) {
-	case SendHandshakeMessage:
-		err := c.hOut.WriteMessage(action.Message)
+	case QueueHandshakeMessage:
+		logf(logTypeHandshake, "%s queuing handshake message type=%v", label, action.Message.msgType)
+		err := c.hsCtx.hOut.QueueMessage(action.Message)
 		if err != nil {
 			logf(logTypeHandshake, "%s Error writing handshake message: %v", label, err)
 			return AlertInternalError
 		}
 
+	case SendQueuedHandshake:
+		err := c.hsCtx.hOut.SendQueuedMessages()
+		if err != nil {
+			logf(logTypeHandshake, "%s Error writing handshake message: %v", label, err)
+			return AlertInternalError
+		}
 	case RekeyIn:
-		logf(logTypeHandshake, "%s Rekeying in to %s: %+v", label, action.Label, action.KeySet)
-		err := c.in.Rekey(action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
+		logf(logTypeHandshake, "%s Rekeying in to %s: %+v", label, action.epoch.label(), action.KeySet)
+		err := c.in.Rekey(action.epoch, action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
 		if err != nil {
 			logf(logTypeHandshake, "%s Unable to rekey inbound: %v", label, err)
 			return AlertInternalError
 		}
 
 	case RekeyOut:
-		logf(logTypeHandshake, "%s Rekeying out to %s: %+v", label, action.Label, action.KeySet)
-		err := c.out.Rekey(action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
+		logf(logTypeHandshake, "%s Rekeying out to %s: %+v", label, action.epoch.label(), action.KeySet)
+		err := c.out.Rekey(action.epoch, action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
 		if err != nil {
 			logf(logTypeHandshake, "%s Unable to rekey outbound: %v", label, err)
 			return AlertInternalError
@@ -640,7 +660,7 @@ func (c *Conn) HandshakeSetup() Alert {
 	}
 
 	if c.isClient {
-		state, actions, alert = ClientStateStart{Caps: caps, Opts: opts}.Next(nil)
+		state, actions, alert = ClientStateStart{Caps: caps, Opts: opts, hsCtx: c.hsCtx}.Next(nil)
 		if alert != AlertNoAlert {
 			logf(logTypeHandshake, "Error initializing client state: %v", alert)
 			return alert
@@ -667,7 +687,7 @@ func (c *Conn) HandshakeSetup() Alert {
 				return AlertInternalError
 			}
 		}
-		state = ServerStateStart{Caps: caps, conn: c}
+		state = ServerStateStart{Caps: caps, conn: c, hsCtx: c.hsCtx}
 	}
 
 	c.hState = state
@@ -679,13 +699,13 @@ type handshakeMessageReader interface {
 }
 
 type handshakeMessageReaderImpl struct {
-	hl *HandshakeLayer
+	hsCtx *HandshakeContext
 }
 
 var _ handshakeMessageReader = &handshakeMessageReaderImpl{}
 
 func (r *handshakeMessageReaderImpl) ReadMessage() (*HandshakeMessage, Alert) {
-	hm, err := r.hl.ReadMessage()
+	hm, err := r.hsCtx.hIn.ReadMessage()
 	if err == WouldBlock {
 		return nil, AlertWouldBlock
 	}
@@ -693,6 +713,11 @@ func (r *handshakeMessageReaderImpl) ReadMessage() (*HandshakeMessage, Alert) {
 		logf(logTypeHandshake, "[client] Error reading message: %v", err)
 		return nil, AlertCloseNotify
 	}
+
+	// Once you have read a message, you no longer need the outgoing queue
+	// for DTLS.
+	r.hsCtx.hOut.ClearQueuedMessages()
+
 	return hm, AlertNoAlert
 }
 
@@ -727,7 +752,7 @@ func (c *Conn) Handshake() Alert {
 	state := c.hState
 	_, connected := state.(StateConnected)
 
-	hmr := &handshakeMessageReaderImpl{hl: c.hIn}
+	hmr := &handshakeMessageReaderImpl{hsCtx: &c.hsCtx}
 	for !connected {
 		var alert Alert
 		var actions []HandshakeAction
