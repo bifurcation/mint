@@ -563,14 +563,24 @@ func (c *CookieExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, c)
 }
 
-const DefaultCookieLength = 32
+// defaultCookieLength is the default length of a cookie
+const defaultCookieLength = 32
 
-// XXX: In the long run, this should maybe be replaced with something that
-// encapsulates state, instead of just being a nonce
-func NewCookie() (*CookieExtension, error) {
-	cookie := &CookieExtension{
-		Cookie: make([]byte, DefaultCookieLength),
+type defaultCookieHandler struct {
+	data []byte
+}
+
+var _ CookieHandler = &defaultCookieHandler{}
+
+// NewRandomCookie generates a cookie with DefaultCookieLength bytes of random data
+func (h *defaultCookieHandler) Generate(*Conn) ([]byte, error) {
+	h.data = make([]byte, defaultCookieLength)
+	if _, err := prng.Read(h.data); err != nil {
+		return nil, err
 	}
-	_, err := prng.Read(cookie.Cookie)
-	return cookie, err
+	return h.data, nil
+}
+
+func (h *defaultCookieHandler) Validate(_ *Conn, data []byte) bool {
+	return bytes.Equal(h.data, data)
 }

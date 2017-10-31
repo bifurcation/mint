@@ -38,6 +38,14 @@ type PreSharedKeyCache interface {
 
 type PSKMapCache map[string]PreSharedKey
 
+// A CookieHandler does two things:
+// - generates a byte string that is sent as a part of a cookie to the client in the HelloRetryRequest
+// - validates this byte string echoed by the client in the ClientHello
+type CookieHandler interface {
+	Generate(*Conn) ([]byte, error)
+	Validate(*Conn, []byte) bool
+}
+
 func (cache PSKMapCache) Get(key string) (psk PreSharedKey, ok bool) {
 	psk, ok = cache[key]
 	return
@@ -64,8 +72,12 @@ type Config struct {
 	TicketLen          int
 	EarlyDataLifetime  uint32
 	AllowEarlyData     bool
-	RequireCookie      bool
-	RequireClientAuth  bool
+	// Require the client to echo a cookie.
+	RequireCookie bool
+	// If cookies are required and no CookieHandler is set, a default cookie handler is used.
+	// The default cookie handler uses 32 random bytes as a cookie.
+	CookieHandler     CookieHandler
+	RequireClientAuth bool
 
 	// Shared fields
 	Certificates     []*Certificate
@@ -599,6 +611,7 @@ func (c *Conn) HandshakeSetup() Alert {
 		PSKModes:          c.config.PSKModes,
 		AllowEarlyData:    c.config.AllowEarlyData,
 		RequireCookie:     c.config.RequireCookie,
+		CookieHandler:     c.config.CookieHandler,
 		RequireClientAuth: c.config.RequireClientAuth,
 		NextProtos:        c.config.NextProtos,
 		Certificates:      c.config.Certificates,
@@ -608,6 +621,10 @@ func (c *Conn) HandshakeSetup() Alert {
 		ServerName: c.config.ServerName,
 		NextProtos: c.config.NextProtos,
 		EarlyData:  c.EarlyData,
+	}
+
+	if caps.RequireCookie && caps.CookieHandler == nil {
+		caps.CookieHandler = &defaultCookieHandler{}
 	}
 
 	if c.isClient {
@@ -625,7 +642,7 @@ func (c *Conn) HandshakeSetup() Alert {
 			}
 		}
 	} else {
-		state = ServerStateStart{Caps: caps}
+		state = ServerStateStart{Caps: caps, conn: c}
 	}
 
 	c.hState = state
