@@ -2,8 +2,11 @@ package mint
 
 import (
 	"bytes"
+	"fmt"
 	"hash"
 	"reflect"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 // Server State Machine
@@ -57,13 +60,18 @@ import (
 //  WAIT_FINISHED			RekeyIn; RekeyOut;
 //  CONNECTED					StoreTicket || (RekeyIn; [RekeyOut])
 
+// A cookie can be sent to the client in a HRR.
+// It contains two fields:
+// 1. The MintCookie: This field is used by mint itself to store the hash of initial client hello.
+// 2. The ApplicationCookie: This opaque value can be provided by the application (by setting a Config.CookieHandler)
+type cookie struct {
+	MintCookie        []byte `tls:"head=2"`
+	ApplicationCookie []byte `tls:"head=2"`
+}
+
 type ServerStateStart struct {
 	Caps Capabilities
 	conn *Conn
-
-	cookieSent        bool
-	firstClientHello  *HandshakeMessage
-	helloRetryRequest *HandshakeMessage
 }
 
 func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
@@ -113,6 +121,8 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	ch.Extensions.Find(clientPSKModes)
 	ch.Extensions.Find(clientCookie)
 
+	clientSentCookie := len(clientCookie.Cookie) > 0
+
 	if gotServerName {
 		connParams.ServerName = string(*serverName)
 	}
@@ -129,9 +139,29 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		return nil, nil, AlertProtocolVersion
 	}
 
-	if state.Caps.RequireCookie && state.cookieSent && !state.Caps.CookieHandler.Validate(state.conn, clientCookie.Cookie) {
-		logf(logTypeHandshake, "[ServerStateStart] Cookie mismatch")
-		return nil, nil, AlertAccessDenied
+	// The client sent a cookie. So this is probably the second ClientHello (sent as a response to a HRR)
+	var firstClientHello *HandshakeMessage
+	if clientSentCookie {
+		plainCookie, err := state.Caps.CookieSource.DecodeToken(clientCookie.Cookie)
+		if err != nil {
+			logf(logTypeHandshake, fmt.Sprintf("[ServerStateStart] Error decoding token [%v]", err))
+			return nil, nil, AlertDecryptError
+		}
+		cookie := &cookie{}
+		if _, err := syntax.Unmarshal(plainCookie, cookie); err != nil { // this should never happen
+			logf(logTypeHandshake, fmt.Sprintf("[ServerStateStart] Error unmarshaling cookie [%v]", err))
+			return nil, nil, AlertInternalError
+		}
+		// restore the hash of initial ClientHello from the cookie
+		firstClientHello = &HandshakeMessage{
+			msgType: HandshakeTypeMessageHash,
+			body:    cookie.MintCookie,
+		}
+		// have the application validate its part of the cookie
+		if state.Caps.CookieHandler != nil && !state.Caps.CookieHandler.Validate(state.conn, cookie.ApplicationCookie) {
+			logf(logTypeHandshake, "[ServerStateStart] Cookie mismatch")
+			return nil, nil, AlertAccessDenied
+		}
 	}
 
 	// Figure out if we can do DH
@@ -142,26 +172,51 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	var selectedPSK int
 	var psk *PreSharedKey
 	var params CipherSuiteParams
+
 	if len(clientPSK.Identities) > 0 {
-		contextBase := []byte{}
-		if state.helloRetryRequest != nil {
-			chBytes := state.firstClientHello.Marshal()
-			hrrBytes := state.helloRetryRequest.Marshal()
-			contextBase = append(chBytes, hrrBytes...)
-		}
-
-		chTrunc, err := ch.Truncated()
-		if err != nil {
-			logf(logTypeHandshake, "[ServerStateStart] Error computing truncated ClientHello [%v]", err)
-			return nil, nil, AlertDecodeError
-		}
-
-		context := append(contextBase, chTrunc...)
-
-		canDoPSK, selectedPSK, psk, params, err = PSKNegotiation(clientPSK.Identities, clientPSK.Binders, context, state.Caps.PSKs)
+		canDoPSK, selectedPSK, psk, params, err = PSKNegotiation(clientPSK.Identities, state.Caps.PSKs)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateStart] Error in PSK negotiation [%v]", err)
 			return nil, nil, AlertInternalError
+		}
+
+		if canDoPSK {
+			// Compute binder
+			binderLabel := labelExternalBinder
+			if psk.IsResumption {
+				binderLabel = labelResumptionBinder
+			}
+
+			h0 := params.Hash.New().Sum(nil)
+			zero := bytes.Repeat([]byte{0}, params.Hash.Size())
+			earlySecret := HkdfExtract(params.Hash, zero, psk.Key)
+			binderKey := deriveSecret(params, earlySecret, binderLabel, h0)
+
+			// context = ClientHello[truncated]
+			// context = ClientHello1 + HelloRetryRequest + ClientHello2[truncated]
+			ctxHash := params.Hash.New()
+			if clientSentCookie { // if this ClientHello contains a cookie, we did a stateless retry. Now need to recover the
+				ctxHash.Write(firstClientHello.Marshal())
+				// fill in the cookie sent by the client. Needed to calculate the correct hash
+				cookieExt := &CookieExtension{Cookie: clientCookie.Cookie}
+				hrr, err := state.generateHRR(params.Suite, cookieExt)
+				if err != nil {
+					return nil, nil, AlertInternalError
+				}
+				ctxHash.Write(hrr.Marshal())
+			}
+			chTrunc, err := ch.Truncated()
+			if err != nil {
+				logf(logTypeHandshake, "[ServerStateStart] Error computing truncated ClientHello [%v]", err)
+				return nil, nil, AlertDecodeError
+			}
+			ctxHash.Write(chTrunc)
+
+			binder := computeFinishedData(params, binderKey, ctxHash.Sum(nil))
+			if !bytes.Equal(binder, clientPSK.Binders[selectedPSK].Binder) {
+				logf(logTypeNegotiation, "Binder check failed for identity %x; [%x] != [%x]", psk.Identity, binder, clientPSK.Binders[selectedPSK].Binder)
+				return nil, nil, AlertDecryptError
+			}
 		}
 	}
 
@@ -175,61 +230,66 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		return nil, nil, AlertHandshakeFailure
 	}
 
-	// Send a cookie if required
-	// NB: Need to do this here because it's after ciphersuite selection, which
-	// has to be after PSK selection.
-	// XXX: Doing this statefully for now, could be stateless
-	var cookieData []byte
-	if state.Caps.RequireCookie && !state.cookieSent {
-		var err error
-		cookieData, err = state.Caps.CookieHandler.Generate(state.conn)
-		if err != nil {
-			logf(logTypeHandshake, "[ServerStateStart] Error generating cookie [%v]", err)
-			return nil, nil, AlertInternalError
+	var helloRetryRequest *HandshakeMessage
+	if state.Caps.RequireCookie {
+		// Send a cookie if required
+		// NB: Need to do this here because it's after ciphersuite selection, which
+		// has to be after PSK selection.
+		var shouldSendHRR bool
+		var cookieExt *CookieExtension
+		if !clientSentCookie { // this is the first ClientHello that we receive
+			var appCookie []byte
+			if state.Caps.CookieHandler == nil { // if Config.RequireCookie is set, but no CookieHandler was provided, we definitely need to send a cookie
+				shouldSendHRR = true
+			} else { // if the CookieHandler was set, we just send a cookie when the application provides one
+				var err error
+				appCookie, err = state.Caps.CookieHandler.Generate(state.conn)
+				if err != nil {
+					logf(logTypeHandshake, "[ServerStateStart] Error generating cookie [%v]", err)
+					return nil, nil, AlertInternalError
+				}
+				shouldSendHRR = appCookie != nil
+			}
+			if shouldSendHRR {
+				params := cipherSuiteMap[connParams.CipherSuite]
+				h := params.Hash.New()
+				h.Write(clientHello.Marshal())
+				plainCookie, err := syntax.Marshal(cookie{
+					MintCookie:        h.Sum(nil),
+					ApplicationCookie: appCookie,
+				})
+				if err != nil {
+					logf(logTypeHandshake, "[ServerStateStart] Error marshalling cookie [%v]", err)
+					return nil, nil, AlertInternalError
+				}
+				cookieData, err := state.Caps.CookieSource.NewToken(plainCookie)
+				if err != nil {
+					logf(logTypeHandshake, "[ServerStateStart] Error encoding cookie [%v]", err)
+					return nil, nil, AlertInternalError
+				}
+				cookieExt = &CookieExtension{Cookie: cookieData}
+			}
+		} else {
+			cookieExt = &CookieExtension{Cookie: clientCookie.Cookie}
 		}
-	}
-	if cookieData != nil {
+
+		// Generate a HRR. We will need it in both of the two cases:
+		// 1. We need to send a Cookie. Then this HRR will be sent on the wire
+		// 2. We need to validate a cookie. Then we need its hash
 		// Ignoring errors because everything here is newly constructed, so there
 		// shouldn't be marshal errors
-		hrr := &HelloRetryRequestBody{
-			Version:     supportedVersion,
-			CipherSuite: connParams.CipherSuite,
-		}
-		hrr.Extensions.Add(&CookieExtension{Cookie: cookieData})
-
-		// Run the external extension handler.
-		if state.Caps.ExtensionHandler != nil {
-			err := state.Caps.ExtensionHandler.Send(HandshakeTypeHelloRetryRequest, &hrr.Extensions)
+		if shouldSendHRR || clientSentCookie {
+			helloRetryRequest, err = state.generateHRR(connParams.CipherSuite, cookieExt)
 			if err != nil {
-				logf(logTypeHandshake, "[ServerStateStart] Error running external extension sender [%v]", err)
 				return nil, nil, AlertInternalError
 			}
 		}
 
-		helloRetryRequest, err := HandshakeMessageFromBody(hrr)
-		if err != nil {
-			logf(logTypeHandshake, "[ServerStateStart] Error marshaling HRR [%v]", err)
-			return nil, nil, AlertInternalError
+		if shouldSendHRR {
+			toSend := []HandshakeAction{SendHandshakeMessage{helloRetryRequest}}
+			logf(logTypeHandshake, "[ServerStateStart] -> [ServerStateStart]")
+			return state, toSend, AlertStatelessRetry
 		}
-
-		params := cipherSuiteMap[connParams.CipherSuite]
-		h := params.Hash.New()
-		h.Write(clientHello.Marshal())
-		firstClientHello := &HandshakeMessage{
-			msgType: HandshakeTypeMessageHash,
-			body:    h.Sum(nil),
-		}
-
-		nextState := ServerStateStart{
-			Caps:              state.Caps,
-			conn:              state.conn,
-			cookieSent:        true,
-			firstClientHello:  firstClientHello,
-			helloRetryRequest: helloRetryRequest,
-		}
-		toSend := []HandshakeAction{SendHandshakeMessage{helloRetryRequest}}
-		logf(logTypeHandshake, "[ServerStateStart] -> [ServerStateStart]")
-		return nextState, toSend, AlertNoAlert
 	}
 
 	// If we've got no entropy to make keys from, fail
@@ -303,10 +363,36 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		certScheme:               certScheme,
 		clientEarlyTrafficSecret: clientEarlyTrafficSecret,
 
-		firstClientHello:  state.firstClientHello,
-		helloRetryRequest: state.helloRetryRequest,
+		firstClientHello:  firstClientHello,
+		helloRetryRequest: helloRetryRequest,
 		clientHello:       clientHello,
 	}.Next(nil)
+}
+
+func (state *ServerStateStart) generateHRR(cs CipherSuite, cookieExt *CookieExtension) (*HandshakeMessage, error) {
+	var helloRetryRequest *HandshakeMessage
+	hrr := &HelloRetryRequestBody{
+		Version:     supportedVersion,
+		CipherSuite: cs,
+	}
+	if err := hrr.Extensions.Add(cookieExt); err != nil {
+		logf(logTypeHandshake, "[ServerStateStart] Error adding CookieExtension [%v]", err)
+		return nil, err
+	}
+	// Run the external extension handler.
+	if state.Caps.ExtensionHandler != nil {
+		err := state.Caps.ExtensionHandler.Send(HandshakeTypeHelloRetryRequest, &hrr.Extensions)
+		if err != nil {
+			logf(logTypeHandshake, "[ServerStateStart] Error running external extension sender [%v]", err)
+			return nil, err
+		}
+	}
+	helloRetryRequest, err := HandshakeMessageFromBody(hrr)
+	if err != nil {
+		logf(logTypeHandshake, "[ServerStateStart] Error marshaling HRR [%v]", err)
+		return nil, err
+	}
+	return helloRetryRequest, nil
 }
 
 type ServerStateNegotiated struct {

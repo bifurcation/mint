@@ -55,20 +55,9 @@ func TestDHNegotiation(t *testing.T) {
 }
 
 func TestPSKNegotiation(t *testing.T) {
-	chTrunc := unhex("0001020304050607")
-	binderValue := unhex("13a468af471adc19b94dcc0b888135423a11911f2c13050238b579d0f19d41c9")
-
 	identities := []PSKIdentity{
 		{Identity: []byte{0, 1, 2, 3}},
 		{Identity: []byte{4, 5, 6, 7}},
-	}
-	binders := []PSKBinderEntry{
-		{Binder: binderValue},
-		{Binder: binderValue},
-	}
-	badBinders := []PSKBinderEntry{
-		{Binder: []byte{}},
-		{Binder: []byte{}},
 	}
 	psks := &PSKMapCache{
 		"04050607": {
@@ -79,20 +68,15 @@ func TestPSKNegotiation(t *testing.T) {
 	}
 
 	// Test successful negotiation
-	ok, selected, psk, params, err := PSKNegotiation(identities, binders, chTrunc, psks)
+	ok, selected, psk, params, err := PSKNegotiation(identities, psks)
 	assertEquals(t, ok, true)
 	assertEquals(t, selected, 1)
 	assertNotNil(t, psk, "PSK not set")
 	assertEquals(t, params.Suite, psk.CipherSuite)
 	assertNotError(t, err, "Valid PSK negotiation failed")
 
-	// Test negotiation failure on binder value failure
-	ok, _, _, _, err = PSKNegotiation(identities, badBinders, chTrunc, psks)
-	assertEquals(t, ok, false)
-	assertError(t, err, "Failed to error on binder failure")
-
 	// Test negotiation failure on no PSK overlap
-	ok, _, _, _, err = PSKNegotiation(identities, binders, chTrunc, &PSKMapCache{})
+	ok, _, _, _, err = PSKNegotiation(identities, &PSKMapCache{})
 	assertEquals(t, ok, false)
 	assertNotError(t, err, "Errored on PSK negotiation failure")
 }

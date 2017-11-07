@@ -36,15 +36,19 @@ type PreSharedKeyCache interface {
 	Size() int
 }
 
-type PSKMapCache map[string]PreSharedKey
-
-// A CookieHandler does two things:
-// - generates a byte string that is sent as a part of a cookie to the client in the HelloRetryRequest
-// - validates this byte string echoed by the client in the ClientHello
+// A CookieHandler can be used to give the application more fine-grained control over Cookies.
+// Generate receives the Conn as an argument, so the CookieHandler can decide when to send the cookie based on that, and offload state to the client by encoding that into the Cookie.
+// When the client echoes the Cookie, Validate is called. The application can then recover the state from the cookie.
 type CookieHandler interface {
+	// Generate a byte string that is sent as a part of a cookie to the client in the HelloRetryRequest
+	// If Generate returns nil, mint will not send a HelloRetryRequest.
 	Generate(*Conn) ([]byte, error)
+	// Validate is called when receiving a ClientHello containing a Cookie.
+	// If validation failed, the handshake is aborted.
 	Validate(*Conn, []byte) bool
 }
+
+type PSKMapCache map[string]PreSharedKey
 
 func (cache PSKMapCache) Get(key string) (psk PreSharedKey, ok bool) {
 	psk, ok = cache[key]
@@ -74,9 +78,16 @@ type Config struct {
 	AllowEarlyData     bool
 	// Require the client to echo a cookie.
 	RequireCookie bool
-	// If cookies are required and no CookieHandler is set, a default cookie handler is used.
-	// The default cookie handler uses 32 random bytes as a cookie.
-	CookieHandler     CookieHandler
+	// A CookieHandler can be used to set and validate a cookie.
+	// The cookie returned by the CookieHandler will be part of the cookie sent on the wire, and encoded using the CookieSource.
+	// If no CookieHandler is set, mint will always send a cookie.
+	// The CookieHandler can be used to decide on a per-connection basis, if a cookie should be sent.
+	CookieHandler CookieHandler
+	// The CookieSource is used to encrypt / decrypt cookies.
+	// It should make sure that the Cookie cannot be read and tampered with by the client.
+	// If non-blocking mode is used, and cookies are required, this field has to be set.
+	// In blocking mode, a default cookie source is used, if this is unused.
+	CookieSource      CookieSource
 	RequireClientAuth bool
 
 	// Shared fields
@@ -110,6 +121,8 @@ func (c *Config) Clone() *Config {
 		EarlyDataLifetime:  c.EarlyDataLifetime,
 		AllowEarlyData:     c.AllowEarlyData,
 		RequireCookie:      c.RequireCookie,
+		CookieHandler:      c.CookieHandler,
+		CookieSource:       c.CookieSource,
 		RequireClientAuth:  c.RequireClientAuth,
 
 		Certificates:     c.Certificates,
@@ -611,6 +624,7 @@ func (c *Conn) HandshakeSetup() Alert {
 		PSKModes:          c.config.PSKModes,
 		AllowEarlyData:    c.config.AllowEarlyData,
 		RequireCookie:     c.config.RequireCookie,
+		CookieSource:      c.config.CookieSource,
 		CookieHandler:     c.config.CookieHandler,
 		RequireClientAuth: c.config.RequireClientAuth,
 		NextProtos:        c.config.NextProtos,
@@ -621,10 +635,6 @@ func (c *Conn) HandshakeSetup() Alert {
 		ServerName: c.config.ServerName,
 		NextProtos: c.config.NextProtos,
 		EarlyData:  c.EarlyData,
-	}
-
-	if caps.RequireCookie && caps.CookieHandler == nil {
-		caps.CookieHandler = &defaultCookieHandler{}
 	}
 
 	if c.isClient {
@@ -642,6 +652,19 @@ func (c *Conn) HandshakeSetup() Alert {
 			}
 		}
 	} else {
+		if c.config.RequireCookie && c.config.CookieSource == nil {
+			logf(logTypeHandshake, "RequireCookie set, but no CookieSource provided. Using default cookie source. Stateless Retry not possible.")
+			if c.config.NonBlocking {
+				logf(logTypeHandshake, "Not possible in non-blocking mode.")
+				return AlertInternalError
+			}
+			var err error
+			caps.CookieSource, err = newDefaultCookieSource()
+			if err != nil {
+				logf(logTypeHandshake, "Error initializing cookie source: %v", alert)
+				return AlertInternalError
+			}
+		}
 		state = ServerStateStart{Caps: caps, conn: c}
 	}
 
@@ -671,7 +694,7 @@ func (c *Conn) Handshake() Alert {
 
 	var alert Alert
 	if c.hState == nil {
-		logf(logTypeHandshake, "%s First time through handshake, setting up", label)
+		logf(logTypeHandshake, "%s First time through handshake (or after stateless retry), setting up", label)
 		alert = c.HandshakeSetup()
 		if alert != AlertNoAlert {
 			return alert
@@ -701,16 +724,14 @@ func (c *Conn) Handshake() Alert {
 
 		// Advance the state machine
 		state, actions, alert = state.Next(hm)
-
-		if alert != AlertNoAlert {
+		if alert != AlertNoAlert && alert != AlertStatelessRetry {
 			logf(logTypeHandshake, "Error in state transition: %v", alert)
 			return alert
 		}
 
 		for index, action := range actions {
 			logf(logTypeHandshake, "%s taking next action (%d)", label, index)
-			alert = c.takeAction(action)
-			if alert != AlertNoAlert {
+			if alert := c.takeAction(action); alert != AlertNoAlert {
 				logf(logTypeHandshake, "Error during handshake actions: %v", alert)
 				c.sendAlert(alert)
 				return alert
@@ -719,7 +740,6 @@ func (c *Conn) Handshake() Alert {
 
 		c.hState = state
 		logf(logTypeHandshake, "state is now %s", c.GetHsState())
-
 		_, connected = state.(StateConnected)
 	}
 
