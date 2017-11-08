@@ -281,41 +281,53 @@ func computeExporter(t *testing.T, c *Conn, label string, context []byte, length
 }
 
 func TestBasicFlows(t *testing.T) {
-	for _, conf := range []*Config{basicConfig, hrrConfig, alpnConfig, ffdhConfig, x25519Config} {
-		cConn, sConn := pipe()
+	tests := []struct {
+		name   string
+		config *Config
+	}{
+		{"basic config", basicConfig},
+		{"HRR", hrrConfig},
+		{"ALPN", alpnConfig},
+		{"FFDH", ffdhConfig},
+		{"x25519", x25519Config},
+	}
+	for _, testcase := range tests {
+		t.Run(fmt.Sprintf("with %s", testcase.name), func(t *testing.T) {
+			conf := testcase.config
+			cConn, sConn := pipe()
 
-		client := Client(cConn, conf)
-		server := Server(sConn, conf)
+			client := Client(cConn, conf)
+			server := Server(sConn, conf)
 
-		var clientAlert, serverAlert Alert
+			var clientAlert, serverAlert Alert
 
-		done := make(chan bool)
-		go func(t *testing.T) {
-			serverAlert = server.Handshake()
-			assertEquals(t, serverAlert, AlertNoAlert)
-			done <- true
-		}(t)
+			done := make(chan bool)
+			go func(t *testing.T) {
+				serverAlert = server.Handshake()
+				assertEquals(t, serverAlert, AlertNoAlert)
+				done <- true
+			}(t)
 
-		clientAlert = client.Handshake()
-		assertEquals(t, clientAlert, AlertNoAlert)
+			clientAlert = client.Handshake()
+			assertEquals(t, clientAlert, AlertNoAlert)
 
-		<-done
+			<-done
 
-		assertDeepEquals(t, client.state.Params, server.state.Params)
-		assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
-		assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
-		assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
-		assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
-		assertByteEquals(t, client.state.exporterSecret, server.state.exporterSecret)
+			assertDeepEquals(t, client.state.Params, server.state.Params)
+			assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+			assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+			assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+			assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+			assertByteEquals(t, client.state.exporterSecret, server.state.exporterSecret)
 
-		emptyContext := []byte{}
+			emptyContext := []byte{}
 
-		assertByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 20))
-		assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 21))
-		assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "F", emptyContext, 20))
-		assertByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'A'}, 20))
-		assertNotByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'B'}, 20))
-
+			assertByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 20))
+			assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 21))
+			assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "F", emptyContext, 20))
+			assertByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'A'}, 20))
+			assertNotByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'B'}, 20))
+		})
 	}
 }
 
