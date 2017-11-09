@@ -61,11 +61,12 @@ import (
 //  CONNECTED					StoreTicket || (RekeyIn; [RekeyOut])
 
 // A cookie can be sent to the client in a HRR.
-// It contains two fields:
-// 1. The MintCookie: This field is used by mint itself to store the hash of initial client hello.
-// 2. The ApplicationCookie: This opaque value can be provided by the application (by setting a Config.CookieHandler)
 type cookie struct {
-	MintCookie        []byte `tls:"head=2"`
+	// The CipherSuite that was selected when the client sent the first ClientHello
+	CipherSuite     CipherSuite
+	ClientHelloHash []byte `tls:"head=2"`
+
+	// The ApplicationCookie can be provided by the application (by setting a Config.CookieHandler)
 	ApplicationCookie []byte `tls:"head=2"`
 }
 
@@ -141,6 +142,7 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 
 	// The client sent a cookie. So this is probably the second ClientHello (sent as a response to a HRR)
 	var firstClientHello *HandshakeMessage
+	var initialCipherSuite CipherSuiteParams // the cipher suite that was negotiated when sending the HelloRetryRequest
 	if clientSentCookie {
 		plainCookie, err := state.Caps.CookieSource.DecodeToken(clientCookie.Cookie)
 		if err != nil {
@@ -155,12 +157,18 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 		// restore the hash of initial ClientHello from the cookie
 		firstClientHello = &HandshakeMessage{
 			msgType: HandshakeTypeMessageHash,
-			body:    cookie.MintCookie,
+			body:    cookie.ClientHelloHash,
 		}
 		// have the application validate its part of the cookie
 		if state.Caps.CookieHandler != nil && !state.Caps.CookieHandler.Validate(state.conn, cookie.ApplicationCookie) {
 			logf(logTypeHandshake, "[ServerStateStart] Cookie mismatch")
 			return nil, nil, AlertAccessDenied
+		}
+		var ok bool
+		initialCipherSuite, ok = cipherSuiteMap[cookie.CipherSuite]
+		if !ok {
+			logf(logTypeHandshake, fmt.Sprintf("[ServerStateStart] Cookie contained invalid cipher suite: %#x", cookie.CipherSuite))
+			return nil, nil, AlertInternalError
 		}
 	}
 
@@ -168,55 +176,37 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	canDoDH, dhGroup, dhPublic, dhSecret := DHNegotiation(clientKeyShares.Shares, state.Caps.Groups)
 
 	// Figure out if we can do PSK
-	canDoPSK := false
+	var canDoPSK bool
 	var selectedPSK int
-	var psk *PreSharedKey
 	var params CipherSuiteParams
-
+	var psk *PreSharedKey
 	if len(clientPSK.Identities) > 0 {
-		canDoPSK, selectedPSK, psk, params, err = PSKNegotiation(clientPSK.Identities, state.Caps.PSKs)
+		contextBase := []byte{}
+		if clientSentCookie {
+			contextBase = append(contextBase, firstClientHello.Marshal()...)
+			// fill in the cookie sent by the client. Needed to calculate the correct hash
+			cookieExt := &CookieExtension{Cookie: clientCookie.Cookie}
+			hrr, err := state.generateHRR(params.Suite, cookieExt)
+			if err != nil {
+				return nil, nil, AlertInternalError
+			}
+			contextBase = append(contextBase, hrr.Marshal()...)
+		}
+		chTrunc, err := ch.Truncated()
+		if err != nil {
+			logf(logTypeHandshake, "[ServerStateStart] Error computing truncated ClientHello [%v]", err)
+			return nil, nil, AlertDecodeError
+		}
+		context := append(contextBase, chTrunc...)
+
+		canDoPSK, selectedPSK, psk, params, err = PSKNegotiation(clientPSK.Identities, clientPSK.Binders, context, state.Caps.PSKs)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateStart] Error in PSK negotiation [%v]", err)
 			return nil, nil, AlertInternalError
 		}
-
-		if canDoPSK {
-			// Compute binder
-			binderLabel := labelExternalBinder
-			if psk.IsResumption {
-				binderLabel = labelResumptionBinder
-			}
-
-			h0 := params.Hash.New().Sum(nil)
-			zero := bytes.Repeat([]byte{0}, params.Hash.Size())
-			earlySecret := HkdfExtract(params.Hash, zero, psk.Key)
-			binderKey := deriveSecret(params, earlySecret, binderLabel, h0)
-
-			// context = ClientHello[truncated]
-			// context = ClientHello1 + HelloRetryRequest + ClientHello2[truncated]
-			ctxHash := params.Hash.New()
-			if clientSentCookie { // if this ClientHello contains a cookie, we did a stateless retry. Now need to recover the
-				ctxHash.Write(firstClientHello.Marshal())
-				// fill in the cookie sent by the client. Needed to calculate the correct hash
-				cookieExt := &CookieExtension{Cookie: clientCookie.Cookie}
-				hrr, err := state.generateHRR(params.Suite, cookieExt)
-				if err != nil {
-					return nil, nil, AlertInternalError
-				}
-				ctxHash.Write(hrr.Marshal())
-			}
-			chTrunc, err := ch.Truncated()
-			if err != nil {
-				logf(logTypeHandshake, "[ServerStateStart] Error computing truncated ClientHello [%v]", err)
-				return nil, nil, AlertDecodeError
-			}
-			ctxHash.Write(chTrunc)
-
-			binder := computeFinishedData(params, binderKey, ctxHash.Sum(nil))
-			if !bytes.Equal(binder, clientPSK.Binders[selectedPSK].Binder) {
-				logf(logTypeNegotiation, "Binder check failed for identity %x; [%x] != [%x]", psk.Identity, binder, clientPSK.Binders[selectedPSK].Binder)
-				return nil, nil, AlertDecryptError
-			}
+		if clientSentCookie && initialCipherSuite.Suite != params.Suite {
+			logf(logTypeHandshake, "[ServerStateStart] Would have selected a different CipherSuite after receiving the client's Cookie")
+			return nil, nil, AlertInternalError
 		}
 	}
 
@@ -228,6 +218,10 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	if err != nil {
 		logf(logTypeHandshake, "[ServerStateStart] No common ciphersuite found [%v]", err)
 		return nil, nil, AlertHandshakeFailure
+	}
+	if clientSentCookie && initialCipherSuite.Suite != connParams.CipherSuite {
+		logf(logTypeHandshake, "[ServerStateStart] Would have selected a different CipherSuite after receiving the client's Cookie")
+		return nil, nil, AlertInternalError
 	}
 
 	var helloRetryRequest *HandshakeMessage
@@ -255,7 +249,8 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 				h := params.Hash.New()
 				h.Write(clientHello.Marshal())
 				plainCookie, err := syntax.Marshal(cookie{
-					MintCookie:        h.Sum(nil),
+					CipherSuite:       connParams.CipherSuite,
+					ClientHelloHash:   h.Sum(nil),
 					ApplicationCookie: appCookie,
 				})
 				if err != nil {

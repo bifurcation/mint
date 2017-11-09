@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -51,7 +52,7 @@ const (
 	ticketAgeTolerance uint32 = 5 * 1000 // five seconds in milliseconds
 )
 
-func PSKNegotiation(identities []PSKIdentity, psks PreSharedKeyCache) (bool, int, *PreSharedKey, CipherSuiteParams, error) {
+func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context []byte, psks PreSharedKeyCache) (bool, int, *PreSharedKey, CipherSuiteParams, error) {
 	logf(logTypeNegotiation, "Negotiating PSK offered=[%d] supported=[%d]", len(identities), psks.Size())
 	for i, id := range identities {
 		identityHex := hex.EncodeToString(id.Identity)
@@ -80,7 +81,30 @@ func PSKNegotiation(identities []PSKIdentity, psks PreSharedKeyCache) (bool, int
 
 		params, ok := cipherSuiteMap[psk.CipherSuite]
 		if !ok {
-			return false, 0, nil, CipherSuiteParams{}, fmt.Errorf("tls.cryptoinit: Unsupported ciphersuite from PSK [%04x]", psk.CipherSuite)
+			err := fmt.Errorf("tls.cryptoinit: Unsupported ciphersuite from PSK [%04x]", psk.CipherSuite)
+			return false, 0, nil, CipherSuiteParams{}, err
+		}
+
+		// Compute binder
+		binderLabel := labelExternalBinder
+		if psk.IsResumption {
+			binderLabel = labelResumptionBinder
+		}
+
+		h0 := params.Hash.New().Sum(nil)
+		zero := bytes.Repeat([]byte{0}, params.Hash.Size())
+		earlySecret := HkdfExtract(params.Hash, zero, psk.Key)
+		binderKey := deriveSecret(params, earlySecret, binderLabel, h0)
+
+		// context = ClientHello[truncated]
+		// context = ClientHello1 + HelloRetryRequest + ClientHello2[truncated]
+		ctxHash := params.Hash.New()
+		ctxHash.Write(context)
+
+		binder := computeFinishedData(params, binderKey, ctxHash.Sum(nil))
+		if !bytes.Equal(binder, binders[i].Binder) {
+			logf(logTypeNegotiation, "Binder check failed for identity %x; [%x] != [%x]", psk.Identity, binder, binders[i].Binder)
+			return false, 0, nil, CipherSuiteParams{}, fmt.Errorf("Binder check failed identity %x", psk.Identity)
 		}
 
 		logf(logTypeNegotiation, "Using PSK with identity %x", psk.Identity)
