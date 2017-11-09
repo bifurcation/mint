@@ -21,7 +21,7 @@ func messagesFromActions(instructions []HandshakeAction) []*HandshakeMessage {
 
 // TODO: Unit tests for individual states
 func TestStateMachineIntegration(t *testing.T) {
-	cookieSource, err := newDefaultCookieSource()
+	cookieSource, err := NewDefaultCookieSource()
 	assertNotError(t, err, "error creating cookie source")
 
 	var (

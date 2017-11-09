@@ -659,7 +659,7 @@ func (c *Conn) HandshakeSetup() Alert {
 				return AlertInternalError
 			}
 			var err error
-			caps.CookieSource, err = newDefaultCookieSource()
+			caps.CookieSource, err = NewDefaultCookieSource()
 			if err != nil {
 				logf(logTypeHandshake, "Error initializing cookie source: %v", alert)
 				return AlertInternalError
