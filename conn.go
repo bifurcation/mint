@@ -741,6 +741,10 @@ func (c *Conn) Handshake() Alert {
 		c.hState = state
 		logf(logTypeHandshake, "state is now %s", c.GetHsState())
 		_, connected = state.(StateConnected)
+
+		if c.config.NonBlocking && alert == AlertStatelessRetry {
+			return AlertStatelessRetry
+		}
 	}
 
 	c.state = state.(StateConnected)
