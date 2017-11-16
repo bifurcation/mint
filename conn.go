@@ -294,9 +294,10 @@ func (c *Conn) consumeRecord() error {
 			}
 			hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
 
-			// Advance state machine
-			state, actions, alert := c.state.Next(hm)
-
+			// XXX: If we want to support more advanced cases, e.g., post-handshake
+			// authentication, we'll need to allow transitions other than
+			// Connected -> Connected
+			state, actions, alert := c.state.ProcessMessage(hm)
 			if alert != AlertNoAlert {
 				logf(logTypeHandshake, "Error in state transition: %v", alert)
 				c.sendAlert(alert)
@@ -312,9 +313,6 @@ func (c *Conn) consumeRecord() error {
 				}
 			}
 
-			// XXX: If we want to support more advanced cases, e.g., post-handshake
-			// authentication, we'll need to allow transitions other than
-			// Connected -> Connected
 			var connected bool
 			c.state, connected = state.(StateConnected)
 			if !connected {
@@ -669,8 +667,29 @@ func (c *Conn) HandshakeSetup() Alert {
 	}
 
 	c.hState = state
-
 	return AlertNoAlert
+}
+
+type handshakeMessageReader interface {
+	ReadMessage() (*HandshakeMessage, Alert)
+}
+
+type handshakeMessageReaderImpl struct {
+	hl *HandshakeLayer
+}
+
+var _ handshakeMessageReader = &handshakeMessageReaderImpl{}
+
+func (r *handshakeMessageReaderImpl) ReadMessage() (*HandshakeMessage, Alert) {
+	hm, err := r.hl.ReadMessage()
+	if err == WouldBlock {
+		return nil, AlertWouldBlock
+	}
+	if err != nil {
+		logf(logTypeHandshake, "[client] Error reading message: %v", err)
+		return nil, AlertCloseNotify
+	}
+	return hm, AlertNoAlert
 }
 
 // Handshake causes a TLS handshake on the connection.  The `isClient` member
@@ -692,38 +711,33 @@ func (c *Conn) Handshake() Alert {
 		return AlertNoAlert
 	}
 
-	var alert Alert
 	if c.hState == nil {
 		logf(logTypeHandshake, "%s First time through handshake (or after stateless retry), setting up", label)
-		alert = c.HandshakeSetup()
-		if alert != AlertNoAlert {
+		alert := c.HandshakeSetup()
+		if alert != AlertNoAlert || (c.isClient && c.config.NonBlocking) {
 			return alert
 		}
-	} else {
-		logf(logTypeHandshake, "Re-entering handshake, state=%v", c.hState)
 	}
 
+	logf(logTypeHandshake, "(Re-)entering handshake, state=%v", c.hState)
 	state := c.hState
 	_, connected := state.(StateConnected)
 
-	var actions []HandshakeAction
-
+	hmr := &handshakeMessageReaderImpl{hl: c.hIn}
 	for !connected {
-		// Read a handshake message
-		hm, err := c.hIn.ReadMessage()
-		if err == WouldBlock {
-			logf(logTypeHandshake, "%s Would block reading message: %v", label, err)
+		var alert Alert
+		var actions []HandshakeAction
+		// Advance the state machine
+		state, actions, alert = state.Next(hmr)
+		if alert == WouldBlock {
+			logf(logTypeHandshake, "%s Would block reading message: %s", label, alert)
 			return AlertWouldBlock
 		}
-		if err != nil {
-			logf(logTypeHandshake, "%s Error reading message: %v", label, err)
+		if alert == AlertCloseNotify {
+			logf(logTypeHandshake, "%s Error reading message: %s", label, alert)
 			c.sendAlert(AlertCloseNotify)
 			return AlertCloseNotify
 		}
-		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
-
-		// Advance the state machine
-		state, actions, alert = state.Next(hm)
 		if alert != AlertNoAlert && alert != AlertStatelessRetry {
 			logf(logTypeHandshake, "Error in state transition: %v", alert)
 			return alert
@@ -741,13 +755,18 @@ func (c *Conn) Handshake() Alert {
 		c.hState = state
 		logf(logTypeHandshake, "state is now %s", c.GetHsState())
 		_, connected = state.(StateConnected)
+		if connected {
+			c.state = state.(StateConnected)
+			c.handshakeComplete = true
+		}
 
-		if c.config.NonBlocking && alert == AlertStatelessRetry {
-			return AlertStatelessRetry
+		if c.config.NonBlocking {
+			if alert == AlertStatelessRetry {
+				return AlertStatelessRetry
+			}
+			return AlertNoAlert
 		}
 	}
-
-	c.state = state.(StateConnected)
 
 	// Send NewSessionTicket if acting as server
 	if !c.isClient && c.config.SendSessionTickets {
@@ -766,7 +785,6 @@ func (c *Conn) Handshake() Alert {
 		}
 	}
 
-	c.handshakeComplete = true
 	return AlertNoAlert
 }
 

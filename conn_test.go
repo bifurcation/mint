@@ -269,12 +269,14 @@ var (
 )
 
 func assertKeySetEquals(t *testing.T, k1, k2 keySet) {
+	t.Helper()
 	// Assume cipher is the same
 	assertByteEquals(t, k1.iv, k2.iv)
 	assertByteEquals(t, k1.key, k2.key)
 }
 
 func computeExporter(t *testing.T, c *Conn, label string, context []byte, length int) []byte {
+	t.Helper()
 	res, err := c.ComputeExporter(label, context, length)
 	assertNotError(t, err, "Could not compute exporter")
 	return res
@@ -581,10 +583,10 @@ func TestKeyUpdate(t *testing.T) {
 	}(t)
 
 	alert := client.Handshake()
+	assertEquals(t, alert, AlertNoAlert)
 
 	// Read NST.
 	client.Read(oneBuf)
-	assertEquals(t, alert, AlertNoAlert)
 	<-s2c
 
 	clientState0 := client.state
@@ -647,7 +649,7 @@ func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
 
 	// Send ClientHello
 	clientAlert = client.Handshake()
-	assertEquals(t, clientAlert, AlertWouldBlock)
+	assertEquals(t, clientAlert, AlertNoAlert)
 	serverAlert = server.Handshake()
 	assertEquals(t, serverAlert, AlertWouldBlock)
 
@@ -655,8 +657,13 @@ func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
 	cbConn.Flush()
 
 	// Process ClientHello, send server first flight.
-	serverAlert = server.Handshake()
-	assertEquals(t, serverAlert, AlertWouldBlock)
+	for {
+		serverAlert = server.Handshake()
+		if serverAlert == AlertWouldBlock {
+			break
+		}
+		assertEquals(t, serverAlert, AlertNoAlert)
+	}
 
 	clientAlert = client.Handshake()
 	assertEquals(t, clientAlert, AlertWouldBlock)
@@ -671,8 +678,13 @@ func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
 
 	// Release client's second flight.
 	cbConn.Flush()
-	serverAlert = server.Handshake()
-	assertEquals(t, serverAlert, AlertNoAlert)
+	for {
+		serverAlert = server.Handshake()
+		if serverAlert == AlertWouldBlock {
+			break
+		}
+		assertEquals(t, serverAlert, AlertNoAlert)
+	}
 
 	assertDeepEquals(t, client.state.Params, server.state.Params)
 	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)

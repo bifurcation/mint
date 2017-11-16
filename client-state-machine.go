@@ -59,12 +59,9 @@ type ClientStateStart struct {
 	helloRetryRequest *HandshakeMessage
 }
 
-func (state ClientStateStart) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
-	if hm != nil {
-		logf(logTypeHandshake, "[ClientStateStart] Unexpected non-nil message")
-		return nil, nil, AlertUnexpectedMessage
-	}
+var _ HandshakeState = &ClientStateStart{}
 
+func (state ClientStateStart) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
 	// key_shares
 	offeredDH := map[NamedGroup][]byte{}
 	ks := KeyShareExtension{
@@ -307,7 +304,13 @@ type ClientStateWaitSH struct {
 	clientHello       *HandshakeMessage
 }
 
-func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
+var _ HandshakeState = &ClientStateWaitSH{}
+
+func (state ClientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
+	hm, alert := hr.ReadMessage()
+	if alert != AlertNoAlert {
+		return nil, nil, alert
+	}
 	if hm == nil {
 		logf(logTypeHandshake, "[ClientStateWaitSH] Unexpected nil message")
 		return nil, nil, AlertUnexpectedMessage
@@ -383,7 +386,7 @@ func (state ClientStateWaitSH) Next(hm *HandshakeMessage) (HandshakeState, []Han
 			cookie:            serverCookie.Cookie,
 			firstClientHello:  firstClientHello,
 			helloRetryRequest: hm,
-		}.Next(nil)
+		}, nil, AlertNoAlert
 
 	case *ServerHelloBody:
 		sh := body
@@ -522,15 +525,20 @@ type ClientStateWaitEE struct {
 	serverHandshakeTrafficSecret []byte
 }
 
-func (state ClientStateWaitEE) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
+var _ HandshakeState = &ClientStateWaitEE{}
+
+func (state ClientStateWaitEE) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
+	hm, alert := hr.ReadMessage()
+	if alert != AlertNoAlert {
+		return nil, nil, alert
+	}
 	if hm == nil || hm.msgType != HandshakeTypeEncryptedExtensions {
 		logf(logTypeHandshake, "[ClientStateWaitEE] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
 	ee := EncryptedExtensionsBody{}
-	_, err := ee.Unmarshal(hm.body)
-	if err != nil {
+	if _, err := ee.Unmarshal(hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitEE] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -595,7 +603,13 @@ type ClientStateWaitCertCR struct {
 	serverHandshakeTrafficSecret []byte
 }
 
-func (state ClientStateWaitCertCR) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
+var _ HandshakeState = &ClientStateWaitCertCR{}
+
+func (state ClientStateWaitCertCR) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
+	hm, alert := hr.ReadMessage()
+	if alert != AlertNoAlert {
+		return nil, nil, alert
+	}
 	if hm == nil {
 		logf(logTypeHandshake, "[ClientStateWaitCertCR] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
@@ -666,15 +680,20 @@ type ClientStateWaitCert struct {
 	serverHandshakeTrafficSecret []byte
 }
 
-func (state ClientStateWaitCert) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
+var _ HandshakeState = &ClientStateWaitCert{}
+
+func (state ClientStateWaitCert) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
+	hm, alert := hr.ReadMessage()
+	if alert != AlertNoAlert {
+		return nil, nil, alert
+	}
 	if hm == nil || hm.msgType != HandshakeTypeCertificate {
 		logf(logTypeHandshake, "[ClientStateWaitCert] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
 	cert := &CertificateBody{}
-	_, err := cert.Unmarshal(hm.body)
-	if err != nil {
+	if _, err := cert.Unmarshal(hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitCert] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -712,15 +731,20 @@ type ClientStateWaitCV struct {
 	serverHandshakeTrafficSecret []byte
 }
 
-func (state ClientStateWaitCV) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
+var _ HandshakeState = &ClientStateWaitCV{}
+
+func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
+	hm, alert := hr.ReadMessage()
+	if alert != AlertNoAlert {
+		return nil, nil, alert
+	}
 	if hm == nil || hm.msgType != HandshakeTypeCertificateVerify {
 		logf(logTypeHandshake, "[ClientStateWaitCV] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
 	}
 
 	certVerify := CertificateVerifyBody{}
-	_, err := certVerify.Unmarshal(hm.body)
-	if err != nil {
+	if _, err := certVerify.Unmarshal(hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitCV] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -773,7 +797,13 @@ type ClientStateWaitFinished struct {
 	serverHandshakeTrafficSecret []byte
 }
 
-func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
+var _ HandshakeState = &ClientStateWaitFinished{}
+
+func (state ClientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
+	hm, alert := hr.ReadMessage()
+	if alert != AlertNoAlert {
+		return nil, nil, alert
+	}
 	if hm == nil || hm.msgType != HandshakeTypeFinished {
 		logf(logTypeHandshake, "[ClientStateWaitFinished] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
@@ -788,8 +818,7 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 	logf(logTypeCrypto, "server finished data: [%d] %x", len(serverFinishedData), serverFinishedData)
 
 	fin := &FinishedBody{VerifyDataLen: len(serverFinishedData)}
-	_, err := fin.Unmarshal(hm.body)
-	if err != nil {
+	if _, err := fin.Unmarshal(hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitFinished] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -840,7 +869,7 @@ func (state ClientStateWaitFinished) Next(hm *HandshakeMessage) (HandshakeState,
 		schemes := SignatureAlgorithmsExtension{}
 		gotSchemes := state.serverCertificateRequest.Extensions.Find(&schemes)
 		if !gotSchemes {
-			logf(logTypeHandshake, "[ClientStateWaitFinished] WARNING no appropriate certificate found [%v]", err)
+			logf(logTypeHandshake, "[ClientStateWaitFinished] WARNING no appropriate certificate found")
 			return nil, nil, AlertIllegalParameter
 		}
 
