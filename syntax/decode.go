@@ -16,6 +16,15 @@ func Unmarshal(data []byte, v interface{}) (int, error) {
 	return d.unmarshal(v)
 }
 
+// Unmarshaler is the interface implemented by types that can
+// unmarshal a TLS description of themselves.  Note that unlike the
+// JSON unmarshaler interface, it is not known a priori how much of
+// the input data will be consumed.  So the Unmarshaler must state
+// how much of the input data it consumed.
+type Unmarshaler interface {
+	UnmarshalTLS([]byte) (int, error)
+}
+
 // These are the options that can be specified in the struct tag.  Right now,
 // all of them apply to variable-length vectors and nothing else
 type decOpts struct {
@@ -65,8 +74,19 @@ func typeDecoder(t reflect.Type) decoderFunc {
 	return newTypeDecoder(t)
 }
 
+var (
+	unmarshalerType = reflect.TypeOf(new(Unmarshaler)).Elem()
+)
+
 func newTypeDecoder(t reflect.Type) decoderFunc {
-	// Note: Does not support Marshaler, so don't need the allowAddr argument
+	// XXX Unmarshalers are only supported by value.  That is, if Foo
+	// implements Unmarshaler, then:
+	//
+	// type A struct { f Foo }	 <-- OK
+	// type B struct { f *Foo }  <-- Not OK
+	if t.Kind() != reflect.Ptr && reflect.PtrTo(t).Implements(unmarshalerType) {
+		return unmarshalerDecoder
+	}
 
 	switch t.Kind() {
 	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -83,6 +103,27 @@ func newTypeDecoder(t reflect.Type) decoderFunc {
 }
 
 ///// Specific decoders below
+
+func unmarshalerDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
+	um, ok := v.Interface().(Unmarshaler)
+	if !ok {
+		panic(fmt.Errorf("Non-Unarshaler passed to unmarshalerEncoder"))
+	}
+
+	read, err := um.UnmarshalTLS(d.Bytes())
+	if err != nil {
+		panic(err)
+	}
+
+	if read > d.Len() {
+		panic(fmt.Errorf("Invalid return value from UnmarshalTLS"))
+	}
+
+	d.Next(read)
+	return read
+}
+
+//////////
 
 func uintDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
 	var uintLen int

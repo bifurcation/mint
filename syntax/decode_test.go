@@ -152,6 +152,22 @@ func TestDecodeStruct(t *testing.T) {
 	}
 }
 
+func TestDecodeUnmarshaler(t *testing.T) {
+	var ym CrypticString
+	read, err := Unmarshal(zm, &ym)
+	if err != nil || !reflect.DeepEqual(ym, xm) || read != len(zm) {
+		t.Fatalf("struct decode failed [%v] [%v]", err, ym)
+	}
+
+	var ym2 struct {
+		Content CrypticString
+	}
+	read, err = Unmarshal(zm, &ym2)
+	if err != nil || !reflect.DeepEqual(ym2.Content, xm) || read != len(zm) {
+		t.Fatalf("struct decode failed [%v] [%v]", err, ym2)
+	}
+}
+
 func TestIgnoreExtraData(t *testing.T) {
 	zsExtra := append(zs1, 0)
 	var ys1 struct {
