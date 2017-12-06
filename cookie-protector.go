@@ -11,8 +11,8 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
-// CookieSource is used to create and verify a cookie
-type CookieSource interface {
+// CookieProtector is used to create and verify a cookie
+type CookieProtector interface {
 	// NewToken creates a new token
 	NewToken([]byte) ([]byte, error)
 	// DecodeToken decodes a token
@@ -22,24 +22,24 @@ type CookieSource interface {
 const cookieSecretSize = 32
 const cookieNonceSize = 32
 
-// The DefaultCookieSource is a simple implementation for the CookieSource.
-type DefaultCookieSource struct {
+// The DefaultCookieProtector is a simple implementation for the CookieProtector.
+type DefaultCookieProtector struct {
 	secret []byte
 }
 
-var _ CookieSource = &DefaultCookieSource{}
+var _ CookieProtector = &DefaultCookieProtector{}
 
-// NewDefaultCookieSource creates a source for source address tokens
-func NewDefaultCookieSource() (CookieSource, error) {
+// NewDefaultCookieProtector creates a source for source address tokens
+func NewDefaultCookieProtector() (CookieProtector, error) {
 	secret := make([]byte, cookieSecretSize)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, err
 	}
-	return &DefaultCookieSource{secret: secret}, nil
+	return &DefaultCookieProtector{secret: secret}, nil
 }
 
 // NewToken encodes data into a new token.
-func (s *DefaultCookieSource) NewToken(data []byte) ([]byte, error) {
+func (s *DefaultCookieProtector) NewToken(data []byte) ([]byte, error) {
 	nonce := make([]byte, cookieNonceSize)
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (s *DefaultCookieSource) NewToken(data []byte) ([]byte, error) {
 }
 
 // DecodeToken decodes a token.
-func (s *DefaultCookieSource) DecodeToken(p []byte) ([]byte, error) {
+func (s *DefaultCookieProtector) DecodeToken(p []byte) ([]byte, error) {
 	if len(p) < cookieNonceSize {
 		return nil, fmt.Errorf("Token too short: %d", len(p))
 	}
@@ -64,7 +64,7 @@ func (s *DefaultCookieSource) DecodeToken(p []byte) ([]byte, error) {
 	return aead.Open(nil, aeadNonce, p[cookieNonceSize:], nil)
 }
 
-func (s *DefaultCookieSource) createAEAD(nonce []byte) (cipher.AEAD, []byte, error) {
+func (s *DefaultCookieProtector) createAEAD(nonce []byte) (cipher.AEAD, []byte, error) {
 	h := hkdf.New(sha256.New, s.secret, nonce, []byte("mint cookie source"))
 	key := make([]byte, 32) // use a 32 byte key, in order to select AES-256
 	if _, err := io.ReadFull(h, key); err != nil {

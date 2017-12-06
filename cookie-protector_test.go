@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func TestCookieSource(t *testing.T) {
-	cs, err := NewDefaultCookieSource()
+func TestCookieProtector(t *testing.T) {
+	cs, err := NewDefaultCookieProtector()
 	assertNotError(t, err, "creating the cookie source failed")
 
 	t.Run("handling valid tokens", func(t *testing.T) {

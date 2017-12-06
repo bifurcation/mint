@@ -21,7 +21,7 @@ func messagesFromActions(instructions []HandshakeAction) []*HandshakeMessage {
 
 // TODO: Unit tests for individual states
 func TestStateMachineIntegration(t *testing.T) {
-	cookieSource, err := NewDefaultCookieSource()
+	cookieProtector, err := NewDefaultCookieProtector()
 	assertNotError(t, err, "error creating cookie source")
 
 	var (
@@ -51,7 +51,7 @@ func TestStateMachineIntegration(t *testing.T) {
 					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs:             &PSKMapCache{},
 					Certificates:     certificates,
-					CookieSource:     cookieSource,
+					CookieProtector:  cookieProtector,
 				},
 				clientStateSequence: []HandshakeState{
 					ClientStateStart{},
@@ -89,7 +89,7 @@ func TestStateMachineIntegration(t *testing.T) {
 					PSKs:             &PSKMapCache{},
 					Certificates:     certificates,
 					RequireCookie:    true,
-					CookieSource:     cookieSource,
+					CookieProtector:  cookieProtector,
 				},
 				clientStateSequence: []HandshakeState{
 					ClientStateStart{},

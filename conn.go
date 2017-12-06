@@ -79,15 +79,15 @@ type Config struct {
 	// Require the client to echo a cookie.
 	RequireCookie bool
 	// A CookieHandler can be used to set and validate a cookie.
-	// The cookie returned by the CookieHandler will be part of the cookie sent on the wire, and encoded using the CookieSource.
+	// The cookie returned by the CookieHandler will be part of the cookie sent on the wire, and encoded using the CookieProtector.
 	// If no CookieHandler is set, mint will always send a cookie.
 	// The CookieHandler can be used to decide on a per-connection basis, if a cookie should be sent.
 	CookieHandler CookieHandler
-	// The CookieSource is used to encrypt / decrypt cookies.
+	// The CookieProtector is used to encrypt / decrypt cookies.
 	// It should make sure that the Cookie cannot be read and tampered with by the client.
 	// If non-blocking mode is used, and cookies are required, this field has to be set.
-	// In blocking mode, a default cookie source is used, if this is unused.
-	CookieSource      CookieSource
+	// In blocking mode, a default cookie protector is used, if this is unused.
+	CookieProtector   CookieProtector
 	RequireClientAuth bool
 
 	// Shared fields
@@ -122,7 +122,7 @@ func (c *Config) Clone() *Config {
 		AllowEarlyData:     c.AllowEarlyData,
 		RequireCookie:      c.RequireCookie,
 		CookieHandler:      c.CookieHandler,
-		CookieSource:       c.CookieSource,
+		CookieProtector:    c.CookieProtector,
 		RequireClientAuth:  c.RequireClientAuth,
 
 		Certificates:     c.Certificates,
@@ -624,7 +624,7 @@ func (c *Conn) HandshakeSetup() Alert {
 		PSKModes:          c.config.PSKModes,
 		AllowEarlyData:    c.config.AllowEarlyData,
 		RequireCookie:     c.config.RequireCookie,
-		CookieSource:      c.config.CookieSource,
+		CookieProtector:   c.config.CookieProtector,
 		CookieHandler:     c.config.CookieHandler,
 		RequireClientAuth: c.config.RequireClientAuth,
 		NextProtos:        c.config.NextProtos,
@@ -652,14 +652,14 @@ func (c *Conn) HandshakeSetup() Alert {
 			}
 		}
 	} else {
-		if c.config.RequireCookie && c.config.CookieSource == nil {
-			logf(logTypeHandshake, "RequireCookie set, but no CookieSource provided. Using default cookie source. Stateless Retry not possible.")
+		if c.config.RequireCookie && c.config.CookieProtector == nil {
+			logf(logTypeHandshake, "RequireCookie set, but no CookieProtector provided. Using default cookie protector. Stateless Retry not possible.")
 			if c.config.NonBlocking {
 				logf(logTypeHandshake, "Not possible in non-blocking mode.")
 				return AlertInternalError
 			}
 			var err error
-			caps.CookieSource, err = NewDefaultCookieSource()
+			caps.CookieProtector, err = NewDefaultCookieProtector()
 			if err != nil {
 				logf(logTypeHandshake, "Error initializing cookie source: %v", alert)
 				return AlertInternalError

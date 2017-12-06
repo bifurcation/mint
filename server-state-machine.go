@@ -144,7 +144,7 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 	var firstClientHello *HandshakeMessage
 	var initialCipherSuite CipherSuiteParams // the cipher suite that was negotiated when sending the HelloRetryRequest
 	if clientSentCookie {
-		plainCookie, err := state.Caps.CookieSource.DecodeToken(clientCookie.Cookie)
+		plainCookie, err := state.Caps.CookieProtector.DecodeToken(clientCookie.Cookie)
 		if err != nil {
 			logf(logTypeHandshake, fmt.Sprintf("[ServerStateStart] Error decoding token [%v]", err))
 			return nil, nil, AlertDecryptError
@@ -257,7 +257,7 @@ func (state ServerStateStart) Next(hm *HandshakeMessage) (HandshakeState, []Hand
 					logf(logTypeHandshake, "[ServerStateStart] Error marshalling cookie [%v]", err)
 					return nil, nil, AlertInternalError
 				}
-				cookieData, err := state.Caps.CookieSource.NewToken(plainCookie)
+				cookieData, err := state.Caps.CookieProtector.NewToken(plainCookie)
 				if err != nil {
 					logf(logTypeHandshake, "[ServerStateStart] Error encoding cookie [%v]", err)
 					return nil, nil, AlertInternalError

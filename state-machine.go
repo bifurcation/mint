@@ -60,7 +60,7 @@ type Capabilities struct {
 	NextProtos        []string
 	AllowEarlyData    bool
 	RequireCookie     bool
-	CookieSource      CookieSource
+	CookieProtector   CookieProtector
 	CookieHandler     CookieHandler
 	RequireClientAuth bool
 }
