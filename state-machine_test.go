@@ -310,91 +310,92 @@ func messagesFromActions(instructions []HandshakeAction) []*HandshakeMessage {
 // TODO: Unit tests for individual states
 func TestStateMachineIntegration(t *testing.T) {
 	for caseName, params := range stateMachineIntegrationCases {
-		t.Logf("=== Integration Test (%s) ===", caseName)
+		t.Run(caseName, func(t *testing.T) {
 
-		var clientState, serverState HandshakeState
-		clientState = ClientStateStart{
-			Caps: params.clientCapabilities,
-			Opts: params.clientOptions,
-		}
-		serverState = ServerStateStart{Caps: params.serverCapabilities}
-		t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
-		t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
-
-		clientStateSequence := []HandshakeState{clientState}
-		serverStateSequence := []HandshakeState{serverState}
-
-		// Create the ClientHello
-		clientState, clientInstr, alert := clientState.Next(nil)
-		clientToSend := messagesFromActions(clientInstr)
-		assertEquals(t, alert, AlertNoAlert)
-		t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
-		clientStateSequence = append(clientStateSequence, clientState)
-		assertEquals(t, len(clientToSend), 1)
-
-		for {
-			var clientInstr, serverInstr []HandshakeAction
-			var alert Alert
-
-			// Client -> Server
-			serverToSend := []*HandshakeMessage{}
-			for _, body := range clientToSend {
-				t.Logf("C->S: %d", body.msgType)
-				serverState, serverInstr, alert = serverState.Next(body)
-				serverResponses := messagesFromActions(serverInstr)
-				assert(t, alert == AlertNoAlert, fmt.Sprintf("Alert from server [%v]", alert))
-				serverStateSequence = append(serverStateSequence, serverState)
-				t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
-				serverToSend = append(serverToSend, serverResponses...)
+			var clientState, serverState HandshakeState
+			clientState = ClientStateStart{
+				Caps: params.clientCapabilities,
+				Opts: params.clientOptions,
 			}
+			serverState = ServerStateStart{Caps: params.serverCapabilities}
+			t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
+			t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
 
-			// Server -> Client
-			clientToSend = []*HandshakeMessage{}
-			for _, body := range serverToSend {
-				t.Logf("S->C: %d", body.msgType)
-				clientState, clientInstr, alert = clientState.Next(body)
-				clientResponses := messagesFromActions(clientInstr)
-				assert(t, alert == AlertNoAlert, fmt.Sprintf("Alert from client [%v]", alert))
-				clientStateSequence = append(clientStateSequence, clientState)
-				t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
-				clientToSend = append(clientToSend, clientResponses...)
-			}
+			clientStateSequence := []HandshakeState{clientState}
+			serverStateSequence := []HandshakeState{serverState}
 
-			clientConnected := reflect.TypeOf(clientState) == reflect.TypeOf(StateConnected{})
-			serverConnected := reflect.TypeOf(serverState) == reflect.TypeOf(StateConnected{})
-			if clientConnected && serverConnected {
-				c := clientState.(StateConnected)
-				s := serverState.(StateConnected)
+			// Create the ClientHello
+			clientState, clientInstr, alert := clientState.Next(nil)
+			clientToSend := messagesFromActions(clientInstr)
+			assertEquals(t, alert, AlertNoAlert)
+			t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
+			clientStateSequence = append(clientStateSequence, clientState)
+			assertEquals(t, len(clientToSend), 1)
 
-				// Test that we ended up at the same state
-				assertDeepEquals(t, c.Params, s.Params)
-				assertCipherSuiteParamsEquals(t, c.cryptoParams, s.cryptoParams)
-				assertByteEquals(t, c.resumptionSecret, s.resumptionSecret)
-				assertByteEquals(t, c.clientTrafficSecret, s.clientTrafficSecret)
-				assertByteEquals(t, c.serverTrafficSecret, s.serverTrafficSecret)
+			for {
+				var clientInstr, serverInstr []HandshakeAction
+				var alert Alert
 
-				// Test that the client went through the expected sequence of states
-				assertEquals(t, len(clientStateSequence), len(params.clientStateSequence))
-				for i, state := range clientStateSequence {
-					t.Logf("-- %d %s", i, reflect.TypeOf(state).Name())
-					assertSameType(t, state, params.clientStateSequence[i])
+				// Client -> Server
+				serverToSend := []*HandshakeMessage{}
+				for _, body := range clientToSend {
+					t.Logf("C->S: %d", body.msgType)
+					serverState, serverInstr, alert = serverState.Next(body)
+					serverResponses := messagesFromActions(serverInstr)
+					assert(t, alert == AlertNoAlert, fmt.Sprintf("Alert from server [%v]", alert))
+					serverStateSequence = append(serverStateSequence, serverState)
+					t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
+					serverToSend = append(serverToSend, serverResponses...)
 				}
 
-				// Test that the server went through the expected sequence of states
-				assertEquals(t, len(serverStateSequence), len(params.serverStateSequence))
-				for i, state := range serverStateSequence {
-					t.Logf("-- %d %s", i, reflect.TypeOf(state).Name())
-					assertSameType(t, state, params.serverStateSequence[i])
+				// Server -> Client
+				clientToSend = []*HandshakeMessage{}
+				for _, body := range serverToSend {
+					t.Logf("S->C: %d", body.msgType)
+					clientState, clientInstr, alert = clientState.Next(body)
+					clientResponses := messagesFromActions(clientInstr)
+					assert(t, alert == AlertNoAlert, fmt.Sprintf("Alert from client [%v]", alert))
+					clientStateSequence = append(clientStateSequence, clientState)
+					t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
+					clientToSend = append(clientToSend, clientResponses...)
 				}
 
-				break
-			}
+				clientConnected := reflect.TypeOf(clientState) == reflect.TypeOf(StateConnected{})
+				serverConnected := reflect.TypeOf(serverState) == reflect.TypeOf(StateConnected{})
+				if clientConnected && serverConnected {
+					c := clientState.(StateConnected)
+					s := serverState.(StateConnected)
 
-			clientStateName := reflect.TypeOf(clientState).Name()
-			serverStateName := reflect.TypeOf(serverState).Name()
-			if len(clientToSend) == 0 {
-				t.Fatalf("Deadlock at client=[%s] server=[%s]", clientStateName, serverStateName)
+					// Test that we ended up at the same state
+					assertDeepEquals(t, c.Params, s.Params)
+					assertCipherSuiteParamsEquals(t, c.cryptoParams, s.cryptoParams)
+					assertByteEquals(t, c.resumptionSecret, s.resumptionSecret)
+					assertByteEquals(t, c.clientTrafficSecret, s.clientTrafficSecret)
+					assertByteEquals(t, c.serverTrafficSecret, s.serverTrafficSecret)
+
+					// Test that the client went through the expected sequence of states
+					assertEquals(t, len(clientStateSequence), len(params.clientStateSequence))
+					for i, state := range clientStateSequence {
+						t.Logf("-- %d %s", i, reflect.TypeOf(state).Name())
+						assertSameType(t, state, params.clientStateSequence[i])
+					}
+
+					// Test that the server went through the expected sequence of states
+					assertEquals(t, len(serverStateSequence), len(params.serverStateSequence))
+					for i, state := range serverStateSequence {
+						t.Logf("-- %d %s", i, reflect.TypeOf(state).Name())
+						assertSameType(t, state, params.serverStateSequence[i])
+					}
+
+					break
+				}
+
+				clientStateName := reflect.TypeOf(clientState).Name()
+				serverStateName := reflect.TypeOf(serverState).Name()
+				if len(clientToSend) == 0 {
+					t.Fatalf("Deadlock at client=[%s] server=[%s]", clientStateName, serverStateName)
+				}
 			}
-		}
+		})
 	}
 }
