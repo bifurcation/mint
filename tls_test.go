@@ -55,6 +55,25 @@ func TestDialTimeout(t *testing.T) {
 	}
 }
 
+func TestDialNonBlocking(t *testing.T) {
+	config := &Config{NonBlocking: true}
+	_, err := Dial("tcp", "localhost:1234", config)
+	assertEquals(t, err.Error(), "dialing not possible in non-blocking mode")
+	_, err = DialWithDialer(&net.Dialer{}, "tcp", "localhost:1234", config)
+	assertEquals(t, err.Error(), "dialing not possible in non-blocking mode")
+}
+
+func TestListenNonBlocking(t *testing.T) {
+	config := &Config{
+		NonBlocking:  true,
+		Certificates: certificates,
+	}
+	_, err := Listen("tcp", "localhost:1234", config)
+	assertEquals(t, err.Error(), "listening not possible in non-blocking mode")
+	_, err = NewListener(newLocalListener(t), config)
+	assertEquals(t, err.Error(), "listening not possible in non-blocking mode")
+}
+
 // tests that Conn.Read returns (non-zero, io.EOF) instead of
 // (non-zero, nil) when a Close (alertCloseNotify) is sitting right
 // behind the application data in the buffer.

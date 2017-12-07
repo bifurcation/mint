@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -354,6 +355,9 @@ func (c *Conn) consumeRecord() error {
 // Read application data up to the size of buffer.  Handshake and alert records
 // are consumed by the Conn object directly.
 func (c *Conn) Read(buffer []byte) (int, error) {
+	if _, connected := c.hState.(StateConnected); !connected && c.config.NonBlocking {
+		return 0, errors.New("Read called before the handshake completed")
+	}
 	logf(logTypeHandshake, "conn.Read with buffer = %d", len(buffer))
 	if alert := c.Handshake(); alert != AlertNoAlert {
 		return 0, alert

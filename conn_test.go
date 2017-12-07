@@ -391,6 +391,12 @@ func TestPSKFlows(t *testing.T) {
 	}
 }
 
+func TestNonBlockingReadBeforeConnected(t *testing.T) {
+	conn := Client(&bufferedConn{}, &Config{NonBlocking: true})
+	_, err := conn.Read(make([]byte, 10))
+	assertEquals(t, err.Error(), "Read called before the handshake completed")
+}
+
 func TestResumption(t *testing.T) {
 	// Phase 1: Verify that the session ticket gets sent and stored
 	clientConfig := resumptionConfig.Clone()
