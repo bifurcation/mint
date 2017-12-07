@@ -150,3 +150,66 @@ const (
 	KeyUpdateNotRequested KeyUpdateRequest = 0
 	KeyUpdateRequested    KeyUpdateRequest = 1
 )
+
+type State uint8
+
+const (
+	// states valid for the client
+	StateClientStart State = iota
+	StateClientWaitSH
+	StateClientWaitEE
+	StateClientWaitCert
+	StateClientWaitCV
+	StateClientWaitFinished
+	StateClientWaitCertCR
+	StateClientConnected
+	// states valid for the server
+	StateServerStart State = iota
+	StateServerRecvdCH
+	StateServerNegotiated
+	StateServerWaitEOED
+	StateServerWaitFlight2
+	StateServerWaitCert
+	StateServerWaitCV
+	StateServerWaitFinished
+	StateServerConnected
+)
+
+func (s State) String() string {
+	switch s {
+	case StateClientStart:
+		return "Client START"
+	case StateClientWaitSH:
+		return "Client WAIT_SH"
+	case StateClientWaitEE:
+		return "Client WAIT_EE"
+	case StateClientWaitCert:
+		return "Client WAIT_CERT"
+	case StateClientWaitCV:
+		return "Client WAIT_CV"
+	case StateClientWaitFinished:
+		return "Client WAIT_FINISHED"
+	case StateClientConnected:
+		return "Client CONNECTED"
+	case StateServerStart:
+		return "Server START"
+	case StateServerRecvdCH:
+		return "Server RECVD_CH"
+	case StateServerNegotiated:
+		return "Server NEGOTIATED"
+	case StateServerWaitEOED:
+		return "Server WAIT_EOED"
+	case StateServerWaitFlight2:
+		return "Server WAIT_FLIGHT2"
+	case StateServerWaitCert:
+		return "Server WAIT_CERT"
+	case StateServerWaitCV:
+		return "Server WAIT_CV"
+	case StateServerWaitFinished:
+		return "Server WAIT_FINISHED"
+	case StateServerConnected:
+		return "Server CONNECTED"
+	default:
+		return fmt.Sprintf("unknown state: %d", s)
+	}
+}
