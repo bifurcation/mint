@@ -153,18 +153,31 @@ func TestDecodeStruct(t *testing.T) {
 }
 
 func TestDecodeUnmarshaler(t *testing.T) {
+	crypticStringUnmarshalCalls = 0
 	var ym CrypticString
 	read, err := Unmarshal(zm, &ym)
+
 	if err != nil || !reflect.DeepEqual(ym, xm) || read != len(zm) {
-		t.Fatalf("struct decode failed [%v] [%v]", err, ym)
+		t.Fatalf("Unmarshaler decode failed [%v] [%v]", err, ym)
 	}
 
-	var ym2 struct {
-		Content CrypticString
+	if crypticStringUnmarshalCalls != 1 {
+		t.Fatalf("CrypticString.UnmarshalTLS() was not called exactly once [%v]", crypticStringUnmarshalCalls)
 	}
-	read, err = Unmarshal(zm, &ym2)
-	if err != nil || !reflect.DeepEqual(ym2.Content, xm) || read != len(zm) {
-		t.Fatalf("struct decode failed [%v] [%v]", err, ym2)
+
+	crypticStringUnmarshalCalls = 0
+	var ysm struct {
+		A CrypticString
+		B uint16
+		C CrypticString
+	}
+	read, err = Unmarshal(zsm, &ysm)
+	if err != nil || !reflect.DeepEqual(ysm, xsm) || read != len(zsm) {
+		t.Fatalf("Struct-embedded unmarshaler decode failed [%v] [%v]", err, ysm)
+	}
+
+	if crypticStringUnmarshalCalls != 2 {
+		t.Fatalf("CrypticString.UnmarshalTLS() was not called exactly twice [%v]", crypticStringUnmarshalCalls)
 	}
 }
 

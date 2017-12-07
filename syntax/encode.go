@@ -77,10 +77,6 @@ func newTypeEncoder(t reflect.Type) encoderFunc {
 		return marshalerEncoder
 	}
 
-	// XXX: Not doing the condAddrEncoder stuff that encoding/json
-	// does. I think that's only necessary because they want to
-	// reflect nil pointers as "null", which we don't want here.
-
 	switch t.Kind() {
 	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return uintEncoder

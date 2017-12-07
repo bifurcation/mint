@@ -79,11 +79,6 @@ var (
 )
 
 func newTypeDecoder(t reflect.Type) decoderFunc {
-	// XXX Unmarshalers are only supported by value.  That is, if Foo
-	// implements Unmarshaler, then:
-	//
-	// type A struct { f Foo }	 <-- OK
-	// type B struct { f *Foo }  <-- Not OK
 	if t.Kind() != reflect.Ptr && reflect.PtrTo(t).Implements(unmarshalerType) {
 		return unmarshalerDecoder
 	}
@@ -107,7 +102,7 @@ func newTypeDecoder(t reflect.Type) decoderFunc {
 func unmarshalerDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
 	um, ok := v.Interface().(Unmarshaler)
 	if !ok {
-		panic(fmt.Errorf("Non-Unarshaler passed to unmarshalerEncoder"))
+		panic(fmt.Errorf("Non-Unmarshaler passed to unmarshalerEncoder"))
 	}
 
 	read, err := um.UnmarshalTLS(d.Bytes())
