@@ -86,6 +86,8 @@ func newTypeEncoder(t reflect.Type) encoderFunc {
 		return newSliceEncoder(t)
 	case reflect.Struct:
 		return newStructEncoder(t)
+	case reflect.Ptr:
+		return newPointerEncoder(t)
 	default:
 		panic(fmt.Errorf("Unsupported type (%s)", t))
 	}
@@ -218,4 +220,24 @@ func newStructEncoder(t reflect.Type) encoderFunc {
 	}
 
 	return se.encode
+}
+
+//////////
+
+type pointerEncoder struct {
+	base encoderFunc
+}
+
+func (pe pointerEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+	if v.IsNil() {
+		panic(fmt.Errorf("Cannot marshal a struct containing a nil pointer"))
+	}
+
+	pe.base(e, v.Elem(), opts)
+}
+
+func newPointerEncoder(t reflect.Type) encoderFunc {
+	baseEncoder := typeEncoder(t.Elem())
+	pe := pointerEncoder{base: baseEncoder}
+	return pe.encode
 }

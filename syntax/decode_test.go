@@ -181,6 +181,17 @@ func TestDecodeUnmarshaler(t *testing.T) {
 	}
 }
 
+func TestDecodeStructWithPointer(t *testing.T) {
+	var ysp struct {
+		A uint16
+		B *CrypticString
+	}
+	read, err := Unmarshal(zsp, &ysp)
+	if err != nil || !reflect.DeepEqual(ysp, xsp) || read != len(zsp) {
+		t.Fatalf("struct decode failed [%v] [%v]", err, ysp)
+	}
+}
+
 func TestIgnoreExtraData(t *testing.T) {
 	zsExtra := append(zs1, 0)
 	var ys1 struct {
