@@ -73,16 +73,6 @@ func TestDecodeVarint(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(yvi, xvi) || read != len(zvi) {
 		t.Fatalf("varint decode failed [%v] [%v]", err, yvi)
 	}
-
-	/*
-		u8 := (xvi.U8 == yvi.U8)
-		u16 := (xvi.U16 == yvi.U16)
-		u32 := (xvi.U32 == yvi.U32)
-		u64 := (xvi.U64 == yvi.U64)
-		if err != nil || !u8 || !u16 || !u32 || !u64 || read != len(zvi) {
-			t.Fatalf("varint decode failed [%v] [%v]", err, yvi)
-		}
-	*/
 }
 
 func TestDecodeArray(t *testing.T) {
