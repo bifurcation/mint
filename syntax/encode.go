@@ -16,6 +16,12 @@ func Marshal(v interface{}) ([]byte, error) {
 	return e.Bytes(), nil
 }
 
+// Marshaler is the interface implemented by types that
+// have a defined TLS encoding.
+type Marshaler interface {
+	MarshalTLS() ([]byte, error)
+}
+
 // These are the options that can be specified in the struct tag.  Right now,
 // all of them apply to variable-length vectors and nothing else
 type encOpts struct {
@@ -62,8 +68,14 @@ func typeEncoder(t reflect.Type) encoderFunc {
 	return newTypeEncoder(t)
 }
 
+var (
+	marshalerType = reflect.TypeOf(new(Marshaler)).Elem()
+)
+
 func newTypeEncoder(t reflect.Type) encoderFunc {
-	// Note: Does not support Marshaler, so don't need the allowAddr argument
+	if t.Implements(marshalerType) {
+		return marshalerEncoder
+	}
 
 	switch t.Kind() {
 	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -80,6 +92,28 @@ func newTypeEncoder(t reflect.Type) encoderFunc {
 }
 
 ///// Specific encoders below
+
+func marshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+	if v.Kind() == reflect.Ptr && v.IsNil() {
+		panic(fmt.Errorf("Cannot encode nil pointer"))
+	}
+
+	m, ok := v.Interface().(Marshaler)
+	if !ok {
+		panic(fmt.Errorf("Non-Marshaler passed to marshalerEncoder"))
+	}
+
+	b, err := m.MarshalTLS()
+	if err == nil {
+		_, err = e.Write(b)
+	}
+
+	if err != nil {
+		panic(err)
+	}
+}
+
+//////////
 
 func uintEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 	u := v.Uint()
