@@ -33,7 +33,7 @@ type StorePSK struct {
 }
 
 type HandshakeState interface {
-	Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert)
+	Next(handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert)
 }
 
 type AppExtensionHandler interface {
@@ -60,6 +60,7 @@ type Capabilities struct {
 	NextProtos        []string
 	AllowEarlyData    bool
 	RequireCookie     bool
+	CookieProtector   CookieProtector
 	CookieHandler     CookieHandler
 	RequireClientAuth bool
 }
@@ -96,6 +97,8 @@ type StateConnected struct {
 	serverTrafficSecret []byte
 	exporterSecret      []byte
 }
+
+var _ HandshakeState = &StateConnected{}
 
 func (state *StateConnected) KeyUpdate(request KeyUpdateRequest) ([]HandshakeAction, Alert) {
 	var trafficKeys keySet
@@ -162,7 +165,12 @@ func (state *StateConnected) NewSessionTicket(length int, lifetime, earlyDataLif
 	return toSend, AlertNoAlert
 }
 
-func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
+// Next does nothing for this state.
+func (state StateConnected) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
+	return state, nil, AlertNoAlert
+}
+
+func (state StateConnected) ProcessMessage(hm *HandshakeMessage) (HandshakeState, []HandshakeAction, Alert) {
 	if hm == nil {
 		logf(logTypeHandshake, "[StateConnected] Unexpected message")
 		return nil, nil, AlertUnexpectedMessage
@@ -195,12 +203,9 @@ func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []Handsh
 			if alert != AlertNoAlert {
 				return nil, nil, alert
 			}
-
 			toSend = append(toSend, moreToSend...)
 		}
-
 		return state, toSend, AlertNoAlert
-
 	case *NewSessionTicketBody:
 		// XXX: Allow NewSessionTicket in both directions?
 		if !state.isClient {
@@ -209,7 +214,6 @@ func (state StateConnected) Next(hm *HandshakeMessage) (HandshakeState, []Handsh
 
 		resumptionKey := HkdfExpandLabel(state.cryptoParams.Hash, state.resumptionSecret,
 			labelResumption, body.TicketNonce, state.cryptoParams.Hash.Size())
-
 		psk := PreSharedKey{
 			CipherSuite:  state.cryptoParams.Suite,
 			IsResumption: true,

@@ -201,6 +201,7 @@ func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 
 	hm.body = make([]byte, len(body))
 	copy(hm.body, body)
+	logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
 
 	return hm, nil
 }
