@@ -3,9 +3,53 @@ package syntax
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 )
+
+type CrypticString string
+
+var (
+	crypticStringMarshalCalls   = 0
+	crypticStringUnmarshalCalls = 0
+)
+
+// A CrypticString marshalls as one length octet followed by the
+// UTF-8 bytes of the string, XOR'ed with an increasing sequence
+// starting with the length plus one (L+1, L+2, ...).
+func (cs CrypticString) MarshalTLS() ([]byte, error) {
+	crypticStringMarshalCalls += 1
+
+	l := byte(len(cs))
+	b := []byte(cs)
+	for i := range b {
+		b[i] ^= l + byte(i) + 1
+	}
+	return append([]byte{l}, b...), nil
+}
+
+func (cs *CrypticString) UnmarshalTLS(data []byte) (int, error) {
+	crypticStringUnmarshalCalls += 1
+
+	if len(data) == 0 {
+		return 0, fmt.Errorf("Length of CrypticString must be at least 1")
+	}
+
+	l := data[0]
+	if len(data) < int(l)+1 {
+		return 0, fmt.Errorf("TLS data not long enough for CrypticString")
+	}
+
+	b := data[1 : l+1]
+	for i := range b {
+		b[i] ^= l + byte(i) + 1
+	}
+
+	*cs = CrypticString(string(b))
+
+	return int(l + 1), nil
+}
 
 // Test cases to use for encode and decode
 var (
@@ -65,6 +109,20 @@ var (
 		C: [4]uint32{0x10111213, 0x20212223, 0x30313233, 0x40414243},
 	}
 	zs1, _ = hex.DecodeString("B0A0" + "0005A0A1A2A3A4" + "10111213202122233031323340414243")
+
+	xm    = CrypticString("hello")
+	zm, _ = hex.DecodeString("056e62646565")
+
+	xsm = struct {
+		A CrypticString
+		B uint16
+		C CrypticString
+	}{
+		A: CrypticString("hello"),
+		B: x16,
+		C: CrypticString("... world!"),
+	}
+	zsm, _ = hex.DecodeString("056e62646565" + "B0A0" + "0a2522232e787f637e7735")
 )
 
 func TestEncodeInvalidCases(t *testing.T) {
@@ -148,4 +206,29 @@ func TestEncodeStruct(t *testing.T) {
 	if err != nil || !bytes.Equal(ys1, zs1) {
 		t.Fatalf("struct encode failed [%v] [%x]", err, ys1)
 	}
+}
+
+func TestEncodeMarshaler(t *testing.T) {
+	crypticStringMarshalCalls = 0
+	ym, err := Marshal(xm)
+
+	if err != nil || !bytes.Equal(ym, zm) {
+		t.Fatalf("Marshaler encode failed [%v] [%x]", err, ym)
+	}
+
+	if crypticStringMarshalCalls != 1 {
+		t.Fatalf("MarshalTLS() was not called exactly once [%v]", crypticStringMarshalCalls)
+	}
+
+	crypticStringMarshalCalls = 0
+	ysm, err := Marshal(xsm)
+
+	if err != nil || !bytes.Equal(ysm, zsm) {
+		t.Fatalf("Struct-embedded marshaler encode failed [%v] [%x]", err, ysm)
+	}
+
+	if crypticStringMarshalCalls != 2 {
+		t.Fatalf("MarshalTLS() was not called exactly twice [%v]", crypticStringMarshalCalls)
+	}
+
 }
