@@ -25,9 +25,10 @@ type Marshaler interface {
 // These are the options that can be specified in the struct tag.  Right now,
 // all of them apply to variable-length vectors and nothing else
 type encOpts struct {
-	head uint // length of length in bytes
-	min  uint // minimum size in bytes
-	max  uint // maximum size in bytes
+	head   uint // length of length in bytes
+	min    uint // minimum size in bytes
+	max    uint // maximum size in bytes
+	varint bool // whether to encode as a varint
 }
 
 type encodeState struct {
@@ -116,18 +117,45 @@ func marshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 //////////
 
 func uintEncoder(e *encodeState, v reflect.Value, opts encOpts) {
-	u := v.Uint()
-	switch v.Type().Kind() {
-	case reflect.Uint8:
-		e.WriteByte(byte(u))
-	case reflect.Uint16:
-		e.Write([]byte{byte(u >> 8), byte(u)})
-	case reflect.Uint32:
-		e.Write([]byte{byte(u >> 24), byte(u >> 16), byte(u >> 8), byte(u)})
-	case reflect.Uint64:
-		e.Write([]byte{byte(u >> 56), byte(u >> 48), byte(u >> 40), byte(u >> 32),
-			byte(u >> 24), byte(u >> 16), byte(u >> 8), byte(u)})
+	if opts.varint {
+		varintEncoder(e, v, opts)
+		return
 	}
+
+	writeUint(e, v.Uint(), int(v.Type().Size()))
+}
+
+func varintEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+	u := v.Uint()
+	if (u >> 62) > 0 {
+		panic(fmt.Errorf("uint value is too big for varint"))
+	}
+
+	uintLen := int(v.Type().Size())
+
+	var varintLen int
+	for _, len := range []uint{1, 2, 4, 8} {
+		if u < (uint64(1) << (8*len - 2)) {
+			varintLen = int(len)
+			break
+		}
+	}
+
+	if uintLen < varintLen {
+		panic(fmt.Errorf("Uint too small to fit varint: %d < %d"))
+	}
+
+	twoBits := map[int]uint64{1: 0x00, 2: 0x01, 4: 0x02, 8: 0x03}[varintLen]
+	shift := uint(8*varintLen - 2)
+	writeUint(e, u^(twoBits<<shift), varintLen)
+}
+
+func writeUint(e *encodeState, u uint64, len int) {
+	data := make([]byte, len)
+	for i := 0; i < len; i += 1 {
+		data[i] = byte(u >> uint(8*(len-i-1)))
+	}
+	e.Write(data)
 }
 
 //////////
@@ -210,9 +238,10 @@ func newStructEncoder(t reflect.Type) encoderFunc {
 		tagOpts := parseTag(tag)
 
 		se.fieldOpts[i] = encOpts{
-			head: tagOpts["head"],
-			max:  tagOpts["max"],
-			min:  tagOpts["min"],
+			head:   tagOpts["head"],
+			max:    tagOpts["max"],
+			min:    tagOpts["min"],
+			varint: tagOpts[varintOption] > 0,
 		}
 		se.fieldEncs[i] = typeEncoder(f.Type)
 	}

@@ -65,6 +65,19 @@ var (
 	x64    uint64 = 0xD0C0B0A090807060
 	z64, _        = hex.DecodeString("D0C0B0A090807060")
 
+	xvi = struct {
+		U8  uint8  `tls:"varint"`
+		U16 uint16 `tls:"varint"`
+		U32 uint32 `tls:"varint"`
+		U64 uint64 `tls:"varint"`
+	}{
+		U8:  0x3f,
+		U16: 0x3fff,
+		U32: 0x3fffffff,
+		U64: 0x3fffffffffffffff,
+	}
+	zvi, _ = hex.DecodeString("3f" + "7fff" + "bfffffff" + "ffffffffffffffff")
+
 	xa    = [5]uint16{0x1111, 0x2222, 0x3333, 0x4444, 0x5555}
 	za, _ = hex.DecodeString("11112222333344445555")
 
@@ -143,17 +156,24 @@ func TestEncodeBasicTypes(t *testing.T) {
 
 	y16, err := Marshal(x16)
 	if err != nil || !bytes.Equal(y16, z16) {
-		t.Fatalf("uint8 encode failed [%v] [%x]", err, y16)
+		t.Fatalf("uint16 encode failed [%v] [%x]", err, y16)
 	}
 
 	y32, err := Marshal(x32)
 	if err != nil || !bytes.Equal(y32, z32) {
-		t.Fatalf("uint8 encode failed [%v] [%x]", err, y32)
+		t.Fatalf("uint32 encode failed [%v] [%x]", err, y32)
 	}
 
 	y64, err := Marshal(x64)
 	if err != nil || !bytes.Equal(y64, z64) {
-		t.Fatalf("uint8 encode failed [%v] [%x]", err, y64)
+		t.Fatalf("uint64 encode failed [%v] [%x]", err, y64)
+	}
+}
+
+func TestEncodeVarint(t *testing.T) {
+	yvi, err := Marshal(xvi)
+	if err != nil || !bytes.Equal(yvi, zvi) {
+		t.Fatalf("varint encode failed [%v] [%x]", err, yvi)
 	}
 }
 

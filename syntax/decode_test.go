@@ -62,6 +62,29 @@ func TestDecodeBasicTypes(t *testing.T) {
 	}
 }
 
+func TestDecodeVarint(t *testing.T) {
+	var yvi struct {
+		U8  uint8  `tls:"varint"`
+		U16 uint16 `tls:"varint"`
+		U32 uint32 `tls:"varint"`
+		U64 uint64 `tls:"varint"`
+	}
+	read, err := Unmarshal(zvi, &yvi)
+	if err != nil || !reflect.DeepEqual(yvi, xvi) || read != len(zvi) {
+		t.Fatalf("varint decode failed [%v] [%v]", err, yvi)
+	}
+
+	/*
+		u8 := (xvi.U8 == yvi.U8)
+		u16 := (xvi.U16 == yvi.U16)
+		u32 := (xvi.U32 == yvi.U32)
+		u64 := (xvi.U64 == yvi.U64)
+		if err != nil || !u8 || !u16 || !u32 || !u64 || read != len(zvi) {
+			t.Fatalf("varint decode failed [%v] [%v]", err, yvi)
+		}
+	*/
+}
+
 func TestDecodeArray(t *testing.T) {
 	var ya [5]uint16
 	read, err := Unmarshal(za, &ya)

@@ -28,9 +28,11 @@ type Unmarshaler interface {
 // These are the options that can be specified in the struct tag.  Right now,
 // all of them apply to variable-length vectors and nothing else
 type decOpts struct {
-	head uint // length of length in bytes
-	min  uint // minimum size in bytes
-	max  uint // maximum size in bytes
+	head         uint // length of length in bytes
+	min          uint // minimum size in bytes
+	max          uint // maximum size in bytes
+	varint       bool // whether to decode as a varint
+	varintLength uint // length for varint, or a special "auto" value
 }
 
 type decodeState struct {
@@ -121,18 +123,11 @@ func unmarshalerDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
 //////////
 
 func uintDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
-	var uintLen int
-	switch v.Elem().Kind() {
-	case reflect.Uint8:
-		uintLen = 1
-	case reflect.Uint16:
-		uintLen = 2
-	case reflect.Uint32:
-		uintLen = 4
-	case reflect.Uint64:
-		uintLen = 8
+	if opts.varint {
+		return varintDecoder(d, v, opts)
 	}
 
+	uintLen := int(v.Elem().Type().Size())
 	buf := make([]byte, uintLen)
 	n, err := d.Read(buf)
 	if err != nil {
@@ -149,6 +144,38 @@ func uintDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
 
 	v.Elem().SetUint(val)
 	return uintLen
+}
+
+func varintDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
+	// Read the first octet and decide the size of the presented varint
+	first := d.Next(1)
+	if len(first) != 1 {
+		panic(fmt.Errorf("Insufficient data to read varint length"))
+	}
+
+	uintLen := int(v.Elem().Type().Size())
+	twoBits := uint64(first[0] >> 6)
+	varintLen := 1 << twoBits
+
+	if uintLen < varintLen {
+		panic(fmt.Errorf("Uint too small to fit varint: %d < %d"))
+	}
+
+	rest := d.Next(varintLen - 1)
+	if len(rest) != varintLen-1 {
+		panic(fmt.Errorf("Insufficient data to read varint"))
+	}
+
+	buf := append(first, rest...)
+	val := uint64(0)
+	for _, b := range buf {
+		val = (val << 8) + uint64(b)
+	}
+
+	val ^= twoBits << uint(8*varintLen-2)
+
+	v.Elem().SetUint(val)
+	return varintLen
 }
 
 //////////
@@ -266,10 +293,14 @@ func newStructDecoder(t reflect.Type) decoderFunc {
 		tag := f.Tag.Get("tls")
 		tagOpts := parseTag(tag)
 
+		varintLength, varint := tagOpts["varint"]
+
 		sd.fieldOpts[i] = decOpts{
-			head: tagOpts["head"],
-			max:  tagOpts["max"],
-			min:  tagOpts["min"],
+			head:         tagOpts["head"],
+			max:          tagOpts["max"],
+			min:          tagOpts["min"],
+			varint:       varint,
+			varintLength: varintLength,
 		}
 
 		sd.fieldDecs[i] = typeDecoder(f.Type)
