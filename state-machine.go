@@ -34,6 +34,7 @@ type StorePSK struct {
 
 type HandshakeState interface {
 	Next(handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert)
+	State() State
 }
 
 type AppExtensionHandler interface {
@@ -99,6 +100,13 @@ type StateConnected struct {
 }
 
 var _ HandshakeState = &StateConnected{}
+
+func (state StateConnected) State() State {
+	if state.isClient {
+		return StateClientConnected
+	}
+	return StateServerConnected
+}
 
 func (state *StateConnected) KeyUpdate(request KeyUpdateRequest) ([]HandshakeAction, Alert) {
 	var trafficKeys keySet

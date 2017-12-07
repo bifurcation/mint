@@ -77,6 +77,10 @@ type ServerStateStart struct {
 
 var _ HandshakeState = &ServerStateStart{}
 
+func (state ServerStateStart) State() State {
+	return StateServerStart
+}
+
 func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
 	hm, alert := hr.ReadMessage()
 	if alert != AlertNoAlert {
@@ -415,6 +419,10 @@ type ServerStateNegotiated struct {
 
 var _ HandshakeState = &ServerStateNegotiated{}
 
+func (state ServerStateNegotiated) State() State {
+	return StateServerNegotiated
+}
+
 func (state ServerStateNegotiated) Next(_ handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
 	// Create the ServerHello
 	sh := &ServerHelloBody{
@@ -705,6 +713,10 @@ type ServerStateWaitEOED struct {
 
 var _ HandshakeState = &ServerStateWaitEOED{}
 
+func (state ServerStateWaitEOED) State() State {
+	return StateServerWaitEOED
+}
+
 func (state ServerStateWaitEOED) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
 	hm, alert := hr.ReadMessage()
 	if alert != AlertNoAlert {
@@ -756,6 +768,10 @@ type ServerStateWaitFlight2 struct {
 
 var _ HandshakeState = &ServerStateWaitFlight2{}
 
+func (state ServerStateWaitFlight2) State() State {
+	return StateServerWaitFlight2
+}
+
 func (state ServerStateWaitFlight2) Next(_ handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
 	if state.Params.UsingClientAuth {
 		logf(logTypeHandshake, "[ServerStateWaitFlight2] -> [ServerStateWaitCert]")
@@ -800,6 +816,10 @@ type ServerStateWaitCert struct {
 }
 
 var _ HandshakeState = &ServerStateWaitCert{}
+
+func (state ServerStateWaitCert) State() State {
+	return StateServerWaitCert
+}
 
 func (state ServerStateWaitCert) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
 	hm, alert := hr.ReadMessage()
@@ -870,6 +890,10 @@ type ServerStateWaitCV struct {
 
 var _ HandshakeState = &ServerStateWaitCV{}
 
+func (state ServerStateWaitCV) State() State {
+	return StateServerWaitCV
+}
+
 func (state ServerStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
 	hm, alert := hr.ReadMessage()
 	if alert != AlertNoAlert {
@@ -937,6 +961,10 @@ type ServerStateWaitFinished struct {
 }
 
 var _ HandshakeState = &ServerStateWaitFinished{}
+
+func (state ServerStateWaitFinished) State() State {
+	return StateServerWaitFinished
+}
 
 func (state ServerStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
 	hm, alert := hr.ReadMessage()

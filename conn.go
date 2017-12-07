@@ -228,7 +228,7 @@ var (
 )
 
 type ConnectionState struct {
-	HandshakeState   string              // string representation of the handshake state.
+	HandshakeState   State
 	CipherSuite      CipherSuiteParams   // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
 	PeerCertificates []*x509.Certificate // certificate chain presented by remote peer TODO(ekr@rtfm.com): implement
 	NextProto        string              // Selected ALPN proto
@@ -821,8 +821,8 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 	return nil
 }
 
-func (c *Conn) GetHsState() string {
-	return reflect.TypeOf(c.hState).Name()
+func (c *Conn) GetHsState() State {
+	return c.hState.State()
 }
 
 func (c *Conn) ComputeExporter(label string, context []byte, keyLength int) ([]byte, error) {

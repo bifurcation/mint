@@ -656,41 +656,45 @@ func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
 	// Send ClientHello
 	clientAlert = client.Handshake()
 	assertEquals(t, clientAlert, AlertNoAlert)
+	assertEquals(t, client.GetHsState(), StateClientWaitSH)
 	serverAlert = server.Handshake()
 	assertEquals(t, serverAlert, AlertWouldBlock)
+	assertEquals(t, server.GetHsState(), StateServerStart)
 
 	// Release ClientHello
 	cbConn.Flush()
 
 	// Process ClientHello, send server first flight.
-	for {
+	states := []State{StateServerNegotiated, StateServerWaitFlight2, StateServerWaitFinished}
+	for _, state := range states {
 		serverAlert = server.Handshake()
-		if serverAlert == AlertWouldBlock {
-			break
-		}
 		assertEquals(t, serverAlert, AlertNoAlert)
+		assertEquals(t, server.GetHsState(), state)
 	}
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
 
 	clientAlert = client.Handshake()
 	assertEquals(t, clientAlert, AlertWouldBlock)
 
 	// Release server first flight
 	sbConn.Flush()
-	clientAlert = client.Handshake()
-	assertEquals(t, clientAlert, AlertNoAlert)
+	states = []State{StateClientWaitEE, StateClientWaitCertCR, StateClientWaitCV, StateClientWaitFinished, StateClientConnected}
+	for _, state := range states {
+		clientAlert = client.Handshake()
+		assertEquals(t, client.GetHsState(), state)
+		assertEquals(t, clientAlert, AlertNoAlert)
+	}
 
 	serverAlert = server.Handshake()
 	assertEquals(t, serverAlert, AlertWouldBlock)
+	assertEquals(t, server.GetHsState(), StateServerWaitFinished)
 
 	// Release client's second flight.
 	cbConn.Flush()
-	for {
-		serverAlert = server.Handshake()
-		if serverAlert == AlertWouldBlock {
-			break
-		}
-		assertEquals(t, serverAlert, AlertNoAlert)
-	}
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertNoAlert)
+	assertEquals(t, server.GetHsState(), StateServerConnected)
 
 	assertDeepEquals(t, client.state.Params, server.state.Params)
 	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
