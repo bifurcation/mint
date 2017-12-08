@@ -101,7 +101,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	clientHello := hm
 	connParams := ConnectionParameters{}
 
-	supportedVersions := new(SupportedVersionsExtension)
+	supportedVersions := &SupportedVersionsExtension{HandshakeType: HandshakeTypeClientHello}
 	serverName := new(ServerNameExtension)
 	supportedGroups := new(SupportedGroupsExtension)
 	signatureAlgorithms := new(SignatureAlgorithmsExtension)
@@ -182,6 +182,11 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		}
 	}
 
+	if len(ch.LegacySessionID) != 0 && len(ch.LegacySessionID) != 32 {
+		logf(logTypeHandshake, "[ServerStateStart] invalid session ID")
+		return nil, nil, AlertIllegalParameter
+	}
+
 	// Figure out if we can do DH
 	canDoDH, dhGroup, dhPublic, dhSecret := DHNegotiation(clientKeyShares.Shares, state.Caps.Groups)
 
@@ -196,7 +201,8 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 			contextBase = append(contextBase, firstClientHello.Marshal()...)
 			// fill in the cookie sent by the client. Needed to calculate the correct hash
 			cookieExt := &CookieExtension{Cookie: clientCookie.Cookie}
-			hrr, err := state.generateHRR(params.Suite, cookieExt)
+			hrr, err := state.generateHRR(params.Suite,
+				ch.LegacySessionID, cookieExt)
 			if err != nil {
 				return nil, nil, AlertInternalError
 			}
@@ -285,7 +291,8 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		// Ignoring errors because everything here is newly constructed, so there
 		// shouldn't be marshal errors
 		if shouldSendHRR || clientSentCookie {
-			helloRetryRequest, err = state.generateHRR(connParams.CipherSuite, cookieExt)
+			helloRetryRequest, err = state.generateHRR(connParams.CipherSuite,
+				ch.LegacySessionID, cookieExt)
 			if err != nil {
 				return nil, nil, AlertInternalError
 			}
@@ -369,6 +376,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		selectedPSK:              selectedPSK,
 		cert:                     cert,
 		certScheme:               certScheme,
+		legacySessionId:          ch.LegacySessionID,
 		clientEarlyTrafficSecret: clientEarlyTrafficSecret,
 
 		firstClientHello:  firstClientHello,
@@ -377,12 +385,27 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}, nil, AlertNoAlert
 }
 
-func (state *ServerStateStart) generateHRR(cs CipherSuite, cookieExt *CookieExtension) (*HandshakeMessage, error) {
+func (state *ServerStateStart) generateHRR(cs CipherSuite, legacySessionId []byte,
+	cookieExt *CookieExtension) (*HandshakeMessage, error) {
 	var helloRetryRequest *HandshakeMessage
-	hrr := &HelloRetryRequestBody{
-		Version:     supportedVersion,
-		CipherSuite: cs,
+	hrr := &ServerHelloBody{
+		Version:                 tls12Version,
+		Random:                  hrrRandomSentinel,
+		CipherSuite:             cs,
+		LegacySessionID:         legacySessionId,
+		LegacyCompressionMethod: 0,
 	}
+
+	sv := &SupportedVersionsExtension{
+		HandshakeType: HandshakeTypeServerHello,
+		Versions:      []uint16{supportedVersion},
+	}
+
+	if err := hrr.Extensions.Add(sv); err != nil {
+		logf(logTypeHandshake, "[ServerStateStart] Error adding SupportedVersion [%v]", err)
+		return nil, err
+	}
+
 	if err := hrr.Extensions.Add(cookieExt); err != nil {
 		logf(logTypeHandshake, "[ServerStateStart] Error adding CookieExtension [%v]", err)
 		return nil, err
@@ -415,10 +438,10 @@ type ServerStateNegotiated struct {
 	selectedPSK              int
 	cert                     *Certificate
 	certScheme               SignatureScheme
-
-	firstClientHello  *HandshakeMessage
-	helloRetryRequest *HandshakeMessage
-	clientHello       *HandshakeMessage
+	legacySessionId          []byte
+	firstClientHello         *HandshakeMessage
+	helloRetryRequest        *HandshakeMessage
+	clientHello              *HandshakeMessage
 }
 
 var _ HandshakeState = &ServerStateNegotiated{}
@@ -430,11 +453,22 @@ func (state ServerStateNegotiated) State() State {
 func (state ServerStateNegotiated) Next(_ handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
 	// Create the ServerHello
 	sh := &ServerHelloBody{
-		Version:     supportedVersion,
-		CipherSuite: state.Params.CipherSuite,
+		Version:                 tls12Version,
+		CipherSuite:             state.Params.CipherSuite,
+		LegacySessionID:         state.legacySessionId,
+		LegacyCompressionMethod: 0,
 	}
 	if _, err := prng.Read(sh.Random[:]); err != nil {
 		logf(logTypeHandshake, "[ServerStateNegotiated] Error creating server random [%v]", err)
+		return nil, nil, AlertInternalError
+	}
+
+	err := sh.Extensions.Add(&SupportedVersionsExtension{
+		HandshakeType: HandshakeTypeServerHello,
+		Versions:      []uint16{supportedVersion},
+	})
+	if err != nil {
+		logf(logTypeHandshake, "[ServerStateNegotiated] Error adding supported_versions extension [%v]", err)
 		return nil, nil, AlertInternalError
 	}
 	if state.Params.UsingDH {

@@ -529,7 +529,16 @@ func (alpn *ALPNExtension) Unmarshal(data []byte) (int, error) {
 //     ProtocolVersion versions<2..254>;
 // } SupportedVersions;
 type SupportedVersionsExtension struct {
+	HandshakeType HandshakeType
+	Versions      []uint16
+}
+
+type SupportedVersionsClientHelloInner struct {
 	Versions []uint16 `tls:"head=1,min=2,max=254"`
+}
+
+type SupportedVersionsServerHelloInner struct {
+	Version uint16
 }
 
 func (sv SupportedVersionsExtension) Type() ExtensionType {
@@ -537,11 +546,39 @@ func (sv SupportedVersionsExtension) Type() ExtensionType {
 }
 
 func (sv SupportedVersionsExtension) Marshal() ([]byte, error) {
-	return syntax.Marshal(sv)
+	switch sv.HandshakeType {
+	case HandshakeTypeClientHello:
+		return syntax.Marshal(SupportedVersionsClientHelloInner{sv.Versions})
+	case HandshakeTypeServerHello, HandshakeTypeHelloRetryRequest:
+		return syntax.Marshal(SupportedVersionsServerHelloInner{sv.Versions[0]})
+	default:
+		return nil, fmt.Errorf("tls.supported_versions: Handshake type not allowed")
+	}
 }
 
 func (sv *SupportedVersionsExtension) Unmarshal(data []byte) (int, error) {
-	return syntax.Unmarshal(data, sv)
+	switch sv.HandshakeType {
+	case HandshakeTypeClientHello:
+		var inner SupportedVersionsClientHelloInner
+		read, err := syntax.Unmarshal(data, &inner)
+		if err != nil {
+			return 0, err
+		}
+		sv.Versions = inner.Versions
+		return read, nil
+
+	case HandshakeTypeServerHello, HandshakeTypeHelloRetryRequest:
+		var inner SupportedVersionsServerHelloInner
+		read, err := syntax.Unmarshal(data, &inner)
+		if err != nil {
+			return 0, err
+		}
+		sv.Versions = []uint16{inner.Version}
+		return read, nil
+
+	default:
+		return 0, fmt.Errorf("tls.supported_versions: Handshake type not allowed")
+	}
 }
 
 // struct {

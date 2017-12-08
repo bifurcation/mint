@@ -28,9 +28,10 @@ type ClientHelloBody struct {
 	// Omitted: clientVersion
 	// Omitted: legacySessionID
 	// Omitted: legacyCompressionMethods
-	Random       [32]byte
-	CipherSuites []CipherSuite
-	Extensions   ExtensionList
+	Random          [32]byte
+	LegacySessionID []byte
+	CipherSuites    []CipherSuite
+	Extensions      ExtensionList
 }
 
 type clientHelloBodyInner struct {
@@ -48,7 +49,7 @@ func (ch ClientHelloBody) Type() HandshakeType {
 
 func (ch ClientHelloBody) Marshal() ([]byte, error) {
 	return syntax.Marshal(clientHelloBodyInner{
-		LegacyVersion:            0x0303,
+		LegacyVersion:            tls12Version,
 		Random:                   ch.Random,
 		LegacySessionID:          []byte{},
 		CipherSuites:             ch.CipherSuites,
@@ -65,7 +66,7 @@ func (ch *ClientHelloBody) Unmarshal(data []byte) (int, error) {
 	}
 
 	// We are strict about these things because we only support 1.3
-	if inner.LegacyVersion != 0x0303 {
+	if inner.LegacyVersion != tls12Version {
 		return 0, fmt.Errorf("tls.clienthello: Incorrect version number")
 	}
 
@@ -74,6 +75,7 @@ func (ch *ClientHelloBody) Unmarshal(data []byte) (int, error) {
 	}
 
 	ch.Random = inner.Random
+	ch.LegacySessionID = inner.LegacySessionID
 	ch.CipherSuites = inner.CipherSuites
 	ch.Extensions = inner.Extensions
 	return read, nil
@@ -150,10 +152,12 @@ func (hrr *HelloRetryRequestBody) Unmarshal(data []byte) (int, error) {
 //     Extension extensions<0..2^16-1>;
 // } ServerHello;
 type ServerHelloBody struct {
-	Version     uint16
-	Random      [32]byte
-	CipherSuite CipherSuite
-	Extensions  ExtensionList `tls:"head=2"`
+	Version                 uint16
+	Random                  [32]byte
+	LegacySessionID         []byte `tls:"head=1,max=32"`
+	CipherSuite             CipherSuite
+	LegacyCompressionMethod uint8
+	Extensions              ExtensionList `tls:"head=2"`
 }
 
 func (sh ServerHelloBody) Type() HandshakeType {

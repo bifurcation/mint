@@ -21,6 +21,10 @@ var (
 		byte(supportedVersion >> 8),
 		byte(supportedVersion),
 	})
+	tls12VersionHex = hex.EncodeToString([]byte{
+		byte(tls12Version >> 8),
+		byte(tls12Version & 0xff),
+	})
 
 	// ClientHello test cases
 	// NB: Borrowing some values from extensions_test.go
@@ -30,9 +34,10 @@ var (
 		0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37}
 	chCipherSuites = []CipherSuite{0x0001, 0x0002, 0x0003}
 	chValidIn      = ClientHelloBody{
-		Random:       helloRandom,
-		CipherSuites: chCipherSuites,
-		Extensions:   extListValidIn,
+		Random:          helloRandom,
+		CipherSuites:    chCipherSuites,
+		Extensions:      extListValidIn,
+		LegacySessionID: []byte{},
 	}
 	chValidHex = "0303" + hex.EncodeToString(helloRandom[:]) + "00" +
 		"0006000100020003" + "0100" + extListValidHex
@@ -86,19 +91,20 @@ var (
 
 	// ServerHello test cases
 	shValidIn = ServerHelloBody{
-		Version:     supportedVersion,
-		Random:      helloRandom,
-		CipherSuite: CipherSuite(0x0001),
-		Extensions:  extListValidIn,
+		Version:         tls12Version,
+		Random:          helloRandom,
+		LegacySessionID: []byte{},
+		CipherSuite:     CipherSuite(0x0001),
+		Extensions:      extListValidIn,
 	}
 	shEmptyIn = ServerHelloBody{
-		Version:     supportedVersion,
+		Version:     tls12Version,
 		Random:      helloRandom,
 		CipherSuite: CipherSuite(0x0001),
 	}
-	shValidHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListValidHex
-	shEmptyHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + "0000"
-	shOverflowHex = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListOverflowOuterHex
+	shValidHex    = tls12VersionHex + hex.EncodeToString(helloRandom[:]) + "00" + "0001" + "00" + extListValidHex
+	shEmptyHex    = tls12VersionHex + hex.EncodeToString(helloRandom[:]) + "00" + "0001" + "00" + "0000"
+	shOverflowHex = tls12VersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListOverflowOuterHex
 
 	// Finished test cases
 	finValidIn = FinishedBody{
