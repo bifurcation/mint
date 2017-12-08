@@ -123,6 +123,15 @@ var (
 		C: CrypticString("... world!"),
 	}
 	zsm, _ = hex.DecodeString("056e62646565" + "B0A0" + "0a2522232e787f637e7735")
+
+	xsp = struct {
+		A uint16
+		B *CrypticString
+	}{
+		A: x16,
+		B: &xm,
+	}
+	zsp, _ = hex.DecodeString("B0A0" + "056e62646565")
 )
 
 func TestEncodeInvalidCases(t *testing.T) {
@@ -230,5 +239,11 @@ func TestEncodeMarshaler(t *testing.T) {
 	if crypticStringMarshalCalls != 2 {
 		t.Fatalf("MarshalTLS() was not called exactly twice [%v]", crypticStringMarshalCalls)
 	}
+}
 
+func TestEncodeStructWithPointer(t *testing.T) {
+	ysp, err := Marshal(xsp)
+	if err != nil || !bytes.Equal(ysp, zsp) {
+		t.Fatalf("struct encode failed [%v] [%x]", err, ysp)
+	}
 }
