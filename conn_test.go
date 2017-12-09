@@ -201,6 +201,12 @@ var (
 		Certificates: certificates,
 	}
 
+	dtlsConfig = &Config{
+		ServerName:   serverName,
+		Certificates: certificates,
+		UseDTLS:      true,
+	}
+
 	nbConfig = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
@@ -791,6 +797,41 @@ func TestExternalExtensions(t *testing.T) {
 	client := Client(cConn, basicConfig)
 	client.SetExtensionHandler(handler)
 	server := Server(sConn, basicConfig)
+	server.SetExtensionHandler(handler)
+
+	var clientAlert, serverAlert Alert
+
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+
+	<-done
+
+	assertDeepEquals(t, client.state.Params, server.state.Params)
+	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+	handler.Check(t, []HandshakeType{
+		HandshakeTypeClientHello,
+		HandshakeTypeServerHello,
+		HandshakeTypeEncryptedExtensions,
+	})
+}
+
+func TestDTLS(t *testing.T) {
+	cConn, sConn := pipe()
+
+	var handler = newTestExtensionHandler()
+	client := Client(cConn, dtlsConfig)
+	client.SetExtensionHandler(handler)
+	server := Server(sConn, dtlsConfig)
 	server.SetExtensionHandler(handler)
 
 	var clientAlert, serverAlert Alert

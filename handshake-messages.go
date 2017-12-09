@@ -90,9 +90,14 @@ func (ch ClientHelloBody) Truncated() ([]byte, error) {
 		return nil, fmt.Errorf("tls.clienthello.truncate: Last extension is not PSK")
 	}
 
-	chm, err := HandshakeMessageFromBody(&ch)
+	body, err := ch.Marshal()
 	if err != nil {
 		return nil, err
+	}
+	chm := &HandshakeMessage{
+		msgType: ch.Type(),
+		body:    body,
+		length:  uint32(len(body)),
 	}
 	chData := chm.Marshal()
 
