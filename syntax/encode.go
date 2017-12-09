@@ -133,8 +133,6 @@ func varintEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 		panic(fmt.Errorf("uint value is too big for varint"))
 	}
 
-	uintLen := int(v.Type().Size())
-
 	var varintLen int
 	for _, len := range []uint{1, 2, 4, 8} {
 		if u < (uint64(1) << (8*len - 2)) {
