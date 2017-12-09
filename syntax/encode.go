@@ -141,13 +141,9 @@ func varintEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 		}
 	}
 
-	if uintLen < varintLen {
-		panic(fmt.Errorf("Uint too small to fit varint: %d < %d"))
-	}
-
 	twoBits := map[int]uint64{1: 0x00, 2: 0x01, 4: 0x02, 8: 0x03}[varintLen]
 	shift := uint(8*varintLen - 2)
-	writeUint(e, u^(twoBits<<shift), varintLen)
+	writeUint(e, u|(twoBits<<shift), varintLen)
 }
 
 func writeUint(e *encodeState, u uint64, len int) {

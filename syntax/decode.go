@@ -156,7 +156,7 @@ func varintDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
 	}
 
 	buf := append(first, rest...)
-	buf[0] ^= byte(twoBits) << 6
+	buf[0] &= 0x3f
 	return setUintFromBuffer(v, buf)
 }
 
