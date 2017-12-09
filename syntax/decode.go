@@ -93,6 +93,8 @@ func newTypeDecoder(t reflect.Type) decoderFunc {
 		return newSliceDecoder(t)
 	case reflect.Struct:
 		return newStructDecoder(t)
+	case reflect.Ptr:
+		return newPointerDecoder(t)
 	default:
 		panic(fmt.Errorf("Unsupported type (%s)", t))
 	}
@@ -288,4 +290,21 @@ func newStructDecoder(t reflect.Type) decoderFunc {
 	}
 
 	return sd.decode
+}
+
+//////////
+
+type pointerDecoder struct {
+	base decoderFunc
+}
+
+func (pd *pointerDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) int {
+	v.Elem().Set(reflect.New(v.Elem().Type().Elem()))
+	return pd.base(d, v.Elem(), opts)
+}
+
+func newPointerDecoder(t reflect.Type) decoderFunc {
+	baseDecoder := typeDecoder(t.Elem())
+	pd := pointerDecoder{base: baseDecoder}
+	return pd.decode
 }
