@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -36,6 +37,18 @@ type PreSharedKeyCache interface {
 	Size() int
 }
 
+// A CookieHandler can be used to give the application more fine-grained control over Cookies.
+// Generate receives the Conn as an argument, so the CookieHandler can decide when to send the cookie based on that, and offload state to the client by encoding that into the Cookie.
+// When the client echoes the Cookie, Validate is called. The application can then recover the state from the cookie.
+type CookieHandler interface {
+	// Generate a byte string that is sent as a part of a cookie to the client in the HelloRetryRequest
+	// If Generate returns nil, mint will not send a HelloRetryRequest.
+	Generate(*Conn) ([]byte, error)
+	// Validate is called when receiving a ClientHello containing a Cookie.
+	// If validation failed, the handshake is aborted.
+	Validate(*Conn, []byte) bool
+}
+
 type PSKMapCache map[string]PreSharedKey
 
 func (cache PSKMapCache) Get(key string) (psk PreSharedKey, ok bool) {
@@ -64,8 +77,19 @@ type Config struct {
 	TicketLen          int
 	EarlyDataLifetime  uint32
 	AllowEarlyData     bool
-	RequireCookie      bool
-	RequireClientAuth  bool
+	// Require the client to echo a cookie.
+	RequireCookie bool
+	// A CookieHandler can be used to set and validate a cookie.
+	// The cookie returned by the CookieHandler will be part of the cookie sent on the wire, and encoded using the CookieProtector.
+	// If no CookieHandler is set, mint will always send a cookie.
+	// The CookieHandler can be used to decide on a per-connection basis, if a cookie should be sent.
+	CookieHandler CookieHandler
+	// The CookieProtector is used to encrypt / decrypt cookies.
+	// It should make sure that the Cookie cannot be read and tampered with by the client.
+	// If non-blocking mode is used, and cookies are required, this field has to be set.
+	// In blocking mode, a default cookie protector is used, if this is unused.
+	CookieProtector   CookieProtector
+	RequireClientAuth bool
 
 	// Shared fields
 	Certificates     []*Certificate
@@ -77,10 +101,43 @@ type Config struct {
 	PSKs             PreSharedKeyCache
 	PSKModes         []PSKKeyExchangeMode
 	NonBlocking      bool
+	UseDTLS          bool
 
 	// The same config object can be shared among different connections, so it
 	// needs its own mutex
 	mutex sync.RWMutex
+}
+
+// Clone returns a shallow clone of c. It is safe to clone a Config that is
+// being used concurrently by a TLS client or server.
+func (c *Config) Clone() *Config {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return &Config{
+		ServerName: c.ServerName,
+
+		SendSessionTickets: c.SendSessionTickets,
+		TicketLifetime:     c.TicketLifetime,
+		TicketLen:          c.TicketLen,
+		EarlyDataLifetime:  c.EarlyDataLifetime,
+		AllowEarlyData:     c.AllowEarlyData,
+		RequireCookie:      c.RequireCookie,
+		CookieHandler:      c.CookieHandler,
+		CookieProtector:    c.CookieProtector,
+		RequireClientAuth:  c.RequireClientAuth,
+
+		Certificates:     c.Certificates,
+		AuthCertificate:  c.AuthCertificate,
+		CipherSuites:     c.CipherSuites,
+		Groups:           c.Groups,
+		SignatureSchemes: c.SignatureSchemes,
+		NextProtos:       c.NextProtos,
+		PSKs:             c.PSKs,
+		PSKModes:         c.PSKModes,
+		NonBlocking:      c.NonBlocking,
+		UseDTLS:          c.UseDTLS,
+	}
 }
 
 func (c *Config) Init(isClient bool) error {
@@ -131,14 +188,14 @@ func (c *Config) Init(isClient bool) error {
 	return nil
 }
 
-func (c Config) ValidForServer() bool {
+func (c *Config) ValidForServer() bool {
 	return (reflect.ValueOf(c.PSKs).IsValid() && c.PSKs.Size() > 0) ||
 		(len(c.Certificates) > 0 &&
 			len(c.Certificates[0].Chain) > 0 &&
 			c.Certificates[0].PrivateKey != nil)
 }
 
-func (c Config) ValidForClient() bool {
+func (c *Config) ValidForClient() bool {
 	return len(c.ServerName) > 0
 }
 
@@ -173,7 +230,7 @@ var (
 )
 
 type ConnectionState struct {
-	HandshakeState   string              // string representation of the handshake state.
+	HandshakeState   State
 	CipherSuite      CipherSuiteParams   // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
 	PeerCertificates []*x509.Certificate // certificate chain presented by remote peer TODO(ekr@rtfm.com): implement
 	NextProto        string              // Selected ALPN proto
@@ -197,16 +254,25 @@ type Conn struct {
 
 	readBuffer []byte
 	in, out    *RecordLayer
-	hIn, hOut  *HandshakeLayer
+	hsCtx      HandshakeContext
+
+	extHandler AppExtensionHandler
 }
 
 func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
 	c := &Conn{conn: conn, config: config, isClient: isClient}
-	c.in = NewRecordLayer(c.conn)
-	c.out = NewRecordLayer(c.conn)
-	c.hIn = NewHandshakeLayer(c.in)
-	c.hIn.nonblocking = c.config.NonBlocking
-	c.hOut = NewHandshakeLayer(c.out)
+	if !config.UseDTLS {
+		c.in = NewRecordLayerTLS(c.conn)
+		c.out = NewRecordLayerTLS(c.conn)
+		c.hsCtx.hIn = NewHandshakeLayerTLS(c.in)
+		c.hsCtx.hOut = NewHandshakeLayerTLS(c.out)
+	} else {
+		c.in = NewRecordLayerDTLS(c.conn)
+		c.out = NewRecordLayerDTLS(c.conn)
+		c.hsCtx.hIn = NewHandshakeLayerDTLS(c.in)
+		c.hsCtx.hOut = NewHandshakeLayerDTLS(c.out)
+	}
+	c.hsCtx.hIn.nonblocking = c.config.NonBlocking
 	return c
 }
 
@@ -224,8 +290,12 @@ func (c *Conn) consumeRecord() error {
 		// We do not support fragmentation of post-handshake handshake messages.
 		// TODO: Factor this more elegantly; coalesce with handshakeLayer.ReadMessage()
 		start := 0
+		headerLen := handshakeHeaderLenTLS
+		if c.config.UseDTLS {
+			headerLen = handshakeHeaderLenDTLS
+		}
 		for start < len(pt.fragment) {
-			if len(pt.fragment[start:]) < handshakeHeaderLen {
+			if len(pt.fragment[start:]) < headerLen {
 				return fmt.Errorf("Post-handshake handshake message too short for header")
 			}
 
@@ -233,14 +303,15 @@ func (c *Conn) consumeRecord() error {
 			hm.msgType = HandshakeType(pt.fragment[start])
 			hmLen := (int(pt.fragment[start+1]) << 16) + (int(pt.fragment[start+2]) << 8) + int(pt.fragment[start+3])
 
-			if len(pt.fragment[start+handshakeHeaderLen:]) < hmLen {
+			if len(pt.fragment[start+headerLen:]) < hmLen {
 				return fmt.Errorf("Post-handshake handshake message too short for body")
 			}
-			hm.body = pt.fragment[start+handshakeHeaderLen : start+handshakeHeaderLen+hmLen]
+			hm.body = pt.fragment[start+headerLen : start+headerLen+hmLen]
 
-			// Advance state machine
-			state, actions, alert := c.state.Next(hm)
-
+			// XXX: If we want to support more advanced cases, e.g., post-handshake
+			// authentication, we'll need to allow transitions other than
+			// Connected -> Connected
+			state, actions, alert := c.state.ProcessMessage(hm)
 			if alert != AlertNoAlert {
 				logf(logTypeHandshake, "Error in state transition: %v", alert)
 				c.sendAlert(alert)
@@ -256,9 +327,6 @@ func (c *Conn) consumeRecord() error {
 				}
 			}
 
-			// XXX: If we want to support more advanced cases, e.g., post-handshake
-			// authentication, we'll need to allow transitions other than
-			// Connected -> Connected
 			var connected bool
 			c.state, connected = state.(StateConnected)
 			if !connected {
@@ -267,7 +335,7 @@ func (c *Conn) consumeRecord() error {
 				return io.EOF
 			}
 
-			start += handshakeHeaderLen + hmLen
+			start += headerLen + hmLen
 		}
 	case RecordTypeAlert:
 		logf(logTypeIO, "extended buffer (for alert): [%d] %x", len(c.readBuffer), c.readBuffer)
@@ -300,6 +368,9 @@ func (c *Conn) consumeRecord() error {
 // Read application data up to the size of buffer.  Handshake and alert records
 // are consumed by the Conn object directly.
 func (c *Conn) Read(buffer []byte) (int, error) {
+	if _, connected := c.hState.(StateConnected); !connected && c.config.NonBlocking {
+		return 0, errors.New("Read called before the handshake completed")
+	}
 	logf(logTypeHandshake, "conn.Read with buffer = %d", len(buffer))
 	if alert := c.Handshake(); alert != AlertNoAlert {
 		return 0, alert
@@ -452,24 +523,31 @@ func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 	}
 
 	switch action := actionGeneric.(type) {
-	case SendHandshakeMessage:
-		err := c.hOut.WriteMessage(action.Message)
+	case QueueHandshakeMessage:
+		logf(logTypeHandshake, "%s queuing handshake message type=%v", label, action.Message.msgType)
+		err := c.hsCtx.hOut.QueueMessage(action.Message)
 		if err != nil {
 			logf(logTypeHandshake, "%s Error writing handshake message: %v", label, err)
 			return AlertInternalError
 		}
 
+	case SendQueuedHandshake:
+		err := c.hsCtx.hOut.SendQueuedMessages()
+		if err != nil {
+			logf(logTypeHandshake, "%s Error writing handshake message: %v", label, err)
+			return AlertInternalError
+		}
 	case RekeyIn:
-		logf(logTypeHandshake, "%s Rekeying in to %s: %+v", label, action.Label, action.KeySet)
-		err := c.in.Rekey(action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
+		logf(logTypeHandshake, "%s Rekeying in to %s: %+v", label, action.epoch.label(), action.KeySet)
+		err := c.in.Rekey(action.epoch, action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
 		if err != nil {
 			logf(logTypeHandshake, "%s Unable to rekey inbound: %v", label, err)
 			return AlertInternalError
 		}
 
 	case RekeyOut:
-		logf(logTypeHandshake, "%s Rekeying out to %s: %+v", label, action.Label, action.KeySet)
-		err := c.out.Rekey(action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
+		logf(logTypeHandshake, "%s Rekeying out to %s: %+v", label, action.epoch.label(), action.KeySet)
+		err := c.out.Rekey(action.epoch, action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
 		if err != nil {
 			logf(logTypeHandshake, "%s Unable to rekey outbound: %v", label, err)
 			return AlertInternalError
@@ -568,9 +646,12 @@ func (c *Conn) HandshakeSetup() Alert {
 		PSKModes:          c.config.PSKModes,
 		AllowEarlyData:    c.config.AllowEarlyData,
 		RequireCookie:     c.config.RequireCookie,
+		CookieProtector:   c.config.CookieProtector,
+		CookieHandler:     c.config.CookieHandler,
 		RequireClientAuth: c.config.RequireClientAuth,
 		NextProtos:        c.config.NextProtos,
 		Certificates:      c.config.Certificates,
+		ExtensionHandler:  c.extHandler,
 	}
 	opts := ConnectionOptions{
 		ServerName: c.config.ServerName,
@@ -579,7 +660,7 @@ func (c *Conn) HandshakeSetup() Alert {
 	}
 
 	if c.isClient {
-		state, actions, alert = ClientStateStart{Caps: caps, Opts: opts}.Next(nil)
+		state, actions, alert = ClientStateStart{Caps: caps, Opts: opts, hsCtx: c.hsCtx}.Next(nil)
 		if alert != AlertNoAlert {
 			logf(logTypeHandshake, "Error initializing client state: %v", alert)
 			return alert
@@ -593,12 +674,51 @@ func (c *Conn) HandshakeSetup() Alert {
 			}
 		}
 	} else {
-		state = ServerStateStart{Caps: caps}
+		if c.config.RequireCookie && c.config.CookieProtector == nil {
+			logf(logTypeHandshake, "RequireCookie set, but no CookieProtector provided. Using default cookie protector. Stateless Retry not possible.")
+			if c.config.NonBlocking {
+				logf(logTypeHandshake, "Not possible in non-blocking mode.")
+				return AlertInternalError
+			}
+			var err error
+			caps.CookieProtector, err = NewDefaultCookieProtector()
+			if err != nil {
+				logf(logTypeHandshake, "Error initializing cookie source: %v", alert)
+				return AlertInternalError
+			}
+		}
+		state = ServerStateStart{Caps: caps, conn: c, hsCtx: c.hsCtx}
 	}
 
 	c.hState = state
-
 	return AlertNoAlert
+}
+
+type handshakeMessageReader interface {
+	ReadMessage() (*HandshakeMessage, Alert)
+}
+
+type handshakeMessageReaderImpl struct {
+	hsCtx *HandshakeContext
+}
+
+var _ handshakeMessageReader = &handshakeMessageReaderImpl{}
+
+func (r *handshakeMessageReaderImpl) ReadMessage() (*HandshakeMessage, Alert) {
+	hm, err := r.hsCtx.hIn.ReadMessage()
+	if err == WouldBlock {
+		return nil, AlertWouldBlock
+	}
+	if err != nil {
+		logf(logTypeHandshake, "[client] Error reading message: %v", err)
+		return nil, AlertCloseNotify
+	}
+
+	// Once you have read a message, you no longer need the outgoing queue
+	// for DTLS.
+	r.hsCtx.hOut.ClearQueuedMessages()
+
+	return hm, AlertNoAlert
 }
 
 // Handshake causes a TLS handshake on the connection.  The `isClient` member
@@ -620,48 +740,41 @@ func (c *Conn) Handshake() Alert {
 		return AlertNoAlert
 	}
 
-	var alert Alert
 	if c.hState == nil {
-		logf(logTypeHandshake, "%s First time through handshake, setting up", label)
-		alert = c.HandshakeSetup()
-		if alert != AlertNoAlert {
+		logf(logTypeHandshake, "%s First time through handshake (or after stateless retry), setting up", label)
+		alert := c.HandshakeSetup()
+		if alert != AlertNoAlert || (c.isClient && c.config.NonBlocking) {
 			return alert
 		}
-	} else {
-		logf(logTypeHandshake, "Re-entering handshake, state=%v", c.hState)
 	}
 
+	logf(logTypeHandshake, "(Re-)entering handshake, state=%v", c.hState)
 	state := c.hState
 	_, connected := state.(StateConnected)
 
-	var actions []HandshakeAction
-
+	hmr := &handshakeMessageReaderImpl{hsCtx: &c.hsCtx}
 	for !connected {
-		// Read a handshake message
-		hm, err := c.hIn.ReadMessage()
-		if err == WouldBlock {
-			logf(logTypeHandshake, "%s Would block reading message: %v", label, err)
+		var alert Alert
+		var actions []HandshakeAction
+		// Advance the state machine
+		state, actions, alert = state.Next(hmr)
+		if alert == WouldBlock {
+			logf(logTypeHandshake, "%s Would block reading message: %s", label, alert)
 			return AlertWouldBlock
 		}
-		if err != nil {
-			logf(logTypeHandshake, "%s Error reading message: %v", label, err)
+		if alert == AlertCloseNotify {
+			logf(logTypeHandshake, "%s Error reading message: %s", label, alert)
 			c.sendAlert(AlertCloseNotify)
 			return AlertCloseNotify
 		}
-		logf(logTypeHandshake, "Read message with type: %v", hm.msgType)
-
-		// Advance the state machine
-		state, actions, alert = state.Next(hm)
-
-		if alert != AlertNoAlert {
+		if alert != AlertNoAlert && alert != AlertStatelessRetry {
 			logf(logTypeHandshake, "Error in state transition: %v", alert)
 			return alert
 		}
 
 		for index, action := range actions {
 			logf(logTypeHandshake, "%s taking next action (%d)", label, index)
-			alert = c.takeAction(action)
-			if alert != AlertNoAlert {
+			if alert := c.takeAction(action); alert != AlertNoAlert {
 				logf(logTypeHandshake, "Error during handshake actions: %v", alert)
 				c.sendAlert(alert)
 				return alert
@@ -669,12 +782,20 @@ func (c *Conn) Handshake() Alert {
 		}
 
 		c.hState = state
-		logf(logTypeHandshake, "%s state is now %s", c.GetHsState())
-
+		logf(logTypeHandshake, "state is now %s", c.GetHsState())
 		_, connected = state.(StateConnected)
-	}
+		if connected {
+			c.state = state.(StateConnected)
+			c.handshakeComplete = true
+		}
 
-	c.state = state.(StateConnected)
+		if c.config.NonBlocking {
+			if alert == AlertStatelessRetry {
+				return AlertStatelessRetry
+			}
+			return AlertNoAlert
+		}
+	}
 
 	// Send NewSessionTicket if acting as server
 	if !c.isClient && c.config.SendSessionTickets {
@@ -693,7 +814,6 @@ func (c *Conn) Handshake() Alert {
 		}
 	}
 
-	c.handshakeComplete = true
 	return AlertNoAlert
 }
 
@@ -726,8 +846,8 @@ func (c *Conn) SendKeyUpdate(requestUpdate bool) error {
 	return nil
 }
 
-func (c *Conn) GetHsState() string {
-	return reflect.TypeOf(c.hState).Name()
+func (c *Conn) GetHsState() State {
+	return c.hState.State()
 }
 
 func (c *Conn) ComputeExporter(label string, context []byte, keyLength int) ([]byte, error) {
@@ -758,4 +878,13 @@ func (c *Conn) State() ConnectionState {
 	}
 
 	return state
+}
+
+func (c *Conn) SetExtensionHandler(h AppExtensionHandler) error {
+	if c.hState != nil {
+		return fmt.Errorf("Can't set extension handler after setup")
+	}
+
+	c.extHandler = h
+	return nil
 }

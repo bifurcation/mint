@@ -562,15 +562,3 @@ func (c CookieExtension) Marshal() ([]byte, error) {
 func (c *CookieExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, c)
 }
-
-const DefaultCookieLength = 32
-
-// XXX: In the long run, this should maybe be replaced with something that
-// encapsulates state, instead of just being a nonce
-func NewCookie() (*CookieExtension, error) {
-	cookie := &CookieExtension{
-		Cookie: make([]byte, DefaultCookieLength),
-	}
-	_, err := prng.Read(cookie.Cookie)
-	return cookie, err
-}

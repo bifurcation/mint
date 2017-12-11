@@ -1,5 +1,10 @@
 package mint
 
+import (
+	"fmt"
+	"strconv"
+)
+
 var (
 	supportedVersion uint16 = 0x7f15 // draft-21
 
@@ -50,6 +55,25 @@ const (
 	TLS_AES_128_CCM_SHA256       CipherSuite = 0x1304
 	TLS_AES_256_CCM_8_SHA256     CipherSuite = 0x1305
 )
+
+func (c CipherSuite) String() string {
+	switch c {
+	case CIPHER_SUITE_UNKNOWN:
+		return "unknown"
+	case TLS_AES_128_GCM_SHA256:
+		return "TLS_AES_128_GCM_SHA256"
+	case TLS_AES_256_GCM_SHA384:
+		return "TLS_AES_256_GCM_SHA384"
+	case TLS_CHACHA20_POLY1305_SHA256:
+		return "TLS_CHACHA20_POLY1305_SHA256"
+	case TLS_AES_128_CCM_SHA256:
+		return "TLS_AES_128_CCM_SHA256"
+	case TLS_AES_256_CCM_8_SHA256:
+		return "TLS_AES_256_CCM_8_SHA256"
+	}
+	// cannot use %x here, since it calls String(), leading to infinite recursion
+	return fmt.Sprintf("invalid CipherSuite value: 0x%s", strconv.FormatUint(uint64(c), 16))
+}
 
 // enum {...} SignatureScheme
 type SignatureScheme uint16
@@ -126,3 +150,91 @@ const (
 	KeyUpdateNotRequested KeyUpdateRequest = 0
 	KeyUpdateRequested    KeyUpdateRequest = 1
 )
+
+type State uint8
+
+const (
+	// states valid for the client
+	StateClientStart State = iota
+	StateClientWaitSH
+	StateClientWaitEE
+	StateClientWaitCert
+	StateClientWaitCV
+	StateClientWaitFinished
+	StateClientWaitCertCR
+	StateClientConnected
+	// states valid for the server
+	StateServerStart State = iota
+	StateServerRecvdCH
+	StateServerNegotiated
+	StateServerWaitEOED
+	StateServerWaitFlight2
+	StateServerWaitCert
+	StateServerWaitCV
+	StateServerWaitFinished
+	StateServerConnected
+)
+
+func (s State) String() string {
+	switch s {
+	case StateClientStart:
+		return "Client START"
+	case StateClientWaitSH:
+		return "Client WAIT_SH"
+	case StateClientWaitEE:
+		return "Client WAIT_EE"
+	case StateClientWaitCert:
+		return "Client WAIT_CERT"
+	case StateClientWaitCV:
+		return "Client WAIT_CV"
+	case StateClientWaitFinished:
+		return "Client WAIT_FINISHED"
+	case StateClientConnected:
+		return "Client CONNECTED"
+	case StateServerStart:
+		return "Server START"
+	case StateServerRecvdCH:
+		return "Server RECVD_CH"
+	case StateServerNegotiated:
+		return "Server NEGOTIATED"
+	case StateServerWaitEOED:
+		return "Server WAIT_EOED"
+	case StateServerWaitFlight2:
+		return "Server WAIT_FLIGHT2"
+	case StateServerWaitCert:
+		return "Server WAIT_CERT"
+	case StateServerWaitCV:
+		return "Server WAIT_CV"
+	case StateServerWaitFinished:
+		return "Server WAIT_FINISHED"
+	case StateServerConnected:
+		return "Server CONNECTED"
+	default:
+		return fmt.Sprintf("unknown state: %d", s)
+	}
+}
+
+// Epochs for DTLS (also used for key phase labelling)
+type Epoch uint16
+
+const (
+	EpochClear           Epoch = 0
+	EpochEarlyData       Epoch = 1
+	EpochHandshakeData   Epoch = 2
+	EpochApplicationData Epoch = 3
+	EpochUpdate          Epoch = 4
+)
+
+func (e Epoch) label() string {
+	switch e {
+	case EpochClear:
+		return "clear"
+	case EpochEarlyData:
+		return "early data"
+	case EpochHandshakeData:
+		return "handshake"
+	case EpochApplicationData:
+		return "application data"
+	}
+	return "Application data (updated)"
+}

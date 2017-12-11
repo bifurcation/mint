@@ -201,6 +201,12 @@ var (
 		Certificates: certificates,
 	}
 
+	dtlsConfig = &Config{
+		ServerName:   serverName,
+		Certificates: certificates,
+		UseDTLS:      true,
+	}
+
 	nbConfig = &Config{
 		ServerName:   serverName,
 		Certificates: certificates,
@@ -269,53 +275,67 @@ var (
 )
 
 func assertKeySetEquals(t *testing.T, k1, k2 keySet) {
+	t.Helper()
 	// Assume cipher is the same
 	assertByteEquals(t, k1.iv, k2.iv)
 	assertByteEquals(t, k1.key, k2.key)
 }
 
 func computeExporter(t *testing.T, c *Conn, label string, context []byte, length int) []byte {
+	t.Helper()
 	res, err := c.ComputeExporter(label, context, length)
 	assertNotError(t, err, "Could not compute exporter")
 	return res
 }
 
 func TestBasicFlows(t *testing.T) {
-	for _, conf := range []*Config{basicConfig, hrrConfig, alpnConfig, ffdhConfig, x25519Config} {
-		cConn, sConn := pipe()
+	tests := []struct {
+		name   string
+		config *Config
+	}{
+		{"basic config", basicConfig},
+		{"HRR", hrrConfig},
+		{"ALPN", alpnConfig},
+		{"FFDH", ffdhConfig},
+		{"x25519", x25519Config},
+	}
+	for _, testcase := range tests {
+		t.Run(fmt.Sprintf("with %s", testcase.name), func(t *testing.T) {
+			conf := testcase.config
+			cConn, sConn := pipe()
 
-		client := Client(cConn, conf)
-		server := Server(sConn, conf)
+			client := Client(cConn, conf)
+			server := Server(sConn, conf)
 
-		var clientAlert, serverAlert Alert
+			var clientAlert, serverAlert Alert
 
-		done := make(chan bool)
-		go func(t *testing.T) {
-			serverAlert = server.Handshake()
-			assertEquals(t, serverAlert, AlertNoAlert)
-			done <- true
-		}(t)
+			done := make(chan bool)
+			go func(t *testing.T) {
+				serverAlert = server.Handshake()
+				assertEquals(t, serverAlert, AlertNoAlert)
+				done <- true
+			}(t)
 
-		clientAlert = client.Handshake()
-		assertEquals(t, clientAlert, AlertNoAlert)
+			clientAlert = client.Handshake()
+			assertEquals(t, clientAlert, AlertNoAlert)
 
-		<-done
+			<-done
 
-		assertDeepEquals(t, client.state.Params, server.state.Params)
-		assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
-		assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
-		assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
-		assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
-		assertByteEquals(t, client.state.exporterSecret, server.state.exporterSecret)
+			assertDeepEquals(t, client.state.Params, server.state.Params)
+			assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+			assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+			assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+			assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+			assertByteEquals(t, client.state.exporterSecret, server.state.exporterSecret)
 
-		emptyContext := []byte{}
+			emptyContext := []byte{}
 
-		assertByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 20))
-		assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 21))
-		assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "F", emptyContext, 20))
-		assertByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'A'}, 20))
-		assertNotByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'B'}, 20))
-
+			assertByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 20))
+			assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 21))
+			assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "F", emptyContext, 20))
+			assertByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'A'}, 20))
+			assertNotByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'B'}, 20))
+		})
 	}
 }
 
@@ -377,14 +397,20 @@ func TestPSKFlows(t *testing.T) {
 	}
 }
 
+func TestNonBlockingReadBeforeConnected(t *testing.T) {
+	conn := Client(&bufferedConn{}, &Config{NonBlocking: true})
+	_, err := conn.Read(make([]byte, 10))
+	assertEquals(t, err.Error(), "Read called before the handshake completed")
+}
+
 func TestResumption(t *testing.T) {
 	// Phase 1: Verify that the session ticket gets sent and stored
-	clientConfig := *resumptionConfig
-	serverConfig := *resumptionConfig
+	clientConfig := resumptionConfig.Clone()
+	serverConfig := resumptionConfig.Clone()
 
 	cConn1, sConn1 := pipe()
-	client1 := Client(cConn1, &clientConfig)
-	server1 := Server(sConn1, &serverConfig)
+	client1 := Client(cConn1, clientConfig)
+	server1 := Server(sConn1, serverConfig)
 
 	var clientAlert, serverAlert Alert
 
@@ -441,8 +467,8 @@ func TestResumption(t *testing.T) {
 
 	// Phase 2: Verify that the session ticket gets used as a PSK
 	cConn2, sConn2 := pipe()
-	client2 := Client(cConn2, &clientConfig)
-	server2 := Server(sConn2, &serverConfig)
+	client2 := Client(cConn2, clientConfig)
+	server2 := Server(sConn2, serverConfig)
 
 	go func(t *testing.T) {
 		serverAlert = server2.Handshake()
@@ -569,10 +595,10 @@ func TestKeyUpdate(t *testing.T) {
 	}(t)
 
 	alert := client.Handshake()
+	assertEquals(t, alert, AlertNoAlert)
 
 	// Read NST.
 	client.Read(oneBuf)
-	assertEquals(t, alert, AlertNoAlert)
 	<-s2c
 
 	clientState0 := client.state
@@ -635,14 +661,22 @@ func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
 
 	// Send ClientHello
 	clientAlert = client.Handshake()
-	assertEquals(t, clientAlert, AlertWouldBlock)
+	assertEquals(t, clientAlert, AlertNoAlert)
+	assertEquals(t, client.GetHsState(), StateClientWaitSH)
 	serverAlert = server.Handshake()
 	assertEquals(t, serverAlert, AlertWouldBlock)
+	assertEquals(t, server.GetHsState(), StateServerStart)
 
 	// Release ClientHello
 	cbConn.Flush()
 
 	// Process ClientHello, send server first flight.
+	states := []State{StateServerNegotiated, StateServerWaitFlight2, StateServerWaitFinished}
+	for _, state := range states {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		assertEquals(t, server.GetHsState(), state)
+	}
 	serverAlert = server.Handshake()
 	assertEquals(t, serverAlert, AlertWouldBlock)
 
@@ -651,16 +685,22 @@ func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
 
 	// Release server first flight
 	sbConn.Flush()
-	clientAlert = client.Handshake()
-	assertEquals(t, clientAlert, AlertNoAlert)
+	states = []State{StateClientWaitEE, StateClientWaitCertCR, StateClientWaitCV, StateClientWaitFinished, StateClientConnected}
+	for _, state := range states {
+		clientAlert = client.Handshake()
+		assertEquals(t, client.GetHsState(), state)
+		assertEquals(t, clientAlert, AlertNoAlert)
+	}
 
 	serverAlert = server.Handshake()
 	assertEquals(t, serverAlert, AlertWouldBlock)
+	assertEquals(t, server.GetHsState(), StateServerWaitFinished)
 
 	// Release client's second flight.
 	cbConn.Flush()
 	serverAlert = server.Handshake()
 	assertEquals(t, serverAlert, AlertNoAlert)
+	assertEquals(t, server.GetHsState(), StateServerConnected)
 
 	assertDeepEquals(t, client.state.Params, server.state.Params)
 	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
@@ -675,4 +715,147 @@ func TestNonblockingHandshakeAndDataFlow(t *testing.T) {
 
 	// read := make([]byte, 5)
 	// n, err = server.Read(buf)
+}
+
+type testExtensionHandler struct {
+	sent map[HandshakeType]bool
+	rcvd map[HandshakeType]bool
+}
+
+func newTestExtensionHandler() *testExtensionHandler {
+	return &testExtensionHandler{
+		make(map[HandshakeType]bool),
+		make(map[HandshakeType]bool),
+	}
+}
+
+type testExtensionBody struct {
+	t HandshakeType
+}
+
+const (
+	testExtensionType = ExtensionType(240) // Dummy type.
+)
+
+func (t testExtensionBody) Type() ExtensionType {
+	return testExtensionType
+}
+
+func (t testExtensionBody) Marshal() ([]byte, error) {
+	return []byte{byte(t.t)}, nil
+}
+
+func (t *testExtensionBody) Unmarshal(data []byte) (int, error) {
+	if len(data) != 1 {
+		return 0, fmt.Errorf("Illegal length")
+	}
+
+	t.t = HandshakeType(data[0])
+	return 1, nil
+}
+
+func (t *testExtensionHandler) Send(hs HandshakeType, el *ExtensionList) error {
+	t.sent[hs] = true
+	el.Add(&testExtensionBody{t: hs})
+	return nil
+}
+
+func (t *testExtensionHandler) Receive(hs HandshakeType, el *ExtensionList) error {
+	var body testExtensionBody
+
+	ok := el.Find(&body)
+	if !ok {
+		return fmt.Errorf("Couldn't find extension")
+	}
+
+	if hs != body.t {
+		return fmt.Errorf("Does not match hs type")
+	}
+
+	t.rcvd[hs] = true
+	return nil
+}
+
+func (h *testExtensionHandler) Check(t *testing.T, hs []HandshakeType) {
+	assertEquals(t, len(hs), len(h.sent))
+	assertEquals(t, len(hs), len(h.rcvd))
+
+	for _, ht := range hs {
+		v, ok := h.sent[ht]
+		assert(t, ok, "Cannot find handshake type in sent")
+		assert(t, v, "Value wasn't true in sent")
+		v, ok = h.rcvd[ht]
+		assert(t, ok, "Cannot find handshake type in rcvd")
+		assert(t, v, "Value wasn't true in rcvd")
+	}
+}
+
+func TestExternalExtensions(t *testing.T) {
+	cConn, sConn := pipe()
+
+	var handler = newTestExtensionHandler()
+	client := Client(cConn, basicConfig)
+	client.SetExtensionHandler(handler)
+	server := Server(sConn, basicConfig)
+	server.SetExtensionHandler(handler)
+
+	var clientAlert, serverAlert Alert
+
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+
+	<-done
+
+	assertDeepEquals(t, client.state.Params, server.state.Params)
+	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+	handler.Check(t, []HandshakeType{
+		HandshakeTypeClientHello,
+		HandshakeTypeServerHello,
+		HandshakeTypeEncryptedExtensions,
+	})
+}
+
+func TestDTLS(t *testing.T) {
+	cConn, sConn := pipe()
+
+	var handler = newTestExtensionHandler()
+	client := Client(cConn, dtlsConfig)
+	client.SetExtensionHandler(handler)
+	server := Server(sConn, dtlsConfig)
+	server.SetExtensionHandler(handler)
+
+	var clientAlert, serverAlert Alert
+
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+
+	<-done
+
+	assertDeepEquals(t, client.state.Params, server.state.Params)
+	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+	handler.Check(t, []HandshakeType{
+		HandshakeTypeClientHello,
+		HandshakeTypeServerHello,
+		HandshakeTypeEncryptedExtensions,
+	})
 }
