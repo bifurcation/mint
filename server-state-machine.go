@@ -93,7 +93,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}
 
 	ch := &ClientHelloBody{}
-	if _, err := ch.Unmarshal(hm.body); err != nil {
+	if err := SafeUnmarshal(ch, hm.body); err != nil {
 		logf(logTypeHandshake, "[ServerStateStart] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -121,26 +121,34 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		}
 	}
 
-	gotSupportedVersions := ch.Extensions.Find(supportedVersions)
-	gotServerName := ch.Extensions.Find(serverName)
-	gotSupportedGroups := ch.Extensions.Find(supportedGroups)
-	gotSignatureAlgorithms := ch.Extensions.Find(signatureAlgorithms)
-	gotEarlyData := ch.Extensions.Find(clientEarlyData)
-	ch.Extensions.Find(clientKeyShares)
-	ch.Extensions.Find(clientPSK)
-	ch.Extensions.Find(clientALPN)
-	ch.Extensions.Find(clientPSKModes)
-	ch.Extensions.Find(clientCookie)
+	foundExts, err := ch.Extensions.Parse(
+		[]ExtensionBody{
+			supportedVersions,
+			serverName,
+			supportedGroups,
+			signatureAlgorithms,
+			clientEarlyData,
+			clientKeyShares,
+			clientPSK,
+			clientALPN,
+			clientPSKModes,
+			clientCookie,
+		})
+
+	if err != nil {
+		logf(logTypeHandshake, "[ServerStateStart] Error parsing extensions [%v]", err)
+		return nil, nil, AlertDecodeError
+	}
 
 	clientSentCookie := len(clientCookie.Cookie) > 0
 
-	if gotServerName {
+	if foundExts[ExtensionTypeServerName] {
 		connParams.ServerName = string(*serverName)
 	}
 
 	// If the client didn't send supportedVersions or doesn't support 1.3,
 	// then we're done here.
-	if !gotSupportedVersions {
+	if !foundExts[ExtensionTypeSupportedVersions] {
 		logf(logTypeHandshake, "[ServerStateStart] Client did not send supported_versions")
 		return nil, nil, AlertProtocolVersion
 	}
@@ -160,7 +168,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 			return nil, nil, AlertDecryptError
 		}
 		cookie := &cookie{}
-		if _, err := syntax.Unmarshal(plainCookie, cookie); err != nil { // this should never happen
+		if rb, err := syntax.Unmarshal(plainCookie, cookie); err != nil && rb != len(plainCookie) { // this should never happen
 			logf(logTypeHandshake, fmt.Sprintf("[ServerStateStart] Error unmarshaling cookie [%v]", err))
 			return nil, nil, AlertInternalError
 		}
@@ -230,7 +238,6 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	connParams.UsingDH, connParams.UsingPSK = PSKModeNegotiation(canDoDH, canDoPSK, clientPSKModes.KEModes)
 
 	// Select a ciphersuite
-	var err error
 	connParams.CipherSuite, err = CipherSuiteNegotiation(psk, ch.CipherSuites, state.Caps.CipherSuites)
 	if err != nil {
 		logf(logTypeHandshake, "[ServerStateStart] No common ciphersuite found [%v]", err)
@@ -323,9 +330,10 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		psk = nil
 
 		// If we're not using a PSK mode, then we need to have certain extensions
-		if !gotServerName || !gotSupportedGroups || !gotSignatureAlgorithms {
-			logf(logTypeHandshake, "[ServerStateStart] Insufficient extensions (%v %v %v)",
-				gotServerName, gotSupportedGroups, gotSignatureAlgorithms)
+		if !(foundExts[ExtensionTypeServerName] &&
+			foundExts[ExtensionTypeSupportedGroups] &&
+			foundExts[ExtensionTypeSignatureAlgorithms]) {
+			logf(logTypeHandshake, "[ServerStateStart] Insufficient extensions (%v)", foundExts)
 			return nil, nil, AlertMissingExtension
 		}
 
@@ -345,8 +353,8 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 
 	// Figure out if we're going to do early data
 	var clientEarlyTrafficSecret []byte
-	connParams.ClientSendingEarlyData = gotEarlyData
-	connParams.UsingEarlyData = EarlyDataNegotiation(connParams.UsingPSK, gotEarlyData, state.Caps.AllowEarlyData)
+	connParams.ClientSendingEarlyData = foundExts[ExtensionTypeEarlyData]
+	connParams.UsingEarlyData = EarlyDataNegotiation(connParams.UsingPSK, foundExts[ExtensionTypeEarlyData], state.Caps.AllowEarlyData)
 	if connParams.UsingEarlyData {
 		h := params.Hash.New()
 		h.Write(clientHello.Marshal())
@@ -880,7 +888,7 @@ func (state ServerStateWaitCert) Next(hr handshakeMessageReader) (HandshakeState
 	}
 
 	cert := &CertificateBody{}
-	if _, err := cert.Unmarshal(hm.body); err != nil {
+	if err := SafeUnmarshal(cert, hm.body); err != nil {
 		logf(logTypeHandshake, "[ServerStateWaitCert] Unexpected message")
 		return nil, nil, AlertDecodeError
 	}
@@ -956,7 +964,7 @@ func (state ServerStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	}
 
 	certVerify := &CertificateVerifyBody{}
-	if _, err := certVerify.Unmarshal(hm.body); err != nil {
+	if err := SafeUnmarshal(certVerify, hm.body); err != nil {
 		logf(logTypeHandshake, "[ServerStateWaitCert] Error decoding message %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -1030,7 +1038,7 @@ func (state ServerStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 	}
 
 	fin := &FinishedBody{VerifyDataLen: state.cryptoParams.Hash.Size()}
-	if _, err := fin.Unmarshal(hm.body); err != nil {
+	if err := SafeUnmarshal(fin, hm.body); err != nil {
 		logf(logTypeHandshake, "[ServerStateWaitFinished] Error decoding message %v", err)
 		return nil, nil, AlertDecodeError
 	}

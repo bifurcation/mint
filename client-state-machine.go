@@ -345,7 +345,11 @@ func (state ClientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 
 	// 2. Check that it responded with a valid version.
 	supportedVersions := SupportedVersionsExtension{HandshakeType: HandshakeTypeServerHello}
-	foundSupportedVersions := sh.Extensions.Find(&supportedVersions)
+	foundSupportedVersions, err := sh.Extensions.Find(&supportedVersions)
+	if err != nil {
+		logf(logTypeHandshake, "[ClientStateWaitSH] invalid supported_versions extension [%v]", err)
+		return nil, nil, AlertDecodeError
+	}
 	if !foundSupportedVersions {
 		logf(logTypeHandshake, "[ClientStateWaitSH] no supported_versions extension")
 		return nil, nil, AlertMissingExtension
@@ -386,7 +390,11 @@ func (state ClientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 		// extension, so if there is either no Cookie extension or anything other
 		// than a Cookie extension and SupportedVersions we have to fail.
 		serverCookie := new(CookieExtension)
-		foundCookie := hrr.Extensions.Find(serverCookie)
+		foundCookie, err := hrr.Extensions.Find(serverCookie)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateWaitSH] Invalid server cookie extension [%v]", err)
+			return nil, nil, AlertDecodeError
+		}
 		if !foundCookie || len(hrr.Extensions) != 2 {
 			logf(logTypeHandshake, "[ClientStateWaitSH] No Cookie or extra extensions [%v] [%d]", foundCookie, len(hrr.Extensions))
 			return nil, nil, AlertIllegalParameter
@@ -427,15 +435,24 @@ func (state ClientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 	serverPSK := PreSharedKeyExtension{HandshakeType: HandshakeTypeServerHello}
 	serverKeyShare := KeyShareExtension{HandshakeType: HandshakeTypeServerHello}
 
-	foundPSK := sh.Extensions.Find(&serverPSK)
-	foundKeyShare := sh.Extensions.Find(&serverKeyShare)
+	foundExts, err := sh.Extensions.Parse(
+		[]ExtensionBody{
+			&serverPSK,
+			&serverKeyShare,
+		})
+	if err != nil {
+		if err != nil {
+			logf(logTypeHandshake, "[ClientWaitSH] Error processing extensions [%v]", err)
+			return nil, nil, AlertDecodeError
+		}
+	}
 
-	if foundPSK && (serverPSK.SelectedIdentity == 0) {
+	if foundExts[ExtensionTypePreSharedKey] && (serverPSK.SelectedIdentity == 0) {
 		state.Params.UsingPSK = true
 	}
 
 	var dhSecret []byte
-	if foundKeyShare {
+	if foundExts[ExtensionTypeKeyShare] {
 		sks := serverKeyShare.Shares[0]
 		priv, ok := state.OfferedDH[sks.Group]
 		if !ok {
@@ -547,7 +564,7 @@ func (state ClientStateWaitEE) Next(hr handshakeMessageReader) (HandshakeState, 
 	}
 
 	ee := EncryptedExtensionsBody{}
-	if _, err := ee.Unmarshal(hm.body); err != nil {
+	if err := SafeUnmarshal(&ee, hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitEE] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -561,13 +578,22 @@ func (state ClientStateWaitEE) Next(hr handshakeMessageReader) (HandshakeState, 
 		}
 	}
 
-	serverALPN := ALPNExtension{}
-	serverEarlyData := EarlyDataExtension{}
+	serverALPN := &ALPNExtension{}
+	serverEarlyData := &EarlyDataExtension{}
 
-	gotALPN := ee.Extensions.Find(&serverALPN)
-	state.Params.UsingEarlyData = ee.Extensions.Find(&serverEarlyData)
+	foundExts, err := ee.Extensions.Parse(
+		[]ExtensionBody{
+			serverALPN,
+			serverEarlyData,
+		})
+	if err != nil {
+		logf(logTypeHandshake, "[ClientStateWaitEE] Error decoding extensions: %v", err)
+		return nil, nil, AlertDecodeError
+	}
 
-	if gotALPN && len(serverALPN.Protocols) > 0 {
+	state.Params.UsingEarlyData = foundExts[ExtensionTypeEarlyData]
+
+	if foundExts[ExtensionTypeALPN] && len(serverALPN.Protocols) > 0 {
 		state.Params.NextProto = serverALPN.Protocols[0]
 	}
 
@@ -716,7 +742,7 @@ func (state ClientStateWaitCert) Next(hr handshakeMessageReader) (HandshakeState
 	}
 
 	cert := &CertificateBody{}
-	if _, err := cert.Unmarshal(hm.body); err != nil {
+	if err := SafeUnmarshal(cert, hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitCert] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -773,7 +799,7 @@ func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	}
 
 	certVerify := CertificateVerifyBody{}
-	if _, err := certVerify.Unmarshal(hm.body); err != nil {
+	if err := SafeUnmarshal(&certVerify, hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitCV] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -853,7 +879,7 @@ func (state ClientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 	logf(logTypeCrypto, "server finished data: [%d] %x", len(serverFinishedData), serverFinishedData)
 
 	fin := &FinishedBody{VerifyDataLen: len(serverFinishedData)}
-	if _, err := fin.Unmarshal(hm.body); err != nil {
+	if err := SafeUnmarshal(fin, hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitFinished] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -903,7 +929,11 @@ func (state ClientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 	if state.Params.UsingClientAuth {
 		// Extract constraints from certicateRequest
 		schemes := SignatureAlgorithmsExtension{}
-		gotSchemes := state.serverCertificateRequest.Extensions.Find(&schemes)
+		gotSchemes, err := state.serverCertificateRequest.Extensions.Find(&schemes)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateWaitFinished] WARNING invalid signature_schemes extension [%v]", err)
+			return nil, nil, AlertDecodeError
+		}
 		if !gotSchemes {
 			logf(logTypeHandshake, "[ClientStateWaitFinished] WARNING no appropriate certificate found")
 			return nil, nil, AlertIllegalParameter

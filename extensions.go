@@ -3,7 +3,6 @@ package mint
 import (
 	"bytes"
 	"fmt"
-
 	"github.com/bifurcation/mint/syntax"
 )
 
@@ -77,14 +76,40 @@ func (el *ExtensionList) Add(src ExtensionBody) error {
 	return nil
 }
 
-func (el ExtensionList) Find(dst ExtensionBody) bool {
-	for _, ext := range el {
-		if ext.ExtensionType == dst.Type() {
-			_, err := dst.Unmarshal(ext.ExtensionData)
-			return err == nil
+func (el ExtensionList) Parse(dsts []ExtensionBody) (map[ExtensionType]bool, error) {
+	found := make(map[ExtensionType]bool)
+
+	for _, dst := range dsts {
+		for _, ext := range el {
+			if ext.ExtensionType == dst.Type() {
+				if found[dst.Type()] {
+					return nil, fmt.Errorf("Duplicate extension of type [%v]", dst.Type())
+				}
+
+				err := SafeUnmarshal(dst, ext.ExtensionData)
+				if err != nil {
+					return nil, err
+				}
+
+				found[dst.Type()] = true
+			}
 		}
 	}
-	return false
+
+	return found, nil
+}
+
+func (el ExtensionList) Find(dst ExtensionBody) (bool, error) {
+	for _, ext := range el {
+		if ext.ExtensionType == dst.Type() {
+			err := SafeUnmarshal(dst, ext.ExtensionData)
+			if err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // struct {
