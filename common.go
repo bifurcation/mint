@@ -21,6 +21,7 @@ const (
 	RecordTypeApplicationData RecordType = 23
 )
 
+const tls10Version uint16 = 0x0301
 const tls12Version uint16 = 0x0303
 
 // enum {...} HandshakeType;

@@ -346,8 +346,10 @@ func TestStateMachineIntegration(t *testing.T) {
 	for caseName, params := range stateMachineIntegrationCases {
 		t.Run(caseName, func(t *testing.T) {
 			chsCtx := HandshakeContext{
+				hIn:  &HandshakeLayer{},
 				hOut: &HandshakeLayer{},
 			}
+			chsCtx.SetVersion(tls10Version)
 			shsCtx := chsCtx
 			var clientState, serverState HandshakeState
 			clientState = ClientStateStart{

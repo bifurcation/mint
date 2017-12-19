@@ -365,6 +365,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}
 
 	logf(logTypeHandshake, "[ServerStateStart] -> [ServerStateNegotiated]")
+	state.hsCtx.SetVersion(tls12Version) // Everything after this should be 1.2.
 	return ServerStateNegotiated{
 		Caps:                     state.Caps,
 		Params:                   connParams,

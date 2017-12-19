@@ -265,6 +265,7 @@ func (state ClientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}
 
 	logf(logTypeHandshake, "[ClientStateStart] -> [ClientStateWaitSH]")
+	state.hsCtx.SetVersion(tls12Version) // Everything after this should be 1.2.
 	nextState := ClientStateWaitSH{
 		Caps:       state.Caps,
 		Opts:       state.Opts,
