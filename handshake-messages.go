@@ -121,29 +121,6 @@ func (ch ClientHelloBody) Truncated() ([]byte, error) {
 }
 
 // struct {
-//     ProtocolVersion server_version;
-//     CipherSuite	cipher_suite;
-//     Extension extensions<2..2^16-1>;
-// } HelloRetryRequest;
-type HelloRetryRequestBody struct {
-	Version     uint16
-	CipherSuite CipherSuite
-	Extensions  ExtensionList `tls:"head=2,min=2"`
-}
-
-func (hrr HelloRetryRequestBody) Type() HandshakeType {
-	return HandshakeTypeHelloRetryRequest
-}
-
-func (hrr HelloRetryRequestBody) Marshal() ([]byte, error) {
-	return syntax.Marshal(hrr)
-}
-
-func (hrr *HelloRetryRequestBody) Unmarshal(data []byte) (int, error) {
-	return syntax.Unmarshal(data, hrr)
-}
-
-// struct {
 //     ProtocolVersion legacy_version = 0x0303;    /* TLS v1.2 */
 //     Random random;
 //     opaque legacy_session_id_echo<0..32>;
