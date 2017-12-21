@@ -86,7 +86,7 @@ func (el ExtensionList) Parse(dsts []ExtensionBody) (map[ExtensionType]bool, err
 					return nil, fmt.Errorf("Duplicate extension of type [%v]", dst.Type())
 				}
 
-				err := SafeUnmarshal(dst, ext.ExtensionData)
+				err := safeUnmarshal(dst, ext.ExtensionData)
 				if err != nil {
 					return nil, err
 				}
@@ -102,7 +102,7 @@ func (el ExtensionList) Parse(dsts []ExtensionBody) (map[ExtensionType]bool, err
 func (el ExtensionList) Find(dst ExtensionBody) (bool, error) {
 	for _, ext := range el {
 		if ext.ExtensionType == dst.Type() {
-			err := SafeUnmarshal(dst, ext.ExtensionData)
+			err := safeUnmarshal(dst, ext.ExtensionData)
 			if err != nil {
 				return true, err
 			}

@@ -93,7 +93,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}
 
 	ch := &ClientHelloBody{}
-	if err := SafeUnmarshal(ch, hm.body); err != nil {
+	if err := safeUnmarshal(ch, hm.body); err != nil {
 		logf(logTypeHandshake, "[ServerStateStart] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -888,7 +888,7 @@ func (state ServerStateWaitCert) Next(hr handshakeMessageReader) (HandshakeState
 	}
 
 	cert := &CertificateBody{}
-	if err := SafeUnmarshal(cert, hm.body); err != nil {
+	if err := safeUnmarshal(cert, hm.body); err != nil {
 		logf(logTypeHandshake, "[ServerStateWaitCert] Unexpected message")
 		return nil, nil, AlertDecodeError
 	}
@@ -964,7 +964,7 @@ func (state ServerStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	}
 
 	certVerify := &CertificateVerifyBody{}
-	if err := SafeUnmarshal(certVerify, hm.body); err != nil {
+	if err := safeUnmarshal(certVerify, hm.body); err != nil {
 		logf(logTypeHandshake, "[ServerStateWaitCert] Error decoding message %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -1038,7 +1038,7 @@ func (state ServerStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 	}
 
 	fin := &FinishedBody{VerifyDataLen: state.cryptoParams.Hash.Size()}
-	if err := SafeUnmarshal(fin, hm.body); err != nil {
+	if err := safeUnmarshal(fin, hm.body); err != nil {
 		logf(logTypeHandshake, "[ServerStateWaitFinished] Error decoding message %v", err)
 		return nil, nil, AlertDecodeError
 	}

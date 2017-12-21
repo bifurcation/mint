@@ -99,7 +99,7 @@ func (hm HandshakeMessage) ToBody() (HandshakeMessageBody, error) {
 		return body, fmt.Errorf("tls.handshakemessage: Unsupported body type")
 	}
 
-	err := SafeUnmarshal(body, hm.body)
+	err := safeUnmarshal(body, hm.body)
 	return body, err
 }
 
@@ -480,17 +480,17 @@ func decodeUint(in []byte, size int) (uint64, []byte) {
 	return val, in[size:]
 }
 
-type marshalledPdu interface {
+type marshalledPDU interface {
 	Marshal() ([]byte, error)
 	Unmarshal(data []byte) (int, error)
 }
 
-func SafeUnmarshal(pdu marshalledPdu, data []byte) error {
-	l, err := pdu.Unmarshal(data)
+func safeUnmarshal(pdu marshalledPDU, data []byte) error {
+	read, err := pdu.Unmarshal(data)
 	if err != nil {
 		return err
 	}
-	if len(data) != l {
+	if len(data) != read {
 		return fmt.Errorf("Invalid encoding: Extra data not consumed")
 	}
 	return nil

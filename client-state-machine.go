@@ -441,10 +441,8 @@ func (state ClientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 			&serverKeyShare,
 		})
 	if err != nil {
-		if err != nil {
-			logf(logTypeHandshake, "[ClientWaitSH] Error processing extensions [%v]", err)
-			return nil, nil, AlertDecodeError
-		}
+		logf(logTypeHandshake, "[ClientWaitSH] Error processing extensions [%v]", err)
+		return nil, nil, AlertDecodeError
 	}
 
 	if foundExts[ExtensionTypePreSharedKey] && (serverPSK.SelectedIdentity == 0) {
@@ -564,7 +562,7 @@ func (state ClientStateWaitEE) Next(hr handshakeMessageReader) (HandshakeState, 
 	}
 
 	ee := EncryptedExtensionsBody{}
-	if err := SafeUnmarshal(&ee, hm.body); err != nil {
+	if err := safeUnmarshal(&ee, hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitEE] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -742,7 +740,7 @@ func (state ClientStateWaitCert) Next(hr handshakeMessageReader) (HandshakeState
 	}
 
 	cert := &CertificateBody{}
-	if err := SafeUnmarshal(cert, hm.body); err != nil {
+	if err := safeUnmarshal(cert, hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitCert] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -799,7 +797,7 @@ func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	}
 
 	certVerify := CertificateVerifyBody{}
-	if err := SafeUnmarshal(&certVerify, hm.body); err != nil {
+	if err := safeUnmarshal(&certVerify, hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitCV] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}
@@ -879,7 +877,7 @@ func (state ClientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 	logf(logTypeCrypto, "server finished data: [%d] %x", len(serverFinishedData), serverFinishedData)
 
 	fin := &FinishedBody{VerifyDataLen: len(serverFinishedData)}
-	if err := SafeUnmarshal(fin, hm.body); err != nil {
+	if err := safeUnmarshal(fin, hm.body); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitFinished] Error decoding message: %v", err)
 		return nil, nil, AlertDecodeError
 	}

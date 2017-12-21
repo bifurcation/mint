@@ -705,13 +705,13 @@ func TestEndOfEarlyDataMarshalUnmarshal(t *testing.T) {
 	assertDeepEquals(t, eoed, endOfEarlyDataValidIn)
 }
 
-func TestSafeUnmarshal(t *testing.T) {
+func TestsafeUnmarshal(t *testing.T) {
 	chValid := unhex(chValidHex)
 	tooLong := append(chValid, 0)
 	var ch ClientHelloBody
 
-	// Check that SafeUnmarshal works normally
-	err := SafeUnmarshal(&ch, chValid)
+	// Check that safeUnmarshal works normally
+	err := safeUnmarshal(&ch, chValid)
 	assertNotError(t, err, "Failed to unmarshal ClientHello")
 
 	// Test successful unmarshal
@@ -720,7 +720,7 @@ func TestSafeUnmarshal(t *testing.T) {
 	assertEquals(t, read, len(chValid))
 	assertDeepEquals(t, ch, chValidIn)
 
-	// Now test that SafeUnmarshal barfs
-	err = SafeUnmarshal(&ch, tooLong)
+	// Now test that safeUnmarshal barfs
+	err = safeUnmarshal(&ch, tooLong)
 	assertError(t, err, "Unmarshalled something too long")
 }
