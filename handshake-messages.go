@@ -26,8 +26,6 @@ type HandshakeMessageBody interface {
 // } ClientHello;
 type ClientHelloBody struct {
 	// Omitted: clientVersion
-	// Omitted: legacySessionID
-	// Omitted: legacyCompressionMethods
 	Random          [32]byte
 	LegacySessionID []byte
 	CipherSuites    []CipherSuite
@@ -146,10 +144,12 @@ func (hrr *HelloRetryRequestBody) Unmarshal(data []byte) (int, error) {
 }
 
 // struct {
-//     ProtocolVersion version;
+//     ProtocolVersion legacy_version = 0x0303;    /* TLS v1.2 */
 //     Random random;
+//     opaque legacy_session_id_echo<0..32>;
 //     CipherSuite cipher_suite;
-//     Extension extensions<0..2^16-1>;
+//     uint8 legacy_compression_method = 0;
+//     Extension extensions<6..2^16-1>;
 // } ServerHello;
 type ServerHelloBody struct {
 	Version                 uint16

@@ -5,8 +5,13 @@ import (
 	"strconv"
 )
 
-var (
+const (
 	supportedVersion uint16 = 0x7f16 // draft-22
+	tls12Version     uint16 = 0x0303
+	tls10Version     uint16 = 0x0301
+)
+
+var (
 	// Flags for some minor compat issues
 	allowWrongVersionNumber = true
 	allowPKCS1              = true
@@ -20,9 +25,6 @@ const (
 	RecordTypeHandshake       RecordType = 22
 	RecordTypeApplicationData RecordType = 23
 )
-
-const tls10Version uint16 = 0x0301
-const tls12Version uint16 = 0x0303
 
 // enum {...} HandshakeType;
 type HandshakeType byte

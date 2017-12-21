@@ -19,7 +19,7 @@ const (
 var (
 	supportedVersionHex = hex.EncodeToString([]byte{
 		byte(supportedVersion >> 8),
-		byte(supportedVersion),
+		byte(supportedVersion & 0xff),
 	})
 	tls12VersionHex = hex.EncodeToString([]byte{
 		byte(tls12Version >> 8),
