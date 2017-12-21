@@ -324,8 +324,6 @@ func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 		return nil, err
 	}
 	for {
-
-		// TODO(ekr@rtfm.com): Discard partial DTLS frames.
 		logf(logTypeVerbose, "ReadMessage() buffered=%v", len(h.frame.remainder))
 		if h.frame.needed() > 0 {
 			logf(logTypeVerbose, "Trying to read a new record")

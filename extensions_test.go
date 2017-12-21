@@ -33,7 +33,7 @@ var (
 	extListValidIn          = ExtensionList{extValidIn, extEmptyIn}
 	extListSingleTooLongIn  = ExtensionList{extTooLongIn, extEmptyIn}
 	extListTooLongIn        = ExtensionList{extHalfLengthPlus, extHalfLengthPlus}
-	extListValidHex         = "000d000a0005f0f1f2f3f4000a0000"
+	extListValidHex         = "000d000a0005f0f1f2f3f4000a0000" // supported_groups x 2 (not really valid)
 	extListEmptyHex         = "0000"
 	extListNoHeaderHex      = "00"
 	extListOverflowOuterHex = "0020000a0005f0f1f2f3f4000a0005f0f1f2f3f4"
@@ -127,6 +127,19 @@ var (
 	// SNI test cases (pre-declared so that we can take references in the test case)
 	serverNameRaw = "example.com"
 	serverNameIn  = ServerNameExtension(serverNameRaw)
+
+	// SupportedVersions text cases
+	supportedVersionsClientIn = &SupportedVersionsExtension{
+		HandshakeType: HandshakeTypeClientHello,
+		Versions:      []uint16{0x0300, 0x0304},
+	}
+	supportedVersionsServerIn = &SupportedVersionsExtension{
+		HandshakeType: HandshakeTypeServerHello,
+		Versions:      []uint16{0x0300},
+	}
+
+	supportedVersionsClientHex = "0403000304"
+	supportedVersionsServerHex = "0300"
 )
 
 var validExtensionTestCases = map[ExtensionType]struct {
@@ -173,21 +186,12 @@ var validExtensionTestCases = map[ExtensionType]struct {
 
 	// Omitted: KeyShare (depends on HandshakeType)
 	// Omitted: PreSharedKey (depends on HandshakeType)
-
+	// Omitted: SupportedVersions (depends on HandshakeType)
 	// EarlyData
 	ExtensionTypeEarlyData: {
 		blank:        &EarlyDataExtension{},
 		unmarshaled:  &EarlyDataExtension{},
 		marshaledHex: "",
-	},
-
-	// SupportedVersions
-	ExtensionTypeSupportedVersions: {
-		blank: &SupportedVersionsExtension{},
-		unmarshaled: &SupportedVersionsExtension{
-			Versions: []uint16{0x0300, 0x0304},
-		},
-		marshaledHex: "0403000304",
 	},
 
 	// Cookie
@@ -381,6 +385,54 @@ func TestServerNameMarshalUnmarshal(t *testing.T) {
 	_, err = sni.Unmarshal(serverName)
 	assertError(t, err, "Unmarshaled a ServerName that was not a host_name")
 	serverName[2]--
+}
+
+func TestSupportedVersionsMarshalUnmarshal(t *testing.T) {
+	supportedVersionsClient := unhex(supportedVersionsClientHex)
+	supportedVersionsServer := unhex(supportedVersionsServerHex)
+
+	// Test extension type
+	assertEquals(t, SupportedVersionsExtension{}.Type(), ExtensionTypeSupportedVersions)
+
+	// Test successful marshal (client side)
+	out, err := supportedVersionsClientIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid SupportedVersions (client)")
+	assertByteEquals(t, out, supportedVersionsClient)
+
+	// Test successful marshal (server side)
+	out, err = supportedVersionsServerIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid SupportedVersions (server)")
+	assertByteEquals(t, out, supportedVersionsServer)
+
+	// Test marshal failure on an unsupported handshake type
+	supportedVersionsServerIn.HandshakeType = HandshakeTypeCertificate
+	out, err = supportedVersionsServerIn.Marshal()
+	assertError(t, err, "Marshaled key an unsupported handshake type")
+	supportedVersionsServerIn.HandshakeType = HandshakeTypeServerHello
+
+	// Test successful unmarshal (client)
+	sv := SupportedVersionsExtension{HandshakeType: HandshakeTypeClientHello}
+	read, err := sv.Unmarshal(supportedVersionsClient)
+	assertNotError(t, err, "Failed to unmarshal valid SupportedVersions (client)")
+	assertDeepEquals(t, &sv, supportedVersionsClientIn)
+	assertEquals(t, read, len(supportedVersionsClient))
+
+	// Test successful unmarshal (server)
+	sv = SupportedVersionsExtension{HandshakeType: HandshakeTypeServerHello}
+	read, err = sv.Unmarshal(supportedVersionsServer)
+	assertNotError(t, err, "Failed to unmarshal valid SupportedVersions (server)")
+	assertDeepEquals(t, &sv, supportedVersionsServerIn)
+	assertEquals(t, read, len(supportedVersionsServer))
+
+	// Test unmarshal failure on underlying unmarshal failure (client)
+	sv = SupportedVersionsExtension{HandshakeType: HandshakeTypeClientHello}
+	read, err = sv.Unmarshal(supportedVersionsClient[:1])
+	assertError(t, err, "Unmarshaled a SupportedVersions without a length")
+
+	// Test unmarshal failure on underlying unmarshal failure (server)
+	sv = SupportedVersionsExtension{HandshakeType: HandshakeTypeServerHello}
+	read, err = sv.Unmarshal(supportedVersionsServer[:1])
+	assertError(t, err, "Unmarshaled a SupportedVersions that's too short")
 }
 
 func TestKeyShareMarshalUnmarshal(t *testing.T) {
