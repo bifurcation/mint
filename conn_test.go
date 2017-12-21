@@ -763,7 +763,7 @@ func (t *testExtensionHandler) Send(hs HandshakeType, el *ExtensionList) error {
 func (t *testExtensionHandler) Receive(hs HandshakeType, el *ExtensionList) error {
 	var body testExtensionBody
 
-	ok := el.Find(&body)
+	ok, _ := el.Find(&body)
 	if !ok {
 		return fmt.Errorf("Couldn't find extension")
 	}

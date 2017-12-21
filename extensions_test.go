@@ -358,17 +358,62 @@ func TestExtensionAdd(t *testing.T) {
 func TestExtensionFind(t *testing.T) {
 	// Test successful find
 	ks := KeyShareExtension{HandshakeType: HandshakeTypeServerHello}
-	found := extListKeyShareIn.Find(&ks)
+	found, err := extListKeyShareIn.Find(&ks)
+	assertNotError(t, err, "Failed to parse valid extension")
 	assert(t, found, "Failed to find a valid extension")
 
 	// Test find failure on absent extension
 	var sg SupportedGroupsExtension
-	found = extListKeyShareIn.Find(&sg)
+	found, err = extListKeyShareIn.Find(&sg)
+	assertNotError(t, err, "Error on missing extension")
 	assert(t, !found, "Found an extension that's not present")
 
 	// Test find failure on unmarshal failure
-	found = extListInvalidIn.Find(&ks)
-	assert(t, !found, "Found an extension that's not valid")
+	found, err = extListInvalidIn.Find(&ks)
+	assert(t, found, "Didn't found an extension that's not valid")
+	assertError(t, err, "Parsed an invalid extension")
+}
+
+func TestExtensionParse(t *testing.T) {
+	// Parse cases
+	validExtensions := ExtensionList{
+		Extension{
+			ExtensionType: ExtensionTypeKeyShare,
+			ExtensionData: keyShareClientRaw,
+		},
+		Extension{
+			ExtensionType: ExtensionTypeSupportedVersions,
+			ExtensionData: unhex(supportedVersionsClientHex),
+		},
+	}
+
+	// In template
+	ks := &KeyShareExtension{HandshakeType: HandshakeTypeClientHello}
+	sv := &SupportedVersionsExtension{HandshakeType: HandshakeTypeClientHello}
+	extensionsIn := []ExtensionBody{ks, sv}
+
+	found, err := validExtensions.Parse(extensionsIn)
+	assertNotError(t, err, "Failed to parse valid extensions")
+	assert(t, found[ExtensionTypeKeyShare], "Failed to find key share")
+	assert(t, found[ExtensionTypeSupportedVersions], "Failed to find supported versions")
+
+	// Now a version with an error
+	sv.HandshakeType = HandshakeTypeServerHello
+	found, err = validExtensions.Parse(extensionsIn)
+	assertError(t, err, "Parsed bogus extension")
+	assertEquals(t, len(found), 0)
+	sv.HandshakeType = HandshakeTypeClientHello
+
+	// Two copies.
+	dupExtensions := append(validExtensions,
+		Extension{
+			ExtensionType: ExtensionTypeSupportedVersions,
+			ExtensionData: unhex(supportedVersionsClientHex),
+		},
+	)
+	found, err = dupExtensions.Parse(extensionsIn)
+	assertError(t, err, "Parsed duplicate extension")
+	assertEquals(t, len(found), 0)
 }
 
 func TestServerNameMarshalUnmarshal(t *testing.T) {
