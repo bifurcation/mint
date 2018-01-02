@@ -8,12 +8,18 @@ import (
 )
 
 var addr string
+var dtls bool
 
 func main() {
 	flag.StringVar(&addr, "addr", "localhost:4430", "port")
+	flag.BoolVar(&dtls, "dtls", false, "use DTLS")
 	flag.Parse()
 
-	conn, err := mint.Dial("tcp", addr, nil)
+	network := "tcp"
+	if dtls {
+		network = "udp"
+	}
+	conn, err := mint.Dial(network, addr, nil)
 
 	if err != nil {
 		fmt.Println("TLS handshake failed:", err)
