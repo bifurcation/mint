@@ -79,16 +79,6 @@ var (
 		},
 	}
 
-	// HelloRetryRequest test cases
-	hrrValidIn = HelloRetryRequestBody{
-		Version:     supportedVersion,
-		CipherSuite: 0x0001,
-		Extensions:  extListValidIn,
-	}
-	hrrEmptyIn  = HelloRetryRequestBody{}
-	hrrValidHex = supportedVersionHex + "0001" + extListValidHex
-	hrrEmptyHex = supportedVersionHex + "0001" + "0000"
-
 	// ServerHello test cases
 	shValidIn = ServerHelloBody{
 		Version:         tls12Version,
@@ -350,34 +340,6 @@ func TestClientHelloTruncate(t *testing.T) {
 	// Test failiure on last extension malformed PSK
 	_, err = chTruncBadPSK.Truncated()
 	assertError(t, err, "Truncated a ClientHello with a mal-formed PSK")
-}
-
-func TestHelloRetryRequestMarshalUnmarshal(t *testing.T) {
-	hrrValid := unhex(hrrValidHex)
-	hrrEmpty := unhex(hrrEmptyHex)
-
-	// Test correctness of handshake type
-	assertEquals(t, (HelloRetryRequestBody{}).Type(), HandshakeTypeHelloRetryRequest)
-
-	// Test successful marshal
-	out, err := hrrValidIn.Marshal()
-	assertNotError(t, err, "Failed to marshal a valid HelloRetryRequest")
-	assertByteEquals(t, out, hrrValid)
-
-	// Test marshal failure with no extensions present
-	out, err = hrrEmptyIn.Marshal()
-	assertError(t, err, "Marshaled HelloRetryRequest with no extensions")
-
-	// Test successful unmarshal
-	var hrr HelloRetryRequestBody
-	read, err := hrr.Unmarshal(hrrValid)
-	assertNotError(t, err, "Failed to unmarshal a valid HelloRetryRequest")
-	assertEquals(t, read, len(hrrValid))
-	assertDeepEquals(t, hrr, hrrValidIn)
-
-	// Test unmarshal failure with no extensions present
-	read, err = hrr.Unmarshal(hrrEmpty)
-	assertError(t, err, "Unmarshaled a HelloRetryRequest with no extensions")
 }
 
 func TestServerHelloMarshalUnmarshal(t *testing.T) {
