@@ -70,20 +70,20 @@ func TestStateMachineIntegration(t *testing.T) {
 					CookieProtector:  cookieProtector,
 				},
 				clientStateSequence: []HandshakeState{
-					ClientStateStart{},
-					ClientStateWaitSH{},
-					ClientStateWaitEE{},
-					ClientStateWaitCertCR{},
-					ClientStateWaitCV{},
-					ClientStateWaitFinished{},
-					StateConnected{},
+					clientStateStart{},
+					clientStateWaitSH{},
+					clientStateWaitEE{},
+					clientStateWaitCertCR{},
+					clientStateWaitCV{},
+					clientStateWaitFinished{},
+					stateConnected{},
 				},
 				serverStateSequence: []HandshakeState{
-					ServerStateStart{},
-					ServerStateNegotiated{},
-					ServerStateWaitFlight2{},
-					ServerStateWaitFinished{},
-					StateConnected{},
+					serverStateStart{},
+					serverStateNegotiated{},
+					serverStateWaitFlight2{},
+					serverStateWaitFinished{},
+					stateConnected{},
 				},
 			},
 
@@ -111,23 +111,23 @@ func TestStateMachineIntegration(t *testing.T) {
 					CookieProtector:  cookieProtector,
 				},
 				clientStateSequence: []HandshakeState{
-					ClientStateStart{},
-					ClientStateWaitSH{},
-					ClientStateStart{},
-					ClientStateWaitSH{},
-					ClientStateWaitEE{},
-					ClientStateWaitCertCR{},
-					ClientStateWaitCV{},
-					ClientStateWaitFinished{},
-					StateConnected{},
+					clientStateStart{},
+					clientStateWaitSH{},
+					clientStateStart{},
+					clientStateWaitSH{},
+					clientStateWaitEE{},
+					clientStateWaitCertCR{},
+					clientStateWaitCV{},
+					clientStateWaitFinished{},
+					stateConnected{},
 				},
 				serverStateSequence: []HandshakeState{
-					ServerStateStart{},
-					ServerStateStart{},
-					ServerStateNegotiated{},
-					ServerStateWaitFlight2{},
-					ServerStateWaitFinished{},
-					StateConnected{},
+					serverStateStart{},
+					serverStateStart{},
+					serverStateNegotiated{},
+					serverStateWaitFlight2{},
+					serverStateWaitFinished{},
+					stateConnected{},
 				},
 			},
 
@@ -158,18 +158,18 @@ func TestStateMachineIntegration(t *testing.T) {
 					Certificates: certificates,
 				},
 				clientStateSequence: []HandshakeState{
-					ClientStateStart{},
-					ClientStateWaitSH{},
-					ClientStateWaitEE{},
-					ClientStateWaitFinished{},
-					StateConnected{},
+					clientStateStart{},
+					clientStateWaitSH{},
+					clientStateWaitEE{},
+					clientStateWaitFinished{},
+					stateConnected{},
 				},
 				serverStateSequence: []HandshakeState{
-					ServerStateStart{},
-					ServerStateNegotiated{},
-					ServerStateWaitFlight2{},
-					ServerStateWaitFinished{},
-					StateConnected{},
+					serverStateStart{},
+					serverStateNegotiated{},
+					serverStateWaitFlight2{},
+					serverStateWaitFinished{},
+					stateConnected{},
 				},
 			},
 
@@ -202,19 +202,19 @@ func TestStateMachineIntegration(t *testing.T) {
 					AllowEarlyData: true,
 				},
 				clientStateSequence: []HandshakeState{
-					ClientStateStart{},
-					ClientStateWaitSH{},
-					ClientStateWaitEE{},
-					ClientStateWaitFinished{},
-					StateConnected{},
+					clientStateStart{},
+					clientStateWaitSH{},
+					clientStateWaitEE{},
+					clientStateWaitFinished{},
+					stateConnected{},
 				},
 				serverStateSequence: []HandshakeState{
-					ServerStateStart{},
-					ServerStateNegotiated{},
-					ServerStateWaitEOED{},
-					ServerStateWaitFlight2{},
-					ServerStateWaitFinished{},
-					StateConnected{},
+					serverStateStart{},
+					serverStateNegotiated{},
+					serverStateWaitEOED{},
+					serverStateWaitFlight2{},
+					serverStateWaitFinished{},
+					stateConnected{},
 				},
 			},
 
@@ -243,20 +243,20 @@ func TestStateMachineIntegration(t *testing.T) {
 					Certificates:     certificates,
 				},
 				clientStateSequence: []HandshakeState{
-					ClientStateStart{},
-					ClientStateWaitSH{},
-					ClientStateWaitEE{},
-					ClientStateWaitCertCR{},
-					ClientStateWaitCV{},
-					ClientStateWaitFinished{},
-					StateConnected{},
+					clientStateStart{},
+					clientStateWaitSH{},
+					clientStateWaitEE{},
+					clientStateWaitCertCR{},
+					clientStateWaitCV{},
+					clientStateWaitFinished{},
+					stateConnected{},
 				},
 				serverStateSequence: []HandshakeState{
-					ServerStateStart{},
-					ServerStateNegotiated{},
-					ServerStateWaitFlight2{},
-					ServerStateWaitFinished{},
-					StateConnected{},
+					serverStateStart{},
+					serverStateNegotiated{},
+					serverStateWaitFlight2{},
+					serverStateWaitFinished{},
+					stateConnected{},
 				},
 			},
 
@@ -285,23 +285,23 @@ func TestStateMachineIntegration(t *testing.T) {
 					RequireClientAuth: true,
 				},
 				clientStateSequence: []HandshakeState{
-					ClientStateStart{},
-					ClientStateWaitSH{},
-					ClientStateWaitEE{},
-					ClientStateWaitCertCR{},
-					ClientStateWaitCert{},
-					ClientStateWaitCV{},
-					ClientStateWaitFinished{},
-					StateConnected{},
+					clientStateStart{},
+					clientStateWaitSH{},
+					clientStateWaitEE{},
+					clientStateWaitCertCR{},
+					clientStateWaitCert{},
+					clientStateWaitCV{},
+					clientStateWaitFinished{},
+					stateConnected{},
 				},
 				serverStateSequence: []HandshakeState{
-					ServerStateStart{},
-					ServerStateNegotiated{},
-					ServerStateWaitFlight2{},
-					ServerStateWaitCert{},
-					ServerStateWaitCV{},
-					ServerStateWaitFinished{},
-					StateConnected{},
+					serverStateStart{},
+					serverStateNegotiated{},
+					serverStateWaitFlight2{},
+					serverStateWaitCert{},
+					serverStateWaitCV{},
+					serverStateWaitFinished{},
+					stateConnected{},
 				},
 			},
 
@@ -329,22 +329,22 @@ func TestStateMachineIntegration(t *testing.T) {
 					RequireClientAuth: true,
 				},
 				clientStateSequence: []HandshakeState{
-					ClientStateStart{},
-					ClientStateWaitSH{},
-					ClientStateWaitEE{},
-					ClientStateWaitCertCR{},
-					ClientStateWaitCert{},
-					ClientStateWaitCV{},
-					ClientStateWaitFinished{},
-					StateConnected{},
+					clientStateStart{},
+					clientStateWaitSH{},
+					clientStateWaitEE{},
+					clientStateWaitCertCR{},
+					clientStateWaitCert{},
+					clientStateWaitCV{},
+					clientStateWaitFinished{},
+					stateConnected{},
 				},
 				serverStateSequence: []HandshakeState{
-					ServerStateStart{},
-					ServerStateNegotiated{},
-					ServerStateWaitFlight2{},
-					ServerStateWaitCert{},
-					ServerStateWaitFinished{},
-					StateConnected{},
+					serverStateStart{},
+					serverStateNegotiated{},
+					serverStateWaitFlight2{},
+					serverStateWaitCert{},
+					serverStateWaitFinished{},
+					stateConnected{},
 				},
 			},
 		}
@@ -359,12 +359,12 @@ func TestStateMachineIntegration(t *testing.T) {
 			chsCtx.SetVersion(tls10Version)
 			shsCtx := chsCtx
 			var clientState, serverState HandshakeState
-			clientState = ClientStateStart{
+			clientState = clientStateStart{
 				Config: params.clientConfig,
 				Opts:   params.clientOptions,
 				hsCtx:  chsCtx,
 			}
-			serverState = ServerStateStart{Config: params.serverConfig, hsCtx: shsCtx}
+			serverState = serverStateStart{Config: params.serverConfig, hsCtx: shsCtx}
 
 			t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
 			t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
@@ -389,7 +389,7 @@ func TestStateMachineIntegration(t *testing.T) {
 
 				// Client -> Server
 				for {
-					if _, connected := serverState.(StateConnected); connected {
+					if _, connected := serverState.(stateConnected); connected {
 						break
 					}
 					var nextState HandshakeState
@@ -407,7 +407,7 @@ func TestStateMachineIntegration(t *testing.T) {
 
 				// Server -> Client
 				for {
-					if _, connected := clientState.(StateConnected); connected {
+					if _, connected := clientState.(stateConnected); connected {
 						break
 					}
 					var nextState HandshakeState
@@ -423,11 +423,11 @@ func TestStateMachineIntegration(t *testing.T) {
 					serverHandshakeMessageReader.queue = append(serverHandshakeMessageReader.queue, clientResponses...)
 				}
 
-				clientConnected := reflect.TypeOf(clientState) == reflect.TypeOf(StateConnected{})
-				serverConnected := reflect.TypeOf(serverState) == reflect.TypeOf(StateConnected{})
+				clientConnected := reflect.TypeOf(clientState) == reflect.TypeOf(stateConnected{})
+				serverConnected := reflect.TypeOf(serverState) == reflect.TypeOf(stateConnected{})
 				if clientConnected && serverConnected {
-					c := clientState.(StateConnected)
-					s := serverState.(StateConnected)
+					c := clientState.(stateConnected)
+					s := serverState.(stateConnected)
 
 					// Test that we ended up at the same state
 					assertDeepEquals(t, c.Params, s.Params)
