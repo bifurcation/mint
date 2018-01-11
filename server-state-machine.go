@@ -2,6 +2,7 @@ package mint
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
 	"hash"
 	"reflect"
@@ -994,6 +995,10 @@ func (state ServerStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	} else {
 		logf(logTypeHandshake, "[ServerStateWaitCV] WARNING: No verification of client certificate")
 	}
+	clientCertChain := make([]*x509.Certificate, len(state.clientCertificate.CertificateList))
+	for i, certEntry := range state.clientCertificate.CertificateList {
+		clientCertChain[i] = certEntry.CertData
+	}
 
 	// If it passes, record the certificateVerify in the transcript hash
 	state.handshakeHash.Write(hm.Marshal())
@@ -1005,6 +1010,7 @@ func (state ServerStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 		cryptoParams:                 state.cryptoParams,
 		masterSecret:                 state.masterSecret,
 		clientHandshakeTrafficSecret: state.clientHandshakeTrafficSecret,
+		clientCertificateChain:       clientCertChain,
 		handshakeHash:                state.handshakeHash,
 		clientTrafficSecret:          state.clientTrafficSecret,
 		serverTrafficSecret:          state.serverTrafficSecret,
@@ -1020,6 +1026,8 @@ type ServerStateWaitFinished struct {
 
 	masterSecret                 []byte
 	clientHandshakeTrafficSecret []byte
+
+	clientCertificateChain []*x509.Certificate
 
 	handshakeHash       hash.Hash
 	clientTrafficSecret []byte
@@ -1074,14 +1082,15 @@ func (state ServerStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 
 	logf(logTypeHandshake, "[ServerStateWaitFinished] -> [StateConnected]")
 	nextState := StateConnected{
-		Params:              state.Params,
-		hsCtx:               state.hsCtx,
-		isClient:            false,
-		cryptoParams:        state.cryptoParams,
-		resumptionSecret:    resumptionSecret,
-		clientTrafficSecret: state.clientTrafficSecret,
-		serverTrafficSecret: state.serverTrafficSecret,
-		exporterSecret:      state.exporterSecret,
+		Params:               state.Params,
+		hsCtx:                state.hsCtx,
+		isClient:             false,
+		cryptoParams:         state.cryptoParams,
+		resumptionSecret:     resumptionSecret,
+		clientTrafficSecret:  state.clientTrafficSecret,
+		serverTrafficSecret:  state.serverTrafficSecret,
+		exporterSecret:       state.exporterSecret,
+		PeerCertificateChain: state.clientCertificateChain,
 	}
 	toSend := []HandshakeAction{
 		RekeyIn{epoch: EpochApplicationData, KeySet: clientTrafficKeys},
