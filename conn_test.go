@@ -825,6 +825,27 @@ func TestExternalExtensions(t *testing.T) {
 	})
 }
 
+func TestConnectionState(t *testing.T) {
+	cConn, sConn := pipe()
+	client := Client(cConn, basicConfig)
+	server := Server(sConn, basicConfig)
+
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert := server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert := client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+	<-done
+
+	connectionState := client.State()
+	assertEquals(t, connectionState.CipherSuite.Suite, basicConfig.CipherSuites[0])
+	assertDeepEquals(t, connectionState.PeerCertificates, []*x509.Certificate{serverCert})
+}
+
 func TestDTLS(t *testing.T) {
 	cConn, sConn := pipe()
 

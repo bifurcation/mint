@@ -3,6 +3,7 @@ package mint
 import (
 	"bytes"
 	"crypto"
+	"crypto/x509"
 	"hash"
 	"time"
 )
@@ -821,6 +822,10 @@ func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	} else {
 		logf(logTypeHandshake, "[ClientStateWaitCV] WARNING: No verification of server certificate")
 	}
+	serverCertChain := make([]*x509.Certificate, len(state.serverCertificate.CertificateList))
+	for i, certEntry := range state.serverCertificate.CertificateList {
+		serverCertChain[i] = certEntry.CertData
+	}
 
 	state.handshakeHash.Write(hm.Marshal())
 
@@ -831,6 +836,7 @@ func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 		cryptoParams:                 state.cryptoParams,
 		handshakeHash:                state.handshakeHash,
 		certificates:                 state.certificates,
+		serverCertificateChain:       serverCertChain,
 		serverCertificateRequest:     state.serverCertificateRequest,
 		masterSecret:                 state.masterSecret,
 		clientHandshakeTrafficSecret: state.clientHandshakeTrafficSecret,
@@ -846,6 +852,7 @@ type ClientStateWaitFinished struct {
 	handshakeHash hash.Hash
 
 	certificates             []*Certificate
+	serverCertificateChain   []*x509.Certificate
 	serverCertificateRequest *CertificateRequestBody
 
 	masterSecret                 []byte
@@ -1025,14 +1032,15 @@ func (state ClientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 
 	logf(logTypeHandshake, "[ClientStateWaitFinished] -> [StateConnected]")
 	nextState := StateConnected{
-		Params:              state.Params,
-		hsCtx:               state.hsCtx,
-		isClient:            true,
-		cryptoParams:        state.cryptoParams,
-		resumptionSecret:    resumptionSecret,
-		clientTrafficSecret: clientTrafficSecret,
-		serverTrafficSecret: serverTrafficSecret,
-		exporterSecret:      exporterSecret,
+		Params:               state.Params,
+		hsCtx:                state.hsCtx,
+		isClient:             true,
+		cryptoParams:         state.cryptoParams,
+		resumptionSecret:     resumptionSecret,
+		clientTrafficSecret:  clientTrafficSecret,
+		serverTrafficSecret:  serverTrafficSecret,
+		exporterSecret:       exporterSecret,
+		PeerCertificateChain: state.serverCertificateChain,
 	}
 	return nextState, toSend, AlertNoAlert
 }
