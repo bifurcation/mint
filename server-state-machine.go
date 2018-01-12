@@ -979,14 +979,14 @@ func (state ServerStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 		return nil, nil, AlertHandshakeFailure
 	}
 
-	if state.AuthCertificate != nil {
-		err := state.AuthCertificate(state.clientCertificate.CertificateList)
-		if err != nil {
-			logf(logTypeHandshake, "[ServerStateWaitCV] Application rejected client certificate")
-			return nil, nil, AlertBadCertificate
-		}
-	} else {
-		logf(logTypeHandshake, "[ServerStateWaitCV] WARNING: No verification of client certificate")
+	if state.AuthCertificate == nil {
+		logf(logTypeHandshake, "[ClientStateWaitCV] No callback registered for certificate validation")
+		return nil, nil, AlertInternalError
+	}
+
+	if err := state.AuthCertificate(state.clientCertificate.CertificateList); err != nil {
+		logf(logTypeHandshake, "[ServerStateWaitCV] Application rejected client certificate")
+		return nil, nil, AlertBadCertificate
 	}
 
 	// If it passes, record the certificateVerify in the transcript hash

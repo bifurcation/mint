@@ -141,6 +141,20 @@ var (
 	serverCertDER = unhex(serverCertHex)
 	serverCert, _ = x509.ParseCertificate(serverCertDER)
 
+	authServerCertificate = func(chain []CertificateEntry) error {
+		if len(chain) == 0 {
+			fmt.Printf("!!! No certificate provided")
+			return fmt.Errorf("Certificate required")
+		}
+
+		if !bytes.Equal(chain[0].CertData.Raw, serverCertDER) {
+			fmt.Printf("!!! Certificate not as expected")
+			return fmt.Errorf("Incorrect certificate")
+		}
+
+		return nil
+	}
+
 	// The corresponding private key
 	serverKeyHex = "308204a40201000282010100a558ff3c12b8c4906b7f638878c71963ac95548c5d36975b" +
 		"c575de8775a141408c449c3e7fe7eddf93329dd894ecb2705b7f79caa06f1477b7bd2d3f" +
@@ -197,38 +211,44 @@ var (
 	}
 
 	basicConfig = &Config{
-		ServerName:   serverName,
-		Certificates: certificates,
+		ServerName:      serverName,
+		Certificates:    certificates,
+		AuthCertificate: authServerCertificate,
 	}
 
 	dtlsConfig = &Config{
-		ServerName:   serverName,
-		Certificates: certificates,
-		UseDTLS:      true,
+		ServerName:      serverName,
+		Certificates:    certificates,
+		UseDTLS:         true,
+		AuthCertificate: authServerCertificate,
 	}
 
 	nbConfig = &Config{
-		ServerName:   serverName,
-		Certificates: certificates,
-		NonBlocking:  true,
+		ServerName:      serverName,
+		Certificates:    certificates,
+		NonBlocking:     true,
+		AuthCertificate: authServerCertificate,
 	}
 
 	hrrConfig = &Config{
-		ServerName:    serverName,
-		Certificates:  certificates,
-		RequireCookie: true,
+		ServerName:      serverName,
+		Certificates:    certificates,
+		RequireCookie:   true,
+		AuthCertificate: authServerCertificate,
 	}
 
 	alpnConfig = &Config{
-		ServerName:   serverName,
-		Certificates: certificates,
-		NextProtos:   []string{"http/1.1", "h2"},
+		ServerName:      serverName,
+		Certificates:    certificates,
+		NextProtos:      []string{"http/1.1", "h2"},
+		AuthCertificate: authServerCertificate,
 	}
 
 	clientAuthConfig = &Config{
 		ServerName:        serverName,
 		RequireClientAuth: true,
 		Certificates:      certificates,
+		AuthCertificate:   authServerCertificate,
 	}
 
 	pskConfig = &Config{
@@ -246,31 +266,35 @@ var (
 	}
 
 	pskDHEConfig = &Config{
-		ServerName:   serverName,
-		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
-		Certificates: certificates,
-		PSKs:         psks,
-		Groups:       []NamedGroup{FFDHE2048},
+		ServerName:      serverName,
+		CipherSuites:    []CipherSuite{TLS_AES_128_GCM_SHA256},
+		Certificates:    certificates,
+		PSKs:            psks,
+		Groups:          []NamedGroup{FFDHE2048},
+		AuthCertificate: authServerCertificate,
 	}
 
 	resumptionConfig = &Config{
 		ServerName:         serverName,
 		Certificates:       certificates,
 		SendSessionTickets: true,
+		AuthCertificate:    authServerCertificate,
 	}
 
 	ffdhConfig = &Config{
-		ServerName:   serverName,
-		Certificates: certificates,
-		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
-		Groups:       []NamedGroup{FFDHE2048},
+		ServerName:      serverName,
+		Certificates:    certificates,
+		CipherSuites:    []CipherSuite{TLS_AES_128_GCM_SHA256},
+		Groups:          []NamedGroup{FFDHE2048},
+		AuthCertificate: authServerCertificate,
 	}
 
 	x25519Config = &Config{
-		ServerName:   serverName,
-		Certificates: certificates,
-		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
-		Groups:       []NamedGroup{X25519},
+		ServerName:      serverName,
+		Certificates:    certificates,
+		CipherSuites:    []CipherSuite{TLS_AES_128_GCM_SHA256},
+		Groups:          []NamedGroup{X25519},
+		AuthCertificate: authServerCertificate,
 	}
 )
 
@@ -523,9 +547,10 @@ func Test0xRTT(t *testing.T) {
 func Test0xRTTFailure(t *testing.T) {
 	// Client thinks it has a PSK
 	clientConfig := &Config{
-		ServerName:   serverName,
-		CipherSuites: []CipherSuite{TLS_AES_128_GCM_SHA256},
-		PSKs:         psks,
+		ServerName:      serverName,
+		CipherSuites:    []CipherSuite{TLS_AES_128_GCM_SHA256},
+		PSKs:            psks,
+		AuthCertificate: AuthCertificateAccept,
 	}
 
 	// Server doesn't

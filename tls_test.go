@@ -203,7 +203,10 @@ func TestExchangeData(t *testing.T) {
 		srvCh <- srv
 	}()
 
-	clientConfig := Config{ServerName: "example.com"}
+	clientConfig := Config{
+		ServerName:      "example.com",
+		AuthCertificate: AuthCertificateAccept,
+	}
 	conn, err := Dial("tcp", ln.Addr().String(), &clientConfig)
 	if err != nil {
 		t.Fatal(err)

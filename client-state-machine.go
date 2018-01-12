@@ -614,7 +614,7 @@ func (state ClientStateWaitEE) Next(hr handshakeMessageReader) (HandshakeState, 
 
 	logf(logTypeHandshake, "[ClientStateWaitEE] -> [ClientStateWaitCertCR]")
 	nextState := ClientStateWaitCertCR{
-		AuthCertificate:              state.AuthCertificate,
+		AuthCertificate:              state.Caps.AuthCertificate,
 		Params:                       state.Params,
 		hsCtx:                        state.hsCtx,
 		cryptoParams:                 state.cryptoParams,
@@ -811,14 +811,14 @@ func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 		return nil, nil, AlertHandshakeFailure
 	}
 
-	if state.AuthCertificate != nil {
-		err := state.AuthCertificate(state.serverCertificate.CertificateList)
-		if err != nil {
-			logf(logTypeHandshake, "[ClientStateWaitCV] Application rejected server certificate")
-			return nil, nil, AlertBadCertificate
-		}
-	} else {
-		logf(logTypeHandshake, "[ClientStateWaitCV] WARNING: No verification of server certificate")
+	if state.AuthCertificate == nil {
+		logf(logTypeHandshake, "[ClientStateWaitCV] No callback registered for certificate validation")
+		return nil, nil, AlertInternalError
+	}
+
+	if err := state.AuthCertificate(state.serverCertificate.CertificateList); err != nil {
+		logf(logTypeHandshake, "[ClientStateWaitCV] Application rejected server certificate")
+		return nil, nil, AlertBadCertificate
 	}
 
 	state.handshakeHash.Write(hm.Marshal())
