@@ -34,6 +34,7 @@ var (
 		0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37}
 	chCipherSuites = []CipherSuite{0x0001, 0x0002, 0x0003}
 	chValidIn      = ClientHelloBody{
+		LegacyVersion:   tls12Version,
 		Random:          helloRandom,
 		CipherSuites:    chCipherSuites,
 		Extensions:      extListValidIn,
@@ -49,8 +50,9 @@ var (
 	chTruncHex     = "01000062" + "0303" + hex.EncodeToString(helloRandom[:]) +
 		"00" + "0006000100020003" + "0100" + "00330029002f000a00040102030405060708"
 	chTruncValid = ClientHelloBody{
-		Random:       helloRandom,
-		CipherSuites: chCipherSuites,
+		LegacyVersion: tls12Version,
+		Random:        helloRandom,
+		CipherSuites:  chCipherSuites,
 		Extensions: []Extension{
 			{
 				ExtensionType: ExtensionTypePreSharedKey,
@@ -60,20 +62,23 @@ var (
 	}
 	chTruncInvalid = ClientHelloBody{}
 	chTruncNoExt   = ClientHelloBody{
-		Random:       helloRandom,
-		CipherSuites: chCipherSuites,
-		Extensions:   []Extension{},
+		LegacyVersion: tls12Version,
+		Random:        helloRandom,
+		CipherSuites:  chCipherSuites,
+		Extensions:    []Extension{},
 	}
 	chTruncNoPSK = ClientHelloBody{
-		Random:       helloRandom,
-		CipherSuites: chCipherSuites,
+		LegacyVersion: tls12Version,
+		Random:        helloRandom,
+		CipherSuites:  chCipherSuites,
 		Extensions: []Extension{
 			{ExtensionType: ExtensionTypeEarlyData},
 		},
 	}
 	chTruncBadPSK = ClientHelloBody{
-		Random:       helloRandom,
-		CipherSuites: chCipherSuites,
+		LegacyVersion: tls12Version,
+		Random:        helloRandom,
+		CipherSuites:  chCipherSuites,
 		Extensions: []Extension{
 			{ExtensionType: ExtensionTypePreSharedKey},
 		},
@@ -279,12 +284,6 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	// Test unmarshal failure on too-short ClientHello
 	_, err = ch.Unmarshal(chValid[:fixedClientHelloBodyLen-1])
 	assertError(t, err, "Unmarshaled a ClientHello below the min length")
-
-	// Test unmarshal failure on wrong version
-	chValid[1]--
-	_, err = ch.Unmarshal(chValid)
-	assertError(t, err, "Unmarshaled a ClientHello with the wrong version")
-	chValid[1]++
 
 	// Test unmarshal failure on ciphersuite size overflow
 	chValid[35] = 0xFF
