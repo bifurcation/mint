@@ -138,19 +138,27 @@ func uintDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
 }
 
 func varintDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
+	l, val := readVarint(d)
+
+	uintLen := int(v.Elem().Type().Size())
+	if uintLen < l {
+		panic(fmt.Errorf("Uint too small to fit varint: %d < %d", uintLen, l))
+	}
+
+	v.Elem().SetUint(val)
+
+	return l
+}
+
+func readVarint(d *decodeState) (int, uint64) {
 	// Read the first octet and decide the size of the presented varint
 	first := d.Next(1)
 	if len(first) != 1 {
 		panic(fmt.Errorf("Insufficient data to read varint length"))
 	}
 
-	uintLen := int(v.Elem().Type().Size())
 	twoBits := uint(first[0] >> 6)
 	varintLen := 1 << twoBits
-
-	if uintLen < varintLen {
-		panic(fmt.Errorf("Uint too small to fit varint: %d < %d"))
-	}
 
 	rest := d.Next(varintLen - 1)
 	if len(rest) != varintLen-1 {
@@ -159,16 +167,21 @@ func varintDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
 
 	buf := append(first, rest...)
 	buf[0] &= 0x3f
-	return setUintFromBuffer(v, buf)
+
+	return len(buf), decodeUintFromBuffer(buf)
 }
 
-func setUintFromBuffer(v reflect.Value, buf []byte) int {
+func decodeUintFromBuffer(buf []byte) uint64 {
 	val := uint64(0)
 	for _, b := range buf {
 		val = (val << 8) + uint64(b)
 	}
 
-	v.Elem().SetUint(val)
+	return val
+}
+
+func setUintFromBuffer(v reflect.Value, buf []byte) int {
+	v.Elem().SetUint(decodeUintFromBuffer(buf))
 	return len(buf)
 }
 
@@ -200,36 +213,53 @@ type sliceDecoder struct {
 }
 
 func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) int {
+	var length uint64
+	var read int
+	var data []byte
+
+	// If head == 0, then read everything from the buffer
 	if opts.head == 0 {
-		panic(fmt.Errorf("Cannot decode a slice without a header length"))
-	}
+		for {
+			chunk := d.Next(1024)
+			data = append(data, chunk...)
+			if len(chunk) != 1024 {
+				break
+			}
+		}
+		length = uint64(len(data))
+		if opts.max > 0 && length > uint64(opts.max) {
+			panic(fmt.Errorf("Length of vector exceeds declared max"))
+		}
+		if length < uint64(opts.min) {
+			panic(fmt.Errorf("Length of vector below declared min"))
+		}
+	} else {
+		if opts.head != 255 {
+			lengthBytes := d.Next(int(opts.head))
+			if len(lengthBytes) != int(opts.head) {
+				panic(fmt.Errorf("Not enough data to read header"))
+			}
+			read = len(lengthBytes)
+			length = decodeUintFromBuffer(lengthBytes)
+		} else {
+			read, length = readVarint(d)
+		}
+		if opts.max > 0 && length > uint64(opts.max) {
+			panic(fmt.Errorf("Length of vector exceeds declared max"))
+		}
+		if length < uint64(opts.min) {
+			panic(fmt.Errorf("Length of vector below declared min"))
+		}
 
-	lengthBytes := d.Next(int(opts.head))
-	if len(lengthBytes) != int(opts.head) {
-		panic(fmt.Errorf("Not enough data to read header"))
-	}
-
-	length := uint(0)
-	for _, b := range lengthBytes {
-		length = (length << 8) + uint(b)
-	}
-
-	if opts.max > 0 && length > opts.max {
-		panic(fmt.Errorf("Length of vector exceeds declared max"))
-	}
-	if length < opts.min {
-		panic(fmt.Errorf("Length of vector below declared min"))
-	}
-
-	data := d.Next(int(length))
-	if len(data) != int(length) {
-		panic(fmt.Errorf("Available data less than declared length [%d < %d]", len(data), length))
+		data = d.Next(int(length))
+		if len(data) != int(length) {
+			panic(fmt.Errorf("Available data less than declared length [%d < %d]", len(data), length))
+		}
 	}
 
 	elemBuf := &decodeState{}
 	elemBuf.Write(data)
 	elems := []reflect.Value{}
-	read := int(opts.head)
 	for elemBuf.Len() > 0 {
 		elem := reflect.New(sd.elementType)
 		read += sd.elementDec(elemBuf, elem, opts)

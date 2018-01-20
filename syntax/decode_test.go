@@ -1,6 +1,7 @@
 package syntax
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 )
@@ -108,14 +109,6 @@ func TestDecodeSlice(t *testing.T) {
 		t.Fatalf("[0x20000]uint8 decode failed [%v] [%x]", err, yv20000.V)
 	}
 
-	var yvEhead struct {
-		V []byte
-	}
-	read, err = Unmarshal(zv20, &yvEhead)
-	if err == nil || read != 0 {
-		t.Fatalf("Allowed a vector decode with no head")
-	}
-
 	var yvEmax struct {
 		V []byte `tls:"head=1,max=31"`
 	}
@@ -150,6 +143,46 @@ func TestDecodeSlice(t *testing.T) {
 	read, err = Unmarshal(zv200[:5], &yv200)
 	if err == nil || read != 0 {
 		t.Fatalf("Allowed a vector decode shorter than declared length [%x]", yv200.V)
+	}
+}
+
+func TestDecodeSliceZeroHead(t *testing.T) {
+	type inner struct {
+		X []byte
+	}
+
+	encoded := bytes.Repeat([]byte{0xA0}, 64)
+
+	i := inner{}
+	read, err := Unmarshal(encoded, &i)
+
+	if err != nil || !reflect.DeepEqual(encoded, i.X) {
+		t.Fatalf("struct decode failed [%v] [%v] != [%v]", err, encoded, i.X)
+	}
+
+	if read != len(encoded) {
+		t.Fatalf("Incomplete read: [%v] != [%v]", read, len(encoded))
+	}
+}
+
+func TestDecodeSliceVarintHead(t *testing.T) {
+	type inner struct {
+		X []byte `tls:"head=255"`
+	}
+
+	s := bytes.Repeat([]byte{0xA0}, 64)
+	encoded := []byte{0x40, 0x40}
+	encoded = append(encoded, s...)
+
+	i := inner{}
+	read, err := Unmarshal(encoded, &i)
+
+	if err != nil || !reflect.DeepEqual(s, i.X) {
+		t.Fatalf("struct decode failed [%v] [%v] != [%v]", err, s, i.X)
+	}
+
+	if read != len(encoded) {
+		t.Fatalf("Incomplete read: [%v] != [%v]", read, len(encoded))
 	}
 }
 
