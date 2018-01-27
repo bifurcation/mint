@@ -209,7 +209,12 @@ func TestEncodeSlice(t *testing.T) {
 		t.Fatalf("[0x20000]uint8 encode failed [%v] [%x]", err, yv20000)
 	}
 
-	yE, err := Marshal(xvEhead)
+	yE, err := Marshal(xvENohead)
+	if err == nil {
+		t.Fatalf("Allowed marshal with no header size [%x]", yE)
+	}
+
+	yE, err = Marshal(xvEhead)
 	if err == nil {
 		t.Fatalf("Allowed marshal exceeding header size [%x]", yE)
 	}
@@ -233,33 +238,33 @@ func TestEncodeStruct(t *testing.T) {
 }
 
 func TestEncodeSliceZeroHead(t *testing.T) {
-	type inner struct {
-		x []byte `tls:"head=0"`
+	type xV0 struct {
+		V []byte `tls:"head=none"`
 	}
 
 	s := bytes.Repeat([]byte{0xA0}, 10)
-	i := inner{s}
+	i := xV0{s}
 
-	e, err := Marshal(i)
-	if err != nil || !bytes.Equal(e, s) {
-		t.Fatalf("struct encode failed [%v] [%x]", err, e)
+	yv0, err := Marshal(i)
+	if err != nil || !bytes.Equal(yv0, s) {
+		t.Fatalf("struct encode failed [%v] [%x]", err, s)
 	}
 }
 
 func TestEncodeSliceVarintHead(t *testing.T) {
-	type inner struct {
-		x []byte `tls:"head=255"`
+	type xvV struct {
+		V []byte `tls:"head=varint"`
 	}
 
 	s := bytes.Repeat([]byte{0xA0}, 64)
-	i := inner{s}
+	i := xvV{s}
 
-	expected := []byte{0x40, 0x40}
-	expected = append(expected, s...)
+	zvV := []byte{0x40, 0x40}
+	zvV = append(zvV, s...)
 
-	e, err := Marshal(i)
-	if err != nil || !bytes.Equal(e, expected) {
-		t.Fatalf("struct encode failed [%v] [%x]", err, e)
+	yvV, err := Marshal(i)
+	if err != nil || !bytes.Equal(yvV, zvV) {
+		t.Fatalf("struct encode failed [%v] [%x]", err, yvV)
 	}
 }
 

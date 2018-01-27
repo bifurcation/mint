@@ -79,9 +79,6 @@ QUIC Extensions Syntax
 syntax also supports some minor extensions to allow implementing QUIC.
 
 * The `varint` annotation describes a QUIC-style varint
-* `head=0` means no header, i.e., the bytes are encoded directly on the wire.
+* `head=none` means no header, i.e., the bytes are encoded directly on the wire.
   On reading, the decoder will consume all available data.
-* `head=255` means to encode the header as a varint
-
-
-
+* `head=varint` means to encode the header as a varint

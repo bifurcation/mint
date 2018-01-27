@@ -217,8 +217,11 @@ func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) in
 	var read int
 	var data []byte
 
-	// If head == 0, then read everything from the buffer
 	if opts.head == 0 {
+		panic(fmt.Errorf("Cannot decode a slice without a header length"))
+	}
+	// If head == 0, then read everything from the buffer
+	if opts.head == headValueNoHead {
 		for {
 			chunk := d.Next(1024)
 			data = append(data, chunk...)
@@ -234,7 +237,7 @@ func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) in
 			panic(fmt.Errorf("Length of vector below declared min"))
 		}
 	} else {
-		if opts.head != 255 {
+		if opts.head != headValueVarint {
 			lengthBytes := d.Next(int(opts.head))
 			if len(lengthBytes) != int(opts.head) {
 				panic(fmt.Errorf("Not enough data to read header"))
