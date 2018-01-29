@@ -135,7 +135,7 @@ var (
 	psk  PreSharedKey
 	psks *PSKMapCache
 
-	basicConfig, dtlsConfig, nbConfig, hrrConfig, alpnConfig, clientAuthConfig, pskConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
+	basicConfig, dtlsConfig, nbConfig, hrrConfig, alpnConfig, pskConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
 )
 
 const (
@@ -174,6 +174,12 @@ func init() {
 			PrivateKey: serverKey,
 		},
 	}
+	clientCertificates = []*Certificate{
+		{
+			Chain:      []*x509.Certificate{clientCert},
+			PrivateKey: clientKey,
+		},
+	}
 	psks = &PSKMapCache{
 		serverName: psk,
 		"00010203": psk,
@@ -210,13 +216,6 @@ func init() {
 		ServerName:         serverName,
 		Certificates:       certificates,
 		NextProtos:         []string{"http/1.1", "h2"},
-		InsecureSkipVerify: true,
-	}
-
-	clientAuthConfig = &Config{
-		ServerName:         serverName,
-		RequireClientAuth:  true,
-		Certificates:       certificates,
 		InsecureSkipVerify: true,
 	}
 
@@ -403,6 +402,106 @@ func TestRootCAPool(t *testing.T) {
 	<-done
 }
 
+func TestVerifyPeerCertificateAccepted(t *testing.T) {
+	var verifyCalled bool
+	pool := x509.NewCertPool()
+	pool.AddCert(certificates[0].Chain[0])
+	clientConfig := &Config{
+		ServerName: serverName,
+		RootCAs:    pool,
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			verifyCalled = true
+			assertEquals(t, len(rawCerts), 1)
+			assertEquals(t, len(verifiedChains), 1)
+			assertEquals(t, len(verifiedChains[0]), 1)
+			cert, err := x509.ParseCertificate(rawCerts[0])
+			assertNotError(t, err, "cert parsing error")
+			assertEquals(t, cert.Equal(verifiedChains[0][0]), true)
+			return nil
+		},
+	}
+
+	cConn, sConn := pipe()
+	client := Client(cConn, clientConfig)
+	// The server uses a self-signed certificate
+	server := Server(sConn, &Config{Certificates: certificates})
+
+	var clientAlert, serverAlert Alert
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+	assertEquals(t, verifyCalled, true)
+	<-done
+}
+
+func TestVerifyPeerCertificateInsecureSkipVerify(t *testing.T) {
+	var verifyCalled bool
+	clientConfig := &Config{
+		ServerName:         serverName,
+		InsecureSkipVerify: true,
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			verifyCalled = true
+			assertEquals(t, len(rawCerts), 1)
+			assertEquals(t, len(verifiedChains), 0)
+			return nil
+		},
+	}
+
+	cConn, sConn := pipe()
+	client := Client(cConn, clientConfig)
+	// The server uses a self-signed certificate
+	server := Server(sConn, &Config{Certificates: certificates})
+
+	var clientAlert, serverAlert Alert
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+	assertEquals(t, verifyCalled, true)
+	<-done
+}
+
+func TestVerifyPeerCertificateRejected(t *testing.T) {
+	var verifyCalled bool
+	clientConfig := &Config{
+		ServerName:         serverName,
+		InsecureSkipVerify: true,
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			verifyCalled = true
+			return errors.New("verify failed")
+		},
+	}
+
+	cConn, sConn := pipe()
+	client := Client(cConn, clientConfig)
+	// The server uses a self-signed certificate
+	server := Server(sConn, &Config{Certificates: certificates})
+
+	done := make(chan bool)
+	go func() {
+		server.Handshake()
+		done <- true
+	}()
+
+	clientAlert := client.Handshake()
+	assertEquals(t, clientAlert, AlertBadCertificate)
+	assertEquals(t, verifyCalled, true)
+
+	sConn.Close()
+	<-done
+}
+
 func TestCertChain(t *testing.T) {
 	// generate a CA cert
 	cakey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -460,10 +559,19 @@ func TestCertChain(t *testing.T) {
 // TODO(#90): Add a test with mismatching server name
 
 func TestClientAuth(t *testing.T) {
-	cConn, sConn := pipe()
+	configServer := &Config{
+		RequireClientAuth: true,
+		Certificates:      certificates,
+	}
+	configClient := &Config{
+		ServerName:         serverName,
+		Certificates:       clientCertificates,
+		InsecureSkipVerify: true,
+	}
 
-	client := Client(cConn, clientAuthConfig)
-	server := Server(sConn, clientAuthConfig)
+	cConn, sConn := pipe()
+	client := Client(cConn, configClient)
+	server := Server(sConn, configServer)
 
 	var clientAlert, serverAlert Alert
 	done := make(chan bool)
@@ -484,6 +592,80 @@ func TestClientAuth(t *testing.T) {
 	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
 	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
 	assert(t, client.state.Params.UsingClientAuth, "Session did not negotiate client auth")
+}
+
+func TestClientAuthVerifyPeerAccepted(t *testing.T) {
+	var verifyCalled bool
+	configServer := &Config{
+		RequireClientAuth: true,
+		Certificates:      certificates,
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			verifyCalled = true
+			assertEquals(t, len(verifiedChains), 0)
+			assertEquals(t, len(rawCerts), 1)
+			cert, err := x509.ParseCertificate(rawCerts[0])
+			assertNotError(t, err, "cert parsing")
+			assertEquals(t, cert.Equal(clientCert), true)
+			return nil
+		},
+	}
+	configClient := &Config{
+		ServerName:         serverName,
+		Certificates:       clientCertificates,
+		InsecureSkipVerify: true,
+	}
+
+	cConn, sConn := pipe()
+	client := Client(cConn, configClient)
+	server := Server(sConn, configServer)
+
+	var clientAlert, serverAlert Alert
+	done := make(chan bool)
+	go func(t *testing.T) {
+		clientAlert = client.Handshake()
+		assertEquals(t, clientAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertNoAlert)
+	assertEquals(t, verifyCalled, true)
+
+	<-done
+}
+
+func TestClientAuthVerifyPeerRejected(t *testing.T) {
+	var verifyCalled bool
+	configServer := &Config{
+		RequireClientAuth: true,
+		Certificates:      certificates,
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			verifyCalled = true
+			return errors.New("verify failed")
+		},
+	}
+	configClient := &Config{
+		ServerName:         serverName,
+		Certificates:       clientCertificates,
+		InsecureSkipVerify: true,
+	}
+
+	cConn, sConn := pipe()
+	client := Client(cConn, configClient)
+	server := Server(sConn, configServer)
+
+	done := make(chan bool)
+	go func() {
+		client.Handshake()
+		done <- true
+	}()
+
+	serverAlert := server.Handshake()
+	assertEquals(t, serverAlert, AlertBadCertificate)
+	assertEquals(t, verifyCalled, true)
+
+	cConn.Close()
+	<-done
 }
 
 func TestPSKFlows(t *testing.T) {
