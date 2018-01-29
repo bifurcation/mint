@@ -193,7 +193,7 @@ func TestExchangeData(t *testing.T) {
 			srvCh <- nil
 			return
 		}
-		serverConfig := Config{ServerName: "example.com"}
+		serverConfig := Config{Certificates: certificates}
 		srv := Server(sconn, &serverConfig)
 		if alert := srv.Handshake(); alert != AlertNoAlert {
 			serr = fmt.Errorf("handshake: %v", alert)
