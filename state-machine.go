@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"crypto/x509"
 	"time"
 )
 
@@ -114,6 +115,8 @@ type StateConnected struct {
 	clientTrafficSecret []byte
 	serverTrafficSecret []byte
 	exporterSecret      []byte
+
+	PeerCertificateChain []*x509.Certificate
 }
 
 var _ HandshakeState = &StateConnected{}
