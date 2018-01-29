@@ -1132,12 +1132,17 @@ func TestConnectionState(t *testing.T) {
 	pool := x509.NewCertPool()
 	pool.AddCert(serverCert)
 	configClient := &Config{
-		ServerName: serverName,
-		RootCAs:    pool,
+		ServerName:   serverName,
+		RootCAs:      pool,
+		Certificates: clientCertificates,
+	}
+	serverConfig := &Config{
+		RequireClientAuth: true,
+		Certificates:      certificates,
 	}
 	cConn, sConn := pipe()
 	client := Client(cConn, configClient)
-	server := Server(sConn, &Config{Certificates: certificates})
+	server := Server(sConn, serverConfig)
 
 	done := make(chan bool)
 	go func(t *testing.T) {
@@ -1150,10 +1155,13 @@ func TestConnectionState(t *testing.T) {
 	assertEquals(t, clientAlert, AlertNoAlert)
 	<-done
 
-	connectionState := client.State()
-	assertEquals(t, connectionState.CipherSuite.Suite, configClient.CipherSuites[0])
-	assertDeepEquals(t, connectionState.VerifiedChains, [][]*x509.Certificate{{serverCert}})
-	assertDeepEquals(t, connectionState.PeerCertificates, []*x509.Certificate{serverCert})
+	clientCS := client.State()
+	serverCS := server.State()
+	assertEquals(t, clientCS.CipherSuite.Suite, configClient.CipherSuites[0])
+	assertDeepEquals(t, clientCS.VerifiedChains, [][]*x509.Certificate{{serverCert}})
+	assertDeepEquals(t, clientCS.PeerCertificates, []*x509.Certificate{serverCert})
+	assertEquals(t, serverCS.CipherSuite.Suite, serverConfig.CipherSuites[0])
+	assertDeepEquals(t, serverCS.PeerCertificates, []*x509.Certificate{clientCert})
 }
 
 func TestDTLS(t *testing.T) {
