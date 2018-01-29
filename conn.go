@@ -638,22 +638,6 @@ func (c *Conn) HandshakeSetup() Alert {
 		return AlertInternalError
 	}
 
-	// Set things up
-	caps := Capabilities{
-		CipherSuites:      c.config.CipherSuites,
-		Groups:            c.config.Groups,
-		SignatureSchemes:  c.config.SignatureSchemes,
-		PSKs:              c.config.PSKs,
-		PSKModes:          c.config.PSKModes,
-		AllowEarlyData:    c.config.AllowEarlyData,
-		RequireCookie:     c.config.RequireCookie,
-		CookieProtector:   c.config.CookieProtector,
-		CookieHandler:     c.config.CookieHandler,
-		RequireClientAuth: c.config.RequireClientAuth,
-		NextProtos:        c.config.NextProtos,
-		Certificates:      c.config.Certificates,
-		ExtensionHandler:  c.config.ExtensionHandler,
-	}
 	opts := ConnectionOptions{
 		ServerName: c.config.ServerName,
 		NextProtos: c.config.NextProtos,
@@ -661,7 +645,7 @@ func (c *Conn) HandshakeSetup() Alert {
 	}
 
 	if c.isClient {
-		state, actions, alert = ClientStateStart{Caps: caps, Opts: opts, hsCtx: c.hsCtx}.Next(nil)
+		state, actions, alert = ClientStateStart{Config: c.config, Opts: opts, hsCtx: c.hsCtx}.Next(nil)
 		if alert != AlertNoAlert {
 			logf(logTypeHandshake, "Error initializing client state: %v", alert)
 			return alert
@@ -682,13 +666,13 @@ func (c *Conn) HandshakeSetup() Alert {
 				return AlertInternalError
 			}
 			var err error
-			caps.CookieProtector, err = NewDefaultCookieProtector()
+			c.config.CookieProtector, err = NewDefaultCookieProtector()
 			if err != nil {
 				logf(logTypeHandshake, "Error initializing cookie source: %v", alert)
 				return AlertInternalError
 			}
 		}
-		state = ServerStateStart{Caps: caps, conn: c, hsCtx: c.hsCtx}
+		state = ServerStateStart{Config: c.config, conn: c, hsCtx: c.hsCtx}
 	}
 
 	c.hState = state
