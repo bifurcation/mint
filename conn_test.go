@@ -1155,8 +1155,8 @@ func TestConnectionState(t *testing.T) {
 	assertEquals(t, clientAlert, AlertNoAlert)
 	<-done
 
-	clientCS := client.State()
-	serverCS := server.State()
+	clientCS := client.ConnectionState()
+	serverCS := server.ConnectionState()
 	assertEquals(t, clientCS.CipherSuite.Suite, configClient.CipherSuites[0])
 	assertDeepEquals(t, clientCS.VerifiedChains, [][]*x509.Certificate{{serverCert}})
 	assertDeepEquals(t, clientCS.PeerCertificates, []*x509.Certificate{serverCert})
