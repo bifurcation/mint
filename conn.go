@@ -140,7 +140,7 @@ func (c *Config) Clone() *Config {
 	}
 }
 
-func (c *Config) Init(isClient bool) error {
+func (c *Config) init(isClient bool) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -632,7 +632,7 @@ func (c *Conn) HandshakeSetup() Alert {
 	var actions []HandshakeAction
 	var alert Alert
 
-	if err := c.config.Init(c.isClient); err != nil {
+	if err := c.config.init(c.isClient); err != nil {
 		logf(logTypeHandshake, "Error initializing config: %v", err)
 		return AlertInternalError
 	}
