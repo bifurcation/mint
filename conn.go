@@ -271,9 +271,10 @@ var (
 
 type ConnectionState struct {
 	HandshakeState   State
-	CipherSuite      CipherSuiteParams   // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
-	PeerCertificates []*x509.Certificate // certificate chain presented by remote peer TODO(ekr@rtfm.com): implement
-	NextProto        string              // Selected ALPN proto
+	CipherSuite      CipherSuiteParams     // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
+	PeerCertificates []*x509.Certificate   // certificate chain presented by remote peer
+	VerifiedChains   [][]*x509.Certificate // verified chains built from PeerCertificates
+	NextProto        string                // Selected ALPN proto
 }
 
 // Conn implements the net.Conn interface, as with "crypto/tls"
@@ -897,6 +898,8 @@ func (c *Conn) State() ConnectionState {
 	if c.handshakeComplete {
 		state.CipherSuite = cipherSuiteMap[c.state.Params.CipherSuite]
 		state.NextProto = c.state.Params.NextProto
+		state.VerifiedChains = c.state.verifiedChains
+		state.PeerCertificates = c.state.peerCertificates
 	}
 
 	return state
