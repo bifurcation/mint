@@ -93,6 +93,21 @@ type Config struct {
 	ExtensionHandler  AppExtensionHandler
 	RequireClientAuth bool
 
+	// Time returns the current time as the number of seconds since the epoch.
+	// If Time is nil, TLS uses time.Now.
+	Time func() time.Time
+	// RootCAs defines the set of root certificate authorities
+	// that clients use when verifying server certificates.
+	// If RootCAs is nil, TLS uses the host's root CA set.
+	RootCAs *x509.CertPool
+	// InsecureSkipVerify controls whether a client verifies the
+	// server's certificate chain and host name.
+	// If InsecureSkipVerify is true, TLS accepts any certificate
+	// presented by the server and any host name in that certificate.
+	// In this mode, TLS is susceptible to man-in-the-middle attacks.
+	// This should be used only for testing.
+	InsecureSkipVerify bool
+
 	// Shared fields
 	Certificates     []*Certificate
 	AuthCertificate  func(chain []CertificateEntry) error
@@ -129,6 +144,9 @@ func (c *Config) Clone() *Config {
 		CookieProtector:    c.CookieProtector,
 		ExtensionHandler:   c.ExtensionHandler,
 		RequireClientAuth:  c.RequireClientAuth,
+		Time:               c.Time,
+		RootCAs:            c.RootCAs,
+		InsecureSkipVerify: c.InsecureSkipVerify,
 
 		Certificates:     c.Certificates,
 		AuthCertificate:  c.AuthCertificate,
@@ -200,6 +218,14 @@ func (c *Config) ValidForServer() bool {
 
 func (c *Config) ValidForClient() bool {
 	return len(c.ServerName) > 0
+}
+
+func (c *Config) time() time.Time {
+	t := c.Time
+	if t == nil {
+		t = time.Now
+	}
+	return t()
 }
 
 var (

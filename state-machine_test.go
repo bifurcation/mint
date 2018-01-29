@@ -49,11 +49,12 @@ func TestStateMachineIntegration(t *testing.T) {
 		}{
 			"normal": {
 				clientConfig: &Config{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
+					Groups:             []NamedGroup{P256},
+					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:               &PSKMapCache{},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
@@ -88,11 +89,12 @@ func TestStateMachineIntegration(t *testing.T) {
 
 			"helloRetryRequest": {
 				clientConfig: &Config{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
+					Groups:             []NamedGroup{P256},
+					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:               &PSKMapCache{},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
@@ -139,6 +141,7 @@ func TestStateMachineIntegration(t *testing.T) {
 					PSKs: &PSKMapCache{
 						"example.com": psk,
 					},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
@@ -180,6 +183,7 @@ func TestStateMachineIntegration(t *testing.T) {
 					PSKs: &PSKMapCache{
 						"example.com": psk,
 					},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
@@ -224,6 +228,7 @@ func TestStateMachineIntegration(t *testing.T) {
 					PSKs: &PSKMapCache{
 						"example.com": psk,
 					},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
@@ -258,12 +263,13 @@ func TestStateMachineIntegration(t *testing.T) {
 			// Client auth, successful
 			"clientAuth": {
 				clientConfig: &Config{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
-					Certificates:     certificates,
+					Groups:             []NamedGroup{P256},
+					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:               &PSKMapCache{},
+					Certificates:       certificates,
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
@@ -302,11 +308,12 @@ func TestStateMachineIntegration(t *testing.T) {
 			// Client auth, no certificate found
 			"clientAuthNoCertificate": {
 				clientConfig: &Config{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
+					Groups:             []NamedGroup{P256},
+					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:               &PSKMapCache{},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",

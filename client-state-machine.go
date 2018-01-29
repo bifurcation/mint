@@ -3,6 +3,7 @@ package mint
 import (
 	"bytes"
 	"crypto"
+	"crypto/x509"
 	"hash"
 	"time"
 )
@@ -613,12 +614,11 @@ func (state ClientStateWaitEE) Next(hr handshakeMessageReader) (HandshakeState, 
 
 	logf(logTypeHandshake, "[ClientStateWaitEE] -> [ClientStateWaitCertCR]")
 	nextState := ClientStateWaitCertCR{
-		AuthCertificate:              state.AuthCertificate,
+		Config:                       state.Config,
 		Params:                       state.Params,
 		hsCtx:                        state.hsCtx,
 		cryptoParams:                 state.cryptoParams,
 		handshakeHash:                state.handshakeHash,
-		certificates:                 state.Config.Certificates,
 		masterSecret:                 state.masterSecret,
 		clientHandshakeTrafficSecret: state.clientHandshakeTrafficSecret,
 		serverHandshakeTrafficSecret: state.serverHandshakeTrafficSecret,
@@ -627,12 +627,11 @@ func (state ClientStateWaitEE) Next(hr handshakeMessageReader) (HandshakeState, 
 }
 
 type ClientStateWaitCertCR struct {
-	AuthCertificate              func(chain []CertificateEntry) error
+	Config                       *Config
 	Params                       ConnectionParameters
 	hsCtx                        HandshakeContext
 	cryptoParams                 CipherSuiteParams
 	handshakeHash                hash.Hash
-	certificates                 []*Certificate
 	masterSecret                 []byte
 	clientHandshakeTrafficSecret []byte
 	serverHandshakeTrafficSecret []byte
@@ -666,12 +665,11 @@ func (state ClientStateWaitCertCR) Next(hr handshakeMessageReader) (HandshakeSta
 	case *CertificateBody:
 		logf(logTypeHandshake, "[ClientStateWaitCertCR] -> [ClientStateWaitCV]")
 		nextState := ClientStateWaitCV{
-			AuthCertificate:              state.AuthCertificate,
+			Config:                       state.Config,
 			Params:                       state.Params,
 			hsCtx:                        state.hsCtx,
 			cryptoParams:                 state.cryptoParams,
 			handshakeHash:                state.handshakeHash,
-			certificates:                 state.certificates,
 			serverCertificate:            body,
 			masterSecret:                 state.masterSecret,
 			clientHandshakeTrafficSecret: state.clientHandshakeTrafficSecret,
@@ -690,12 +688,11 @@ func (state ClientStateWaitCertCR) Next(hr handshakeMessageReader) (HandshakeSta
 
 		logf(logTypeHandshake, "[ClientStateWaitCertCR] -> [ClientStateWaitCert]")
 		nextState := ClientStateWaitCert{
-			AuthCertificate:              state.AuthCertificate,
+			Config:                       state.Config,
 			Params:                       state.Params,
 			hsCtx:                        state.hsCtx,
 			cryptoParams:                 state.cryptoParams,
 			handshakeHash:                state.handshakeHash,
-			certificates:                 state.certificates,
 			serverCertificateRequest:     body,
 			masterSecret:                 state.masterSecret,
 			clientHandshakeTrafficSecret: state.clientHandshakeTrafficSecret,
@@ -708,13 +705,12 @@ func (state ClientStateWaitCertCR) Next(hr handshakeMessageReader) (HandshakeSta
 }
 
 type ClientStateWaitCert struct {
-	AuthCertificate func(chain []CertificateEntry) error
-	Params          ConnectionParameters
-	hsCtx           HandshakeContext
-	cryptoParams    CipherSuiteParams
-	handshakeHash   hash.Hash
+	Config        *Config
+	Params        ConnectionParameters
+	hsCtx         HandshakeContext
+	cryptoParams  CipherSuiteParams
+	handshakeHash hash.Hash
 
-	certificates             []*Certificate
 	serverCertificateRequest *CertificateRequestBody
 
 	masterSecret                 []byte
@@ -748,12 +744,11 @@ func (state ClientStateWaitCert) Next(hr handshakeMessageReader) (HandshakeState
 
 	logf(logTypeHandshake, "[ClientStateWaitCert] -> [ClientStateWaitCV]")
 	nextState := ClientStateWaitCV{
-		AuthCertificate:              state.AuthCertificate,
+		Config:                       state.Config,
 		Params:                       state.Params,
 		hsCtx:                        state.hsCtx,
 		cryptoParams:                 state.cryptoParams,
 		handshakeHash:                state.handshakeHash,
-		certificates:                 state.certificates,
 		serverCertificate:            cert,
 		serverCertificateRequest:     state.serverCertificateRequest,
 		masterSecret:                 state.masterSecret,
@@ -764,13 +759,12 @@ func (state ClientStateWaitCert) Next(hr handshakeMessageReader) (HandshakeState
 }
 
 type ClientStateWaitCV struct {
-	AuthCertificate func(chain []CertificateEntry) error
-	Params          ConnectionParameters
-	hsCtx           HandshakeContext
-	cryptoParams    CipherSuiteParams
-	handshakeHash   hash.Hash
+	Config        *Config
+	Params        ConnectionParameters
+	hsCtx         HandshakeContext
+	cryptoParams  CipherSuiteParams
+	handshakeHash hash.Hash
 
-	certificates             []*Certificate
 	serverCertificate        *CertificateBody
 	serverCertificateRequest *CertificateRequestBody
 
@@ -810,8 +804,33 @@ func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 		return nil, nil, AlertHandshakeFailure
 	}
 
-	if state.AuthCertificate != nil {
-		err := state.AuthCertificate(state.serverCertificate.CertificateList)
+	certs := make([]*x509.Certificate, len(state.serverCertificate.CertificateList))
+	for i, certEntry := range state.serverCertificate.CertificateList {
+		certs[i] = certEntry.CertData
+	}
+
+	if !state.Config.InsecureSkipVerify {
+		opts := x509.VerifyOptions{
+			Roots:         state.Config.RootCAs,
+			CurrentTime:   state.Config.time(),
+			DNSName:       state.Config.ServerName,
+			Intermediates: x509.NewCertPool(),
+		}
+
+		for i, cert := range certs {
+			if i == 0 {
+				continue
+			}
+			opts.Intermediates.AddCert(cert)
+		}
+		if _, err := certs[0].Verify(opts); err != nil {
+			logf(logTypeHandshake, "[ClientStateWaitCV] Certificate verification failed: %s", err)
+			return nil, nil, AlertBadCertificate
+		}
+	}
+
+	if state.Config.AuthCertificate != nil {
+		err := state.Config.AuthCertificate(state.serverCertificate.CertificateList)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateWaitCV] Application rejected server certificate")
 			return nil, nil, AlertBadCertificate
@@ -828,7 +847,7 @@ func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 		hsCtx:                        state.hsCtx,
 		cryptoParams:                 state.cryptoParams,
 		handshakeHash:                state.handshakeHash,
-		certificates:                 state.certificates,
+		certificates:                 state.Config.Certificates,
 		serverCertificateRequest:     state.serverCertificateRequest,
 		masterSecret:                 state.masterSecret,
 		clientHandshakeTrafficSecret: state.clientHandshakeTrafficSecret,
