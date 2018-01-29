@@ -5,10 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"sync"
 	"testing"
@@ -123,35 +121,26 @@ var (
 	basicConfig, dtlsConfig, nbConfig, hrrConfig, alpnConfig, clientAuthConfigServer, clientAuthConfigClient, pskConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
 )
 
-const serverName = "example.com"
-
-func genCerts() (*rsa.PrivateKey, *x509.Certificate, error) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, nil, err
-	}
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(time.Hour),
-		Subject:      pkix.Name{CommonName: serverName},
-		DNSNames:     []string{serverName},
-	}
-	certDER, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
-	if err != nil {
-		return nil, nil, err
-	}
-	cert, err := x509.ParseCertificate(certDER)
-	return key, cert, err
-}
+const (
+	serverName = "example.com"
+	clientName = "example.org"
+)
 
 func init() {
 	var err error
-	serverKey, serverCert, err = genCerts()
+	serverKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		panic(err)
 	}
-	clientKey, clientCert, err = genCerts()
+	serverCert, err = newSelfSigned(serverName, RSA_PKCS1_SHA256, serverKey)
+	if err != nil {
+		panic(err)
+	}
+	clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+	clientCert, err = newSelfSigned(clientName, RSA_PKCS1_SHA256, clientKey)
 	if err != nil {
 		panic(err)
 	}
