@@ -128,7 +128,10 @@ func uintEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 }
 
 func varintEncoder(e *encodeState, v reflect.Value, opts encOpts) {
-	u := v.Uint()
+	writeVarint(e, v.Uint())
+}
+
+func writeVarint(e *encodeState, u uint64) {
 	if (u >> 62) > 0 {
 		panic(fmt.Errorf("uint value is too big for varint"))
 	}
@@ -179,27 +182,34 @@ type sliceEncoder struct {
 }
 
 func (se *sliceEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
-	if opts.head == 0 {
-		panic(fmt.Errorf("Cannot encode a slice without a header length"))
-	}
-
 	arrayState := &encodeState{}
 	se.ae.encode(arrayState, v, opts)
 
 	n := uint(arrayState.Len())
+	if opts.head == 0 {
+		panic(fmt.Errorf("Cannot encode a slice without a header length"))
+	}
+
 	if opts.max > 0 && n > opts.max {
 		panic(fmt.Errorf("Encoded length more than max [%d > %d]", n, opts.max))
-	}
-	if n>>(8*opts.head) > 0 {
-		panic(fmt.Errorf("Encoded length too long for header length [%d, %d]", n, opts.head))
 	}
 	if n < opts.min {
 		panic(fmt.Errorf("Encoded length less than min [%d < %d]", n, opts.min))
 	}
 
-	for i := int(opts.head - 1); i >= 0; i -= 1 {
-		e.WriteByte(byte(n >> (8 * uint(i))))
+	switch opts.head {
+	case headValueNoHead:
+		// None.
+	case headValueVarint:
+		writeVarint(e, uint64(n))
+	default:
+		if n>>(8*opts.head) > 0 {
+			panic(fmt.Errorf("Encoded length too long for header length [%d, %d]", n, opts.head))
+		}
+
+		writeUint(e, uint64(n), int(opts.head))
 	}
+
 	e.Write(arrayState.Bytes())
 }
 

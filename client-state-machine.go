@@ -103,7 +103,8 @@ func (state ClientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 
 	// Construct base ClientHello
 	ch := &ClientHelloBody{
-		CipherSuites: state.Caps.CipherSuites,
+		LegacyVersion: wireVersion(state.hsCtx.hIn),
+		CipherSuites:  state.Caps.CipherSuites,
 	}
 	_, err := prng.Read(ch.Random[:])
 	if err != nil {

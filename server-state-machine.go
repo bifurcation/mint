@@ -92,9 +92,15 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		return nil, nil, AlertUnexpectedMessage
 	}
 
-	ch := &ClientHelloBody{}
+	ch := &ClientHelloBody{LegacyVersion: wireVersion(state.hsCtx.hIn)}
 	if err := safeUnmarshal(ch, hm.body); err != nil {
 		logf(logTypeHandshake, "[ServerStateStart] Error decoding message: %v", err)
+		return nil, nil, AlertDecodeError
+	}
+
+	// We are strict about these things because we only support 1.3
+	if ch.LegacyVersion != wireVersion(state.hsCtx.hIn) {
+		logf(logTypeHandshake, "[ServerStateStart] Invalid version number: %v", ch.LegacyVersion)
 		return nil, nil, AlertDecodeError
 	}
 

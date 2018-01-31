@@ -1,6 +1,7 @@
 package syntax
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 )
@@ -150,6 +151,46 @@ func TestDecodeSlice(t *testing.T) {
 	read, err = Unmarshal(zv200[:5], &yv200)
 	if err == nil || read != 0 {
 		t.Fatalf("Allowed a vector decode shorter than declared length [%x]", yv200.V)
+	}
+}
+
+func TestDecodeSliceZeroHead(t *testing.T) {
+	type xv0 struct {
+		V []byte `tls:"head=none"`
+	}
+
+	zv0 := bytes.Repeat([]byte{0xA0}, 64)
+
+	yv0 := xv0{}
+	read, err := Unmarshal(zv0, &yv0)
+
+	if err != nil || !reflect.DeepEqual(zv0, yv0.V) {
+		t.Fatalf("struct decode failed [%v] [%v] != [%v]", err, zv0, yv0.V)
+	}
+
+	if read != len(zv0) {
+		t.Fatalf("Incomplete read: [%v] != [%v]", read, len(zv0))
+	}
+}
+
+func TestDecodeSliceVarintHead(t *testing.T) {
+	type xvV struct {
+		V []byte `tls:"head=varint"`
+	}
+
+	s := bytes.Repeat([]byte{0xA0}, 64)
+	zvV := []byte{0x40, 0x40}
+	zvV = append(zvV, s...)
+
+	yvV := xvV{}
+	read, err := Unmarshal(zvV, &yvV)
+
+	if err != nil || !reflect.DeepEqual(s, yvV.V) {
+		t.Fatalf("struct decode failed [%v] [%v] != [%v]", err, s, yvV.V)
+	}
+
+	if read != len(zvV) {
+		t.Fatalf("Incomplete read: [%v] != [%v]", read, len(zvV))
 	}
 }
 

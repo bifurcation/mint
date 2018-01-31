@@ -256,7 +256,9 @@ func TestReadWriteDTLS(t *testing.T) {
 
 	b := bytes.NewBuffer(nil)
 	out := NewRecordLayerDTLS(b)
+	out.SetVersion(tls12Version)
 	in := NewRecordLayerDTLS(b)
+	in.SetVersion(tls12Version)
 
 	// Unencrypted
 	ptIn := &TLSPlaintext{
