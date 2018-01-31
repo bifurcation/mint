@@ -13,7 +13,19 @@ import (
 	"time"
 )
 
-var WouldBlock = fmt.Errorf("Would have blocked")
+var (
+	WouldBlock         = fmt.Errorf("Would have blocked")
+	InvalidConfig      = fmt.Errorf("Invalid configuration")
+	InvalidCertificate = fmt.Errorf("Invalid certificate")
+
+	AuthCertificateAccept = func(chain []CertificateEntry) error {
+		return nil
+	}
+
+	AuthCertificateReject = func(chain []CertificateEntry) error {
+		return InvalidCertificate
+	}
+)
 
 type Certificate struct {
 	Chain      []*x509.Certificate
@@ -651,6 +663,7 @@ func (c *Conn) HandshakeSetup() Alert {
 		RequireClientAuth: c.config.RequireClientAuth,
 		NextProtos:        c.config.NextProtos,
 		Certificates:      c.config.Certificates,
+		AuthCertificate:   c.config.AuthCertificate,
 		ExtensionHandler:  c.extHandler,
 	}
 	opts := ConnectionOptions{

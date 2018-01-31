@@ -49,6 +49,7 @@ func TestStateMachineIntegration(t *testing.T) {
 		}{
 			"normal": {
 				clientCapabilities: Capabilities{
+					AuthCertificate:  AuthCertificateAccept,
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -88,6 +89,7 @@ func TestStateMachineIntegration(t *testing.T) {
 
 			"helloRetryRequest": {
 				clientCapabilities: Capabilities{
+					AuthCertificate:  AuthCertificateAccept,
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -217,6 +219,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			// PSK case, server rejects PSK
 			"pskRejected": {
 				clientCapabilities: Capabilities{
+					AuthCertificate:  AuthCertificateAccept,
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -258,6 +261,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			// Client auth, successful
 			"clientAuth": {
 				clientCapabilities: Capabilities{
+					AuthCertificate:  AuthCertificateAccept,
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -270,6 +274,7 @@ func TestStateMachineIntegration(t *testing.T) {
 					NextProtos: []string{"h2"},
 				},
 				serverCapabilities: Capabilities{
+					AuthCertificate:   AuthCertificateAccept,
 					Groups:            []NamedGroup{P256},
 					SignatureSchemes:  []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:          []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -302,6 +307,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			// Client auth, no certificate found
 			"clientAuthNoCertificate": {
 				clientCapabilities: Capabilities{
+					AuthCertificate:  AuthCertificateAccept,
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -313,6 +319,7 @@ func TestStateMachineIntegration(t *testing.T) {
 					NextProtos: []string{"h2"},
 				},
 				serverCapabilities: Capabilities{
+					AuthCertificate:   AuthCertificateAccept,
 					Groups:            []NamedGroup{P256},
 					SignatureSchemes:  []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:          []PSKKeyExchangeMode{PSKModeDHEKE},
