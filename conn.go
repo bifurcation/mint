@@ -109,8 +109,19 @@ type Config struct {
 	InsecureSkipVerify bool
 
 	// Shared fields
-	Certificates     []*Certificate
-	AuthCertificate  func(chain []CertificateEntry) error
+	Certificates []*Certificate
+	// VerifyPeerCertificate, if not nil, is called after normal
+	// certificate verification by either a TLS client or server. It
+	// receives the raw ASN.1 certificates provided by the peer and also
+	// any verified chains that normal processing found. If it returns a
+	// non-nil error, the handshake is aborted and that error results.
+	//
+	// If normal verification fails then the handshake will abort before
+	// considering this callback. If normal verification is disabled by
+	// setting InsecureSkipVerify then this callback will be considered but
+	// the verifiedChains argument will always be nil.
+	VerifyPeerCertificate func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+
 	CipherSuites     []CipherSuite
 	Groups           []NamedGroup
 	SignatureSchemes []SignatureScheme
@@ -148,16 +159,16 @@ func (c *Config) Clone() *Config {
 		RootCAs:            c.RootCAs,
 		InsecureSkipVerify: c.InsecureSkipVerify,
 
-		Certificates:     c.Certificates,
-		AuthCertificate:  c.AuthCertificate,
-		CipherSuites:     c.CipherSuites,
-		Groups:           c.Groups,
-		SignatureSchemes: c.SignatureSchemes,
-		NextProtos:       c.NextProtos,
-		PSKs:             c.PSKs,
-		PSKModes:         c.PSKModes,
-		NonBlocking:      c.NonBlocking,
-		UseDTLS:          c.UseDTLS,
+		Certificates:          c.Certificates,
+		VerifyPeerCertificate: c.VerifyPeerCertificate,
+		CipherSuites:          c.CipherSuites,
+		Groups:                c.Groups,
+		SignatureSchemes:      c.SignatureSchemes,
+		NextProtos:            c.NextProtos,
+		PSKs:                  c.PSKs,
+		PSKModes:              c.PSKModes,
+		NonBlocking:           c.NonBlocking,
+		UseDTLS:               c.UseDTLS,
 	}
 }
 

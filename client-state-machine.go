@@ -535,7 +535,6 @@ func (state ClientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 
 type ClientStateWaitEE struct {
 	Config                       *Config
-	AuthCertificate              func(chain []CertificateEntry) error
 	Params                       ConnectionParameters
 	hsCtx                        HandshakeContext
 	cryptoParams                 CipherSuiteParams
@@ -805,10 +804,13 @@ func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	}
 
 	certs := make([]*x509.Certificate, len(state.serverCertificate.CertificateList))
+	rawCerts := make([][]byte, len(state.serverCertificate.CertificateList))
 	for i, certEntry := range state.serverCertificate.CertificateList {
 		certs[i] = certEntry.CertData
+		rawCerts[i] = certEntry.CertData.Raw
 	}
 
+	var verifiedChains [][]*x509.Certificate
 	if !state.Config.InsecureSkipVerify {
 		opts := x509.VerifyOptions{
 			Roots:         state.Config.RootCAs,
@@ -823,20 +825,19 @@ func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 			}
 			opts.Intermediates.AddCert(cert)
 		}
-		if _, err := certs[0].Verify(opts); err != nil {
+		var err error
+		verifiedChains, err = certs[0].Verify(opts)
+		if err != nil {
 			logf(logTypeHandshake, "[ClientStateWaitCV] Certificate verification failed: %s", err)
 			return nil, nil, AlertBadCertificate
 		}
 	}
 
-	if state.Config.AuthCertificate != nil {
-		err := state.Config.AuthCertificate(state.serverCertificate.CertificateList)
-		if err != nil {
-			logf(logTypeHandshake, "[ClientStateWaitCV] Application rejected server certificate")
+	if state.Config.VerifyPeerCertificate != nil {
+		if err := state.Config.VerifyPeerCertificate(rawCerts, verifiedChains); err != nil {
+			logf(logTypeHandshake, "[ClientStateWaitCV] Application rejected server certificate: %s", err)
 			return nil, nil, AlertBadCertificate
 		}
-	} else {
-		logf(logTypeHandshake, "[ClientStateWaitCV] WARNING: No verification of server certificate")
 	}
 
 	state.handshakeHash.Write(hm.Marshal())
