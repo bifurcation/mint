@@ -195,28 +195,6 @@ func (c *Config) Init(isClient bool) error {
 	if len(c.PSKModes) == 0 {
 		c.PSKModes = defaultPSKModes
 	}
-
-	// If there is no certificate, generate one
-	if !isClient && len(c.Certificates) == 0 {
-		logf(logTypeHandshake, "Generating key name=%v", c.ServerName)
-		priv, err := newSigningKey(RSA_PSS_SHA256)
-		if err != nil {
-			return err
-		}
-
-		cert, err := newSelfSigned(c.ServerName, RSA_PKCS1_SHA256, priv)
-		if err != nil {
-			return err
-		}
-
-		c.Certificates = []*Certificate{
-			{
-				Chain:      []*x509.Certificate{cert},
-				PrivateKey: priv,
-			},
-		}
-	}
-
 	return nil
 }
 
