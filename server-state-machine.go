@@ -71,9 +71,9 @@ type cookie struct {
 }
 
 type ServerStateStart struct {
-	Caps  Capabilities
-	conn  *Conn
-	hsCtx HandshakeContext
+	Config *Config
+	conn   *Conn
+	hsCtx  HandshakeContext
 }
 
 var _ HandshakeState = &ServerStateStart{}
@@ -119,8 +119,8 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	clientCookie := new(CookieExtension)
 
 	// Handle external extensions.
-	if state.Caps.ExtensionHandler != nil {
-		err := state.Caps.ExtensionHandler.Receive(HandshakeTypeClientHello, &ch.Extensions)
+	if state.Config.ExtensionHandler != nil {
+		err := state.Config.ExtensionHandler.Receive(HandshakeTypeClientHello, &ch.Extensions)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateStart] Error running external extension handler [%v]", err)
 			return nil, nil, AlertInternalError
@@ -168,7 +168,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	var firstClientHello *HandshakeMessage
 	var initialCipherSuite CipherSuiteParams // the cipher suite that was negotiated when sending the HelloRetryRequest
 	if clientSentCookie {
-		plainCookie, err := state.Caps.CookieProtector.DecodeToken(clientCookie.Cookie)
+		plainCookie, err := state.Config.CookieProtector.DecodeToken(clientCookie.Cookie)
 		if err != nil {
 			logf(logTypeHandshake, fmt.Sprintf("[ServerStateStart] Error decoding token [%v]", err))
 			return nil, nil, AlertDecryptError
@@ -184,7 +184,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 			body:    cookie.ClientHelloHash,
 		}
 		// have the application validate its part of the cookie
-		if state.Caps.CookieHandler != nil && !state.Caps.CookieHandler.Validate(state.conn, cookie.ApplicationCookie) {
+		if state.Config.CookieHandler != nil && !state.Config.CookieHandler.Validate(state.conn, cookie.ApplicationCookie) {
 			logf(logTypeHandshake, "[ServerStateStart] Cookie mismatch")
 			return nil, nil, AlertAccessDenied
 		}
@@ -202,7 +202,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}
 
 	// Figure out if we can do DH
-	canDoDH, dhGroup, dhPublic, dhSecret := DHNegotiation(clientKeyShares.Shares, state.Caps.Groups)
+	canDoDH, dhGroup, dhPublic, dhSecret := DHNegotiation(clientKeyShares.Shares, state.Config.Groups)
 
 	// Figure out if we can do PSK
 	var canDoPSK bool
@@ -229,7 +229,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		}
 		context := append(contextBase, chTrunc...)
 
-		canDoPSK, selectedPSK, psk, params, err = PSKNegotiation(clientPSK.Identities, clientPSK.Binders, context, state.Caps.PSKs)
+		canDoPSK, selectedPSK, psk, params, err = PSKNegotiation(clientPSK.Identities, clientPSK.Binders, context, state.Config.PSKs)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateStart] Error in PSK negotiation [%v]", err)
 			return nil, nil, AlertInternalError
@@ -244,7 +244,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	connParams.UsingDH, connParams.UsingPSK = PSKModeNegotiation(canDoDH, canDoPSK, clientPSKModes.KEModes)
 
 	// Select a ciphersuite
-	connParams.CipherSuite, err = CipherSuiteNegotiation(psk, ch.CipherSuites, state.Caps.CipherSuites)
+	connParams.CipherSuite, err = CipherSuiteNegotiation(psk, ch.CipherSuites, state.Config.CipherSuites)
 	if err != nil {
 		logf(logTypeHandshake, "[ServerStateStart] No common ciphersuite found [%v]", err)
 		return nil, nil, AlertHandshakeFailure
@@ -255,7 +255,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}
 
 	var helloRetryRequest *HandshakeMessage
-	if state.Caps.RequireCookie {
+	if state.Config.RequireCookie {
 		// Send a cookie if required
 		// NB: Need to do this here because it's after ciphersuite selection, which
 		// has to be after PSK selection.
@@ -263,11 +263,11 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		var cookieExt *CookieExtension
 		if !clientSentCookie { // this is the first ClientHello that we receive
 			var appCookie []byte
-			if state.Caps.CookieHandler == nil { // if Config.RequireCookie is set, but no CookieHandler was provided, we definitely need to send a cookie
+			if state.Config.CookieHandler == nil { // if Config.RequireCookie is set, but no CookieHandler was provided, we definitely need to send a cookie
 				shouldSendHRR = true
 			} else { // if the CookieHandler was set, we just send a cookie when the application provides one
 				var err error
-				appCookie, err = state.Caps.CookieHandler.Generate(state.conn)
+				appCookie, err = state.Config.CookieHandler.Generate(state.conn)
 				if err != nil {
 					logf(logTypeHandshake, "[ServerStateStart] Error generating cookie [%v]", err)
 					return nil, nil, AlertInternalError
@@ -287,7 +287,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 					logf(logTypeHandshake, "[ServerStateStart] Error marshalling cookie [%v]", err)
 					return nil, nil, AlertInternalError
 				}
-				cookieData, err := state.Caps.CookieProtector.NewToken(plainCookie)
+				cookieData, err := state.Config.CookieProtector.NewToken(plainCookie)
 				if err != nil {
 					logf(logTypeHandshake, "[ServerStateStart] Error encoding cookie [%v]", err)
 					return nil, nil, AlertInternalError
@@ -346,7 +346,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		// Select a certificate
 		name := string(*serverName)
 		var err error
-		cert, certScheme, err = CertificateSelection(&name, signatureAlgorithms.Algorithms, state.Caps.Certificates)
+		cert, certScheme, err = CertificateSelection(&name, signatureAlgorithms.Algorithms, state.Config.Certificates)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateStart] No appropriate certificate found [%v]", err)
 			return nil, nil, AlertAccessDenied
@@ -360,7 +360,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	// Figure out if we're going to do early data
 	var clientEarlyTrafficSecret []byte
 	connParams.ClientSendingEarlyData = foundExts[ExtensionTypeEarlyData]
-	connParams.UsingEarlyData = EarlyDataNegotiation(connParams.UsingPSK, foundExts[ExtensionTypeEarlyData], state.Caps.AllowEarlyData)
+	connParams.UsingEarlyData = EarlyDataNegotiation(connParams.UsingPSK, foundExts[ExtensionTypeEarlyData], state.Config.AllowEarlyData)
 	if connParams.UsingEarlyData {
 		h := params.Hash.New()
 		h.Write(clientHello.Marshal())
@@ -372,7 +372,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}
 
 	// Select a next protocol
-	connParams.NextProto, err = ALPNNegotiation(psk, clientALPN.Protocols, state.Caps.NextProtos)
+	connParams.NextProto, err = ALPNNegotiation(psk, clientALPN.Protocols, state.Config.NextProtos)
 	if err != nil {
 		logf(logTypeHandshake, "[ServerStateStart] No common application-layer protocol found [%v]", err)
 		return nil, nil, AlertNoApplicationProtocol
@@ -381,7 +381,7 @@ func (state ServerStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	logf(logTypeHandshake, "[ServerStateStart] -> [ServerStateNegotiated]")
 	state.hsCtx.SetVersion(tls12Version) // Everything after this should be 1.2.
 	return ServerStateNegotiated{
-		Caps:                     state.Caps,
+		Config:                   state.Config,
 		Params:                   connParams,
 		hsCtx:                    state.hsCtx,
 		dhGroup:                  dhGroup,
@@ -426,8 +426,8 @@ func (state *ServerStateStart) generateHRR(cs CipherSuite, legacySessionId []byt
 		return nil, err
 	}
 	// Run the external extension handler.
-	if state.Caps.ExtensionHandler != nil {
-		err := state.Caps.ExtensionHandler.Send(HandshakeTypeHelloRetryRequest, &hrr.Extensions)
+	if state.Config.ExtensionHandler != nil {
+		err := state.Config.ExtensionHandler.Send(HandshakeTypeHelloRetryRequest, &hrr.Extensions)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateStart] Error running external extension sender [%v]", err)
 			return nil, err
@@ -442,7 +442,7 @@ func (state *ServerStateStart) generateHRR(cs CipherSuite, legacySessionId []byt
 }
 
 type ServerStateNegotiated struct {
-	Caps                     Capabilities
+	Config                   *Config
 	Params                   ConnectionParameters
 	hsCtx                    HandshakeContext
 	dhGroup                  NamedGroup
@@ -510,8 +510,8 @@ func (state ServerStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 	}
 
 	// Run the external extension handler.
-	if state.Caps.ExtensionHandler != nil {
-		err := state.Caps.ExtensionHandler.Send(HandshakeTypeServerHello, &sh.Extensions)
+	if state.Config.ExtensionHandler != nil {
+		err := state.Config.ExtensionHandler.Send(HandshakeTypeServerHello, &sh.Extensions)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateNegotiated] Error running external extension sender [%v]", err)
 			return nil, nil, AlertInternalError
@@ -591,8 +591,8 @@ func (state ServerStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 	ee := &EncryptedExtensionsBody{eeList}
 
 	// Run the external extension handler.
-	if state.Caps.ExtensionHandler != nil {
-		err := state.Caps.ExtensionHandler.Send(HandshakeTypeEncryptedExtensions, &ee.Extensions)
+	if state.Config.ExtensionHandler != nil {
+		err := state.Config.ExtensionHandler.Send(HandshakeTypeEncryptedExtensions, &ee.Extensions)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateNegotiated] Error running external extension sender [%v]", err)
 			return nil, nil, AlertInternalError
@@ -616,13 +616,13 @@ func (state ServerStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 	// Authenticate with a certificate if required
 	if !state.Params.UsingPSK {
 		// Send a CertificateRequest message if we want client auth
-		if state.Caps.RequireClientAuth {
+		if state.Config.RequireClientAuth {
 			state.Params.UsingClientAuth = true
 
 			// XXX: We don't support sending any constraints besides a list of
 			// supported signature algorithms
 			cr := &CertificateRequestBody{}
-			schemes := &SignatureAlgorithmsExtension{Algorithms: state.Caps.SignatureSchemes}
+			schemes := &SignatureAlgorithmsExtension{Algorithms: state.Config.SignatureSchemes}
 			err := cr.Extensions.Add(schemes)
 			if err != nil {
 				logf(logTypeHandshake, "[ServerStateNegotiated] Error adding supported schemes to CertificateRequest [%v]", err)
@@ -717,7 +717,7 @@ func (state ServerStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 
 		logf(logTypeHandshake, "[ServerStateNegotiated] -> [ServerStateWaitEOED]")
 		nextState := ServerStateWaitEOED{
-			AuthCertificate:              state.Caps.AuthCertificate,
+			AuthCertificate:              state.Config.AuthCertificate,
 			Params:                       state.Params,
 			hsCtx:                        state.hsCtx,
 			cryptoParams:                 params,
@@ -741,7 +741,7 @@ func (state ServerStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 		ReadPastEarlyData{},
 	}...)
 	waitFlight2 := ServerStateWaitFlight2{
-		AuthCertificate:              state.Caps.AuthCertificate,
+		AuthCertificate:              state.Config.AuthCertificate,
 		Params:                       state.Params,
 		hsCtx:                        state.hsCtx,
 		cryptoParams:                 params,

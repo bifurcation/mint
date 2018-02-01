@@ -44,30 +44,6 @@ type AppExtensionHandler interface {
 	Receive(hs HandshakeType, el *ExtensionList) error
 }
 
-// Capabilities objects represent the capabilities of a TLS client or server,
-// as an input to TLS negotiation
-type Capabilities struct {
-	// For both client and server
-	CipherSuites     []CipherSuite
-	Groups           []NamedGroup
-	SignatureSchemes []SignatureScheme
-	PSKs             PreSharedKeyCache
-	Certificates     []*Certificate
-	AuthCertificate  func(chain []CertificateEntry) error
-	ExtensionHandler AppExtensionHandler
-	UseDTLS          bool
-	// For client
-	PSKModes []PSKKeyExchangeMode
-
-	// For server
-	NextProtos        []string
-	AllowEarlyData    bool
-	RequireCookie     bool
-	CookieProtector   CookieProtector
-	CookieHandler     CookieHandler
-	RequireClientAuth bool
-}
-
 // ConnectionOptions objects represent per-connection settings for a client
 // initiating a connection
 type ConnectionOptions struct {
