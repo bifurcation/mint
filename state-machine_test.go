@@ -41,25 +41,26 @@ func TestStateMachineIntegration(t *testing.T) {
 
 	var (
 		stateMachineIntegrationCases = map[string]struct {
-			clientCapabilities  Capabilities
+			clientConfig        *Config
 			clientOptions       ConnectionOptions
-			serverCapabilities  Capabilities
+			serverConfig        *Config
 			clientStateSequence []HandshakeState
 			serverStateSequence []HandshakeState
 		}{
 			"normal": {
-				clientCapabilities: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
+				clientConfig: &Config{
+					Groups:             []NamedGroup{P256},
+					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:               &PSKMapCache{},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
 					NextProtos: []string{"h2"},
 				},
-				serverCapabilities: Capabilities{
+				serverConfig: &Config{
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -87,18 +88,19 @@ func TestStateMachineIntegration(t *testing.T) {
 			},
 
 			"helloRetryRequest": {
-				clientCapabilities: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
+				clientConfig: &Config{
+					Groups:             []NamedGroup{P256},
+					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:               &PSKMapCache{},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
 					NextProtos: []string{"h2"},
 				},
-				serverCapabilities: Capabilities{
+				serverConfig: &Config{
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -131,7 +133,7 @@ func TestStateMachineIntegration(t *testing.T) {
 
 			// PSK case, no early data
 			"psk": {
-				clientCapabilities: Capabilities{
+				clientConfig: &Config{
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -139,12 +141,13 @@ func TestStateMachineIntegration(t *testing.T) {
 					PSKs: &PSKMapCache{
 						"example.com": psk,
 					},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
 					NextProtos: []string{"h2"},
 				},
-				serverCapabilities: Capabilities{
+				serverConfig: &Config{
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -172,7 +175,7 @@ func TestStateMachineIntegration(t *testing.T) {
 
 			// PSK case, with early data
 			"pskWithEarlyData": {
-				clientCapabilities: Capabilities{
+				clientConfig: &Config{
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -180,13 +183,14 @@ func TestStateMachineIntegration(t *testing.T) {
 					PSKs: &PSKMapCache{
 						"example.com": psk,
 					},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
 					NextProtos: []string{"h2"},
 					EarlyData:  []byte{0, 1, 2, 3},
 				},
-				serverCapabilities: Capabilities{
+				serverConfig: &Config{
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -216,7 +220,7 @@ func TestStateMachineIntegration(t *testing.T) {
 
 			// PSK case, server rejects PSK
 			"pskRejected": {
-				clientCapabilities: Capabilities{
+				clientConfig: &Config{
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -224,12 +228,13 @@ func TestStateMachineIntegration(t *testing.T) {
 					PSKs: &PSKMapCache{
 						"example.com": psk,
 					},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
 					NextProtos: []string{"h2"},
 				},
-				serverCapabilities: Capabilities{
+				serverConfig: &Config{
 					Groups:           []NamedGroup{P256},
 					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -257,19 +262,20 @@ func TestStateMachineIntegration(t *testing.T) {
 
 			// Client auth, successful
 			"clientAuth": {
-				clientCapabilities: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
-					Certificates:     certificates,
+				clientConfig: &Config{
+					Groups:             []NamedGroup{P256},
+					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:               &PSKMapCache{},
+					Certificates:       certificates,
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
 					NextProtos: []string{"h2"},
 				},
-				serverCapabilities: Capabilities{
+				serverConfig: &Config{
 					Groups:            []NamedGroup{P256},
 					SignatureSchemes:  []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:          []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -301,18 +307,19 @@ func TestStateMachineIntegration(t *testing.T) {
 
 			// Client auth, no certificate found
 			"clientAuthNoCertificate": {
-				clientCapabilities: Capabilities{
-					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
-					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
-					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
-					PSKs:             &PSKMapCache{},
+				clientConfig: &Config{
+					Groups:             []NamedGroup{P256},
+					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
+					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+					PSKs:               &PSKMapCache{},
+					InsecureSkipVerify: true,
 				},
 				clientOptions: ConnectionOptions{
 					ServerName: "example.com",
 					NextProtos: []string{"h2"},
 				},
-				serverCapabilities: Capabilities{
+				serverConfig: &Config{
 					Groups:            []NamedGroup{P256},
 					SignatureSchemes:  []SignatureScheme{RSA_PSS_SHA256},
 					PSKModes:          []PSKKeyExchangeMode{PSKModeDHEKE},
@@ -353,11 +360,11 @@ func TestStateMachineIntegration(t *testing.T) {
 			shsCtx := chsCtx
 			var clientState, serverState HandshakeState
 			clientState = ClientStateStart{
-				Caps:  params.clientCapabilities,
-				Opts:  params.clientOptions,
-				hsCtx: chsCtx,
+				Config: params.clientConfig,
+				Opts:   params.clientOptions,
+				hsCtx:  chsCtx,
 			}
-			serverState = ServerStateStart{Caps: params.serverCapabilities, hsCtx: shsCtx}
+			serverState = ServerStateStart{Config: params.serverConfig, hsCtx: shsCtx}
 
 			t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
 			t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
