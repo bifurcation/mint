@@ -88,7 +88,9 @@ type Config struct {
 	// It should make sure that the Cookie cannot be read and tampered with by the client.
 	// If non-blocking mode is used, and cookies are required, this field has to be set.
 	// In blocking mode, a default cookie protector is used, if this is unused.
-	CookieProtector   CookieProtector
+	CookieProtector CookieProtector
+	// The ExtensionHandler is used to add custom extensions.
+	ExtensionHandler  AppExtensionHandler
 	RequireClientAuth bool
 
 	// Shared fields
@@ -125,6 +127,7 @@ func (c *Config) Clone() *Config {
 		RequireCookie:      c.RequireCookie,
 		CookieHandler:      c.CookieHandler,
 		CookieProtector:    c.CookieProtector,
+		ExtensionHandler:   c.ExtensionHandler,
 		RequireClientAuth:  c.RequireClientAuth,
 
 		Certificates:     c.Certificates,
@@ -255,8 +258,6 @@ type Conn struct {
 	readBuffer []byte
 	in, out    *RecordLayer
 	hsCtx      HandshakeContext
-
-	extHandler AppExtensionHandler
 }
 
 func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
@@ -651,7 +652,7 @@ func (c *Conn) HandshakeSetup() Alert {
 		RequireClientAuth: c.config.RequireClientAuth,
 		NextProtos:        c.config.NextProtos,
 		Certificates:      c.config.Certificates,
-		ExtensionHandler:  c.extHandler,
+		ExtensionHandler:  c.config.ExtensionHandler,
 	}
 	opts := ConnectionOptions{
 		ServerName: c.config.ServerName,
@@ -878,13 +879,4 @@ func (c *Conn) State() ConnectionState {
 	}
 
 	return state
-}
-
-func (c *Conn) SetExtensionHandler(h AppExtensionHandler) error {
-	if c.hState != nil {
-		return fmt.Errorf("Can't set extension handler after setup")
-	}
-
-	c.extHandler = h
-	return nil
 }

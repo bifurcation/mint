@@ -793,11 +793,12 @@ func (h *testExtensionHandler) Check(t *testing.T, hs []HandshakeType) {
 func TestExternalExtensions(t *testing.T) {
 	cConn, sConn := pipe()
 
-	var handler = newTestExtensionHandler()
-	client := Client(cConn, basicConfig)
-	client.SetExtensionHandler(handler)
-	server := Server(sConn, basicConfig)
-	server.SetExtensionHandler(handler)
+	handler := newTestExtensionHandler()
+	config := basicConfig.Clone()
+	config.ExtensionHandler = handler
+
+	client := Client(cConn, config)
+	server := Server(sConn, config)
 
 	var clientAlert, serverAlert Alert
 
@@ -828,11 +829,11 @@ func TestExternalExtensions(t *testing.T) {
 func TestDTLS(t *testing.T) {
 	cConn, sConn := pipe()
 
-	var handler = newTestExtensionHandler()
-	client := Client(cConn, dtlsConfig)
-	client.SetExtensionHandler(handler)
-	server := Server(sConn, dtlsConfig)
-	server.SetExtensionHandler(handler)
+	handler := newTestExtensionHandler()
+	config := dtlsConfig.Clone()
+	config.ExtensionHandler = handler
+	client := Client(cConn, config)
+	server := Server(sConn, config)
 
 	var clientAlert, serverAlert Alert
 
