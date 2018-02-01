@@ -853,6 +853,8 @@ func (state ClientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 		masterSecret:                 state.masterSecret,
 		clientHandshakeTrafficSecret: state.clientHandshakeTrafficSecret,
 		serverHandshakeTrafficSecret: state.serverHandshakeTrafficSecret,
+		peerCertificates:             certs,
+		verifiedChains:               verifiedChains,
 	}
 	return nextState, nil, AlertNoAlert
 }
@@ -865,6 +867,8 @@ type ClientStateWaitFinished struct {
 
 	certificates             []*Certificate
 	serverCertificateRequest *CertificateRequestBody
+	peerCertificates         []*x509.Certificate
+	verifiedChains           [][]*x509.Certificate
 
 	masterSecret                 []byte
 	clientHandshakeTrafficSecret []byte
@@ -1051,6 +1055,8 @@ func (state ClientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 		clientTrafficSecret: clientTrafficSecret,
 		serverTrafficSecret: serverTrafficSecret,
 		exporterSecret:      exporterSecret,
+		peerCertificates:    state.peerCertificates,
+		verifiedChains:      state.verifiedChains,
 	}
 	return nextState, toSend, AlertNoAlert
 }

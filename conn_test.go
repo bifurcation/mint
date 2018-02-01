@@ -1163,6 +1163,42 @@ func TestExternalExtensions(t *testing.T) {
 	})
 }
 
+func TestConnectionState(t *testing.T) {
+	pool := x509.NewCertPool()
+	pool.AddCert(serverCert)
+	configClient := &Config{
+		ServerName:   serverName,
+		RootCAs:      pool,
+		Certificates: clientCertificates,
+	}
+	serverConfig := &Config{
+		RequireClientAuth: true,
+		Certificates:      certificates,
+	}
+	cConn, sConn := pipe()
+	client := Client(cConn, configClient)
+	server := Server(sConn, serverConfig)
+
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert := server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert := client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+	<-done
+
+	clientCS := client.ConnectionState()
+	serverCS := server.ConnectionState()
+	assertEquals(t, clientCS.CipherSuite.Suite, configClient.CipherSuites[0])
+	assertDeepEquals(t, clientCS.VerifiedChains, [][]*x509.Certificate{{serverCert}})
+	assertDeepEquals(t, clientCS.PeerCertificates, []*x509.Certificate{serverCert})
+	assertEquals(t, serverCS.CipherSuite.Suite, serverConfig.CipherSuites[0])
+	assertDeepEquals(t, serverCS.PeerCertificates, []*x509.Certificate{clientCert})
+}
+
 func TestDTLS(t *testing.T) {
 	cConn, sConn := pipe()
 

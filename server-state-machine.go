@@ -2,6 +2,7 @@ package mint
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
 	"hash"
 	"reflect"
@@ -976,7 +977,9 @@ func (state ServerStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	}
 
 	rawCerts := make([][]byte, len(state.clientCertificate.CertificateList))
+	certs := make([]*x509.Certificate, len(state.clientCertificate.CertificateList))
 	for i, certEntry := range state.clientCertificate.CertificateList {
+		certs[i] = certEntry.CertData
 		rawCerts[i] = certEntry.CertData.Raw
 	}
 
@@ -1012,6 +1015,8 @@ func (state ServerStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 		clientTrafficSecret:          state.clientTrafficSecret,
 		serverTrafficSecret:          state.serverTrafficSecret,
 		exporterSecret:               state.exporterSecret,
+		peerCertificates:             certs,
+		verifiedChains:               nil, // TODO(#171): set this value
 	}
 	return nextState, nil, AlertNoAlert
 }
@@ -1023,6 +1028,8 @@ type ServerStateWaitFinished struct {
 
 	masterSecret                 []byte
 	clientHandshakeTrafficSecret []byte
+	peerCertificates             []*x509.Certificate
+	verifiedChains               [][]*x509.Certificate
 
 	handshakeHash       hash.Hash
 	clientTrafficSecret []byte
@@ -1085,6 +1092,8 @@ func (state ServerStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 		clientTrafficSecret: state.clientTrafficSecret,
 		serverTrafficSecret: state.serverTrafficSecret,
 		exporterSecret:      state.exporterSecret,
+		peerCertificates:    state.peerCertificates,
+		verifiedChains:      state.verifiedChains,
 	}
 	toSend := []HandshakeAction{
 		RekeyIn{epoch: EpochApplicationData, KeySet: clientTrafficKeys},
