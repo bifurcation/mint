@@ -237,6 +237,37 @@ func TestEncodeStruct(t *testing.T) {
 	}
 }
 
+func TestEncodeSliceZeroHead(t *testing.T) {
+	type xV0 struct {
+		V []byte `tls:"head=none"`
+	}
+
+	s := bytes.Repeat([]byte{0xA0}, 10)
+	i := xV0{s}
+
+	yv0, err := Marshal(i)
+	if err != nil || !bytes.Equal(yv0, s) {
+		t.Fatalf("struct encode failed [%v] [%x]", err, s)
+	}
+}
+
+func TestEncodeSliceVarintHead(t *testing.T) {
+	type xvV struct {
+		V []byte `tls:"head=varint"`
+	}
+
+	s := bytes.Repeat([]byte{0xA0}, 64)
+	i := xvV{s}
+
+	zvV := []byte{0x40, 0x40}
+	zvV = append(zvV, s...)
+
+	yvV, err := Marshal(i)
+	if err != nil || !bytes.Equal(yvV, zvV) {
+		t.Fatalf("struct encode failed [%v] [%x]", err, yvV)
+	}
+}
+
 func TestEncodeMarshaler(t *testing.T) {
 	crypticStringMarshalCalls = 0
 	ym, err := Marshal(xm)

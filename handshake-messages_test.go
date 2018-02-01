@@ -19,7 +19,11 @@ const (
 var (
 	supportedVersionHex = hex.EncodeToString([]byte{
 		byte(supportedVersion >> 8),
-		byte(supportedVersion),
+		byte(supportedVersion & 0xff),
+	})
+	tls12VersionHex = hex.EncodeToString([]byte{
+		byte(tls12Version >> 8),
+		byte(tls12Version & 0xff),
 	})
 
 	// ClientHello test cases
@@ -30,9 +34,11 @@ var (
 		0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37}
 	chCipherSuites = []CipherSuite{0x0001, 0x0002, 0x0003}
 	chValidIn      = ClientHelloBody{
-		Random:       helloRandom,
-		CipherSuites: chCipherSuites,
-		Extensions:   extListValidIn,
+		LegacyVersion:   tls12Version,
+		Random:          helloRandom,
+		CipherSuites:    chCipherSuites,
+		Extensions:      extListValidIn,
+		LegacySessionID: []byte{},
 	}
 	chValidHex = "0303" + hex.EncodeToString(helloRandom[:]) + "00" +
 		"0006000100020003" + "0100" + extListValidHex
@@ -44,8 +50,9 @@ var (
 	chTruncHex     = "01000062" + "0303" + hex.EncodeToString(helloRandom[:]) +
 		"00" + "0006000100020003" + "0100" + "00330029002f000a00040102030405060708"
 	chTruncValid = ClientHelloBody{
-		Random:       helloRandom,
-		CipherSuites: chCipherSuites,
+		LegacyVersion: tls12Version,
+		Random:        helloRandom,
+		CipherSuites:  chCipherSuites,
 		Extensions: []Extension{
 			{
 				ExtensionType: ExtensionTypePreSharedKey,
@@ -55,50 +62,44 @@ var (
 	}
 	chTruncInvalid = ClientHelloBody{}
 	chTruncNoExt   = ClientHelloBody{
-		Random:       helloRandom,
-		CipherSuites: chCipherSuites,
-		Extensions:   []Extension{},
+		LegacyVersion: tls12Version,
+		Random:        helloRandom,
+		CipherSuites:  chCipherSuites,
+		Extensions:    []Extension{},
 	}
 	chTruncNoPSK = ClientHelloBody{
-		Random:       helloRandom,
-		CipherSuites: chCipherSuites,
+		LegacyVersion: tls12Version,
+		Random:        helloRandom,
+		CipherSuites:  chCipherSuites,
 		Extensions: []Extension{
 			{ExtensionType: ExtensionTypeEarlyData},
 		},
 	}
 	chTruncBadPSK = ClientHelloBody{
-		Random:       helloRandom,
-		CipherSuites: chCipherSuites,
+		LegacyVersion: tls12Version,
+		Random:        helloRandom,
+		CipherSuites:  chCipherSuites,
 		Extensions: []Extension{
 			{ExtensionType: ExtensionTypePreSharedKey},
 		},
 	}
 
-	// HelloRetryRequest test cases
-	hrrValidIn = HelloRetryRequestBody{
-		Version:     supportedVersion,
-		CipherSuite: 0x0001,
-		Extensions:  extListValidIn,
-	}
-	hrrEmptyIn  = HelloRetryRequestBody{}
-	hrrValidHex = supportedVersionHex + "0001" + extListValidHex
-	hrrEmptyHex = supportedVersionHex + "0001" + "0000"
-
 	// ServerHello test cases
 	shValidIn = ServerHelloBody{
-		Version:     supportedVersion,
-		Random:      helloRandom,
-		CipherSuite: CipherSuite(0x0001),
-		Extensions:  extListValidIn,
+		Version:         tls12Version,
+		Random:          helloRandom,
+		LegacySessionID: []byte{},
+		CipherSuite:     CipherSuite(0x0001),
+		Extensions:      extListValidIn,
 	}
 	shEmptyIn = ServerHelloBody{
-		Version:     supportedVersion,
+		Version:     tls12Version,
 		Random:      helloRandom,
 		CipherSuite: CipherSuite(0x0001),
 	}
-	shValidHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListValidHex
-	shEmptyHex    = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + "0000"
-	shOverflowHex = supportedVersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListOverflowOuterHex
+	shValidHex    = tls12VersionHex + hex.EncodeToString(helloRandom[:]) + "00" + "0001" + "00" + extListValidHex
+	shEmptyHex    = tls12VersionHex + hex.EncodeToString(helloRandom[:]) + "00" + "0001" + "00" + "0000"
+	shOverflowHex = tls12VersionHex + hex.EncodeToString(helloRandom[:]) + "0001" + extListOverflowOuterHex
 
 	// Finished test cases
 	finValidIn = FinishedBody{
@@ -284,12 +285,6 @@ func TestClientHelloMarshalUnmarshal(t *testing.T) {
 	_, err = ch.Unmarshal(chValid[:fixedClientHelloBodyLen-1])
 	assertError(t, err, "Unmarshaled a ClientHello below the min length")
 
-	// Test unmarshal failure on wrong version
-	chValid[1]--
-	_, err = ch.Unmarshal(chValid)
-	assertError(t, err, "Unmarshaled a ClientHello with the wrong version")
-	chValid[1]++
-
 	// Test unmarshal failure on ciphersuite size overflow
 	chValid[35] = 0xFF
 	_, err = ch.Unmarshal(chValid)
@@ -344,34 +339,6 @@ func TestClientHelloTruncate(t *testing.T) {
 	// Test failiure on last extension malformed PSK
 	_, err = chTruncBadPSK.Truncated()
 	assertError(t, err, "Truncated a ClientHello with a mal-formed PSK")
-}
-
-func TestHelloRetryRequestMarshalUnmarshal(t *testing.T) {
-	hrrValid := unhex(hrrValidHex)
-	hrrEmpty := unhex(hrrEmptyHex)
-
-	// Test correctness of handshake type
-	assertEquals(t, (HelloRetryRequestBody{}).Type(), HandshakeTypeHelloRetryRequest)
-
-	// Test successful marshal
-	out, err := hrrValidIn.Marshal()
-	assertNotError(t, err, "Failed to marshal a valid HelloRetryRequest")
-	assertByteEquals(t, out, hrrValid)
-
-	// Test marshal failure with no extensions present
-	out, err = hrrEmptyIn.Marshal()
-	assertError(t, err, "Marshaled HelloRetryRequest with no extensions")
-
-	// Test successful unmarshal
-	var hrr HelloRetryRequestBody
-	read, err := hrr.Unmarshal(hrrValid)
-	assertNotError(t, err, "Failed to unmarshal a valid HelloRetryRequest")
-	assertEquals(t, read, len(hrrValid))
-	assertDeepEquals(t, hrr, hrrValidIn)
-
-	// Test unmarshal failure with no extensions present
-	read, err = hrr.Unmarshal(hrrEmpty)
-	assertError(t, err, "Unmarshaled a HelloRetryRequest with no extensions")
 }
 
 func TestServerHelloMarshalUnmarshal(t *testing.T) {
@@ -697,4 +664,24 @@ func TestEndOfEarlyDataMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Failed to unmarshal a valid KeyUpdate")
 	assertEquals(t, read, len(endOfEarlyDataValid))
 	assertDeepEquals(t, eoed, endOfEarlyDataValidIn)
+}
+
+func TestsafeUnmarshal(t *testing.T) {
+	chValid := unhex(chValidHex)
+	tooLong := append(chValid, 0)
+	var ch ClientHelloBody
+
+	// Check that safeUnmarshal works normally
+	err := safeUnmarshal(&ch, chValid)
+	assertNotError(t, err, "Failed to unmarshal ClientHello")
+
+	// Test successful unmarshal
+	read, err := ch.Unmarshal(tooLong)
+	assertNotError(t, err, "Failed to unmarshal a too long ClientHello")
+	assertEquals(t, read, len(chValid))
+	assertDeepEquals(t, ch, chValidIn)
+
+	// Now test that safeUnmarshal barfs
+	err = safeUnmarshal(&ch, tooLong)
+	assertError(t, err, "Unmarshalled something too long")
 }

@@ -88,8 +88,25 @@ type Config struct {
 	// It should make sure that the Cookie cannot be read and tampered with by the client.
 	// If non-blocking mode is used, and cookies are required, this field has to be set.
 	// In blocking mode, a default cookie protector is used, if this is unused.
-	CookieProtector   CookieProtector
+	CookieProtector CookieProtector
+	// The ExtensionHandler is used to add custom extensions.
+	ExtensionHandler  AppExtensionHandler
 	RequireClientAuth bool
+
+	// Time returns the current time as the number of seconds since the epoch.
+	// If Time is nil, TLS uses time.Now.
+	Time func() time.Time
+	// RootCAs defines the set of root certificate authorities
+	// that clients use when verifying server certificates.
+	// If RootCAs is nil, TLS uses the host's root CA set.
+	RootCAs *x509.CertPool
+	// InsecureSkipVerify controls whether a client verifies the
+	// server's certificate chain and host name.
+	// If InsecureSkipVerify is true, TLS accepts any certificate
+	// presented by the server and any host name in that certificate.
+	// In this mode, TLS is susceptible to man-in-the-middle attacks.
+	// This should be used only for testing.
+	InsecureSkipVerify bool
 
 	// Shared fields
 	Certificates     []*Certificate
@@ -125,7 +142,11 @@ func (c *Config) Clone() *Config {
 		RequireCookie:      c.RequireCookie,
 		CookieHandler:      c.CookieHandler,
 		CookieProtector:    c.CookieProtector,
+		ExtensionHandler:   c.ExtensionHandler,
 		RequireClientAuth:  c.RequireClientAuth,
+		Time:               c.Time,
+		RootCAs:            c.RootCAs,
+		InsecureSkipVerify: c.InsecureSkipVerify,
 
 		Certificates:     c.Certificates,
 		AuthCertificate:  c.AuthCertificate,
@@ -163,28 +184,6 @@ func (c *Config) Init(isClient bool) error {
 	if len(c.PSKModes) == 0 {
 		c.PSKModes = defaultPSKModes
 	}
-
-	// If there is no certificate, generate one
-	if !isClient && len(c.Certificates) == 0 {
-		logf(logTypeHandshake, "Generating key name=%v", c.ServerName)
-		priv, err := newSigningKey(RSA_PSS_SHA256)
-		if err != nil {
-			return err
-		}
-
-		cert, err := newSelfSigned(c.ServerName, RSA_PKCS1_SHA256, priv)
-		if err != nil {
-			return err
-		}
-
-		c.Certificates = []*Certificate{
-			{
-				Chain:      []*x509.Certificate{cert},
-				PrivateKey: priv,
-			},
-		}
-	}
-
 	return nil
 }
 
@@ -197,6 +196,14 @@ func (c *Config) ValidForServer() bool {
 
 func (c *Config) ValidForClient() bool {
 	return len(c.ServerName) > 0
+}
+
+func (c *Config) time() time.Time {
+	t := c.Time
+	if t == nil {
+		t = time.Now
+	}
+	return t()
 }
 
 var (
@@ -255,8 +262,6 @@ type Conn struct {
 	readBuffer []byte
 	in, out    *RecordLayer
 	hsCtx      HandshakeContext
-
-	extHandler AppExtensionHandler
 }
 
 func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
@@ -637,22 +642,6 @@ func (c *Conn) HandshakeSetup() Alert {
 		return AlertInternalError
 	}
 
-	// Set things up
-	caps := Capabilities{
-		CipherSuites:      c.config.CipherSuites,
-		Groups:            c.config.Groups,
-		SignatureSchemes:  c.config.SignatureSchemes,
-		PSKs:              c.config.PSKs,
-		PSKModes:          c.config.PSKModes,
-		AllowEarlyData:    c.config.AllowEarlyData,
-		RequireCookie:     c.config.RequireCookie,
-		CookieProtector:   c.config.CookieProtector,
-		CookieHandler:     c.config.CookieHandler,
-		RequireClientAuth: c.config.RequireClientAuth,
-		NextProtos:        c.config.NextProtos,
-		Certificates:      c.config.Certificates,
-		ExtensionHandler:  c.extHandler,
-	}
 	opts := ConnectionOptions{
 		ServerName: c.config.ServerName,
 		NextProtos: c.config.NextProtos,
@@ -660,7 +649,7 @@ func (c *Conn) HandshakeSetup() Alert {
 	}
 
 	if c.isClient {
-		state, actions, alert = ClientStateStart{Caps: caps, Opts: opts, hsCtx: c.hsCtx}.Next(nil)
+		state, actions, alert = ClientStateStart{Config: c.config, Opts: opts, hsCtx: c.hsCtx}.Next(nil)
 		if alert != AlertNoAlert {
 			logf(logTypeHandshake, "Error initializing client state: %v", alert)
 			return alert
@@ -681,13 +670,13 @@ func (c *Conn) HandshakeSetup() Alert {
 				return AlertInternalError
 			}
 			var err error
-			caps.CookieProtector, err = NewDefaultCookieProtector()
+			c.config.CookieProtector, err = NewDefaultCookieProtector()
 			if err != nil {
 				logf(logTypeHandshake, "Error initializing cookie source: %v", alert)
 				return AlertInternalError
 			}
 		}
-		state = ServerStateStart{Caps: caps, conn: c, hsCtx: c.hsCtx}
+		state = ServerStateStart{Config: c.config, conn: c, hsCtx: c.hsCtx}
 	}
 
 	c.hState = state
@@ -878,13 +867,4 @@ func (c *Conn) State() ConnectionState {
 	}
 
 	return state
-}
-
-func (c *Conn) SetExtensionHandler(h AppExtensionHandler) error {
-	if c.hState != nil {
-		return fmt.Errorf("Can't set extension handler after setup")
-	}
-
-	c.extHandler = h
-	return nil
 }
