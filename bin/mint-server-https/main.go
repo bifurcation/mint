@@ -153,6 +153,12 @@ func main() {
 		log.Fatalf("Error: %v", err)
 	}
 
+	if certFile == "" && keyFile == "" {
+		var cert *x509.Certificate
+		priv, cert, err = mint.MakeNewSelfSignedCert(serverName, mint.RSA_PKCS1_SHA256)
+		certChain = []*x509.Certificate{cert}
+
+	}
 	// Load response file
 	if responseFile != "" {
 		log.Printf("Loading response file: %v", responseFile)
@@ -177,15 +183,16 @@ func main() {
 
 	config.SendSessionTickets = sendTickets
 
-	if certChain != nil && priv != nil {
+	if certFile != "" && keyFile != "" {
 		log.Printf("Loading cert: %v key: %v", certFile, keyFile)
-		config.Certificates = []*mint.Certificate{
-			{
-				Chain:      certChain,
-				PrivateKey: priv,
-			},
-		}
 	}
+	config.Certificates = []*mint.Certificate{
+		{
+			Chain:      certChain,
+			PrivateKey: priv,
+		},
+	}
+
 	config.Init(false)
 
 	service := "0.0.0.0:" + port
