@@ -6,7 +6,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
@@ -128,42 +127,8 @@ func newBufferedConn(p net.Conn) *bufferedConn {
 	return &bufferedConn{bytes.Buffer{}, p}
 }
 
-func newSelfSigned(name string, alg SignatureScheme, priv crypto.Signer) (*x509.Certificate, error) {
-	sigAlg, ok := x509AlgMap[alg]
-	if !ok {
-		return nil, fmt.Errorf("tls.selfsigned: Unknown signature algorithm [%04x]", alg)
-	}
-	if len(name) == 0 {
-		return nil, fmt.Errorf("tls.selfsigned: No name provided")
-	}
-
-	serial, err := rand.Int(rand.Reader, big.NewInt(0xA0A0A0A0))
-	if err != nil {
-		return nil, err
-	}
-
-	template := &x509.Certificate{
-		SerialNumber:       serial,
-		NotBefore:          time.Now(),
-		NotAfter:           time.Now().AddDate(0, 0, 1),
-		SignatureAlgorithm: sigAlg,
-		Subject:            pkix.Name{CommonName: name},
-		DNSNames:           []string{name},
-		KeyUsage:           x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:        []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}
-	der, err := x509.CreateCertificate(prng, template, template, priv.Public(), priv)
-	if err != nil {
-		return nil, err
-	}
-
-	// It is safe to ignore the error here because we're parsing known-good data
-	cert, _ := x509.ParseCertificate(der)
-	return cert, nil
-}
-
 var (
-	serverKey, clientKey             *rsa.PrivateKey
+	serverKey, clientKey             crypto.Signer
 	serverCert, clientCert           *x509.Certificate
 	certificates, clientCertificates []*Certificate
 
@@ -180,19 +145,11 @@ const (
 
 func init() {
 	var err error
-	serverKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	serverKey, serverCert, err = MakeNewSelfSignedCert(serverName, RSA_PKCS1_SHA256)
 	if err != nil {
 		panic(err)
 	}
-	serverCert, err = newSelfSigned(serverName, RSA_PKCS1_SHA256, serverKey)
-	if err != nil {
-		panic(err)
-	}
-	clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		panic(err)
-	}
-	clientCert, err = newSelfSigned(clientName, RSA_PKCS1_SHA256, clientKey)
+	clientKey, clientCert, err = MakeNewSelfSignedCert(clientName, RSA_PKCS1_SHA256)
 	if err != nil {
 		panic(err)
 	}
