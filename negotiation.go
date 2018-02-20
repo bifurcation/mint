@@ -137,7 +137,7 @@ func PSKModeNegotiation(canDoDH, canDoPSK bool, modes []PSKKeyExchangeMode) (boo
 func CertificateSelection(serverName *string, signatureSchemes []SignatureScheme, certs []*Certificate) (*Certificate, SignatureScheme, error) {
 	// Select for server name if provided
 	candidates := certs
-	if serverName != nil {
+	if serverName != nil && len(certs) > 1 {
 		candidatesByName := []*Certificate{}
 		for _, cert := range certs {
 			for _, name := range cert.Chain[0].DNSNames {
