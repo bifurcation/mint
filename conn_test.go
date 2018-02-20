@@ -145,11 +145,11 @@ const (
 
 func init() {
 	var err error
-	serverKey, serverCert, err = MakeNewSelfSignedCert(serverName, RSA_PKCS1_SHA256)
+	serverKey, serverCert, err = MakeNewSelfSignedCert(serverName, ECDSA_P256_SHA256)
 	if err != nil {
 		panic(err)
 	}
-	clientKey, clientCert, err = MakeNewSelfSignedCert(clientName, RSA_PKCS1_SHA256)
+	clientKey, clientCert, err = MakeNewSelfSignedCert(clientName, ECDSA_P256_SHA256)
 	if err != nil {
 		panic(err)
 	}
