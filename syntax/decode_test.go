@@ -1,260 +1,117 @@
 package syntax
 
 import (
-	"bytes"
 	"reflect"
 	"testing"
 )
 
 func TestDecodeUnsupported(t *testing.T) {
-	var y struct {
-		Strings []string
-	}
-	read, err := Unmarshal(z8, &y)
-	if err == nil || read != 0 {
-		t.Fatalf("Agreed to unmarshal an unsupported type")
-	}
+	dummyBuffer := []byte(nil)
 
 	var yi int
-	read, err = Unmarshal(z8, yi)
+	read, err := Unmarshal(dummyBuffer, yi)
 	if err == nil || read != 0 {
 		t.Fatalf("Agreed to unmarshal to a non-pointer")
 	}
 
-	read, err = Unmarshal(z8, nil)
+	read, err = Unmarshal(dummyBuffer, nil)
 	if err == nil || read != 0 {
 		t.Fatalf("Agreed to unmarshal to a nil pointer")
 	}
 }
 
-func TestDecodeBasicTypes(t *testing.T) {
-	var y8 uint8
-	read, err := Unmarshal(z8, &y8)
-	if err != nil || y8 != x8 || read != 1 {
-		t.Fatalf("uint8 decode failed [%v] [%x]", err, y8)
+func TestDecodeErrors(t *testing.T) {
+	vector0x20 := append([]byte{0x20}, buffer(0x20)...)
+	errorCases := map[string]struct {
+		template interface{}
+		encoding []byte
+	}{
+		"unsupported": {
+			template: float64(0),
+			encoding: buffer(0),
+		},
+
+		"uint-too-small": {
+			template: uint32(0),
+			encoding: unhex("7fff"),
+		},
+
+		"varint-too-big": {
+			template: struct {
+				V uint8 `tls:"varint"`
+			}{},
+			encoding: unhex("7fff"),
+		},
+
+		// Slice errors
+		"no-head": {
+			template: struct{ V []byte }{},
+			encoding: buffer(0),
+		},
+
+		"overflow": {
+			template: struct {
+				V []byte `tls:"head=1,max=31"`
+			}{},
+			encoding: vector0x20,
+		},
+
+		"overflow-no-head": {
+			template: struct {
+				V []byte `tls:"head=none,max=31"`
+			}{},
+			encoding: buffer(32),
+		},
+
+		"underflow": {
+			template: struct {
+				V []byte `tls:"head=1,min=33"`
+			}{},
+			encoding: vector0x20,
+		},
+
+		"underflow-no-head": {
+			template: struct {
+				V []byte `tls:"head=none,min=33"`
+			}{},
+			encoding: buffer(32),
+		},
+
+		"too-short-for-head": {
+			template: struct {
+				V []byte `tls:"head=3"`
+			}{},
+			encoding: vector0x20[:2],
+		},
+
+		"too-short-for-value": {
+			template: struct {
+				V []byte `tls:"head=3"`
+			}{},
+			encoding: vector0x20,
+		},
+
+		"too-short-for-varint-head-length": {
+			template: struct {
+				V []byte `tls:"head=varint"`
+			}{},
+			encoding: vector0x20[:0],
+		},
+
+		"too-short-for-varint-head": {
+			template: struct {
+				V []byte `tls:"head=varint"`
+			}{},
+			encoding: unhex("40"),
+		},
 	}
 
-	var y16 uint16
-	read, err = Unmarshal(z16, &y16)
-	if err != nil || y16 != x16 || read != 2 {
-		t.Fatalf("uint16 decode failed [%v] [%x]", err, y16)
-	}
-
-	var y32 uint32
-	read, err = Unmarshal(z32, &y32)
-	if err != nil || y32 != x32 || read != 4 {
-		t.Fatalf("uint32 decode failed [%v] [%x]", err, y32)
-	}
-
-	var y64 uint64
-	read, err = Unmarshal(z64, &y64)
-	if err != nil || y64 != x64 || read != 8 {
-		t.Fatalf("uint64 decode failed [%v] [%x]", err, y64)
-	}
-
-	read, err = Unmarshal(z8[:0], &y8)
-	if err == nil || read != 0 {
-		t.Fatalf("Allowed uint8 decode from an empty buffer")
-	}
-
-	read, err = Unmarshal(z64[:2], &y64)
-	if err == nil || read != 0 {
-		t.Fatalf("Allowed uint64 decode from an incomplete buffer")
-	}
-}
-
-func TestDecodeVarint(t *testing.T) {
-	var yvi struct {
-		U8  uint8  `tls:"varint"`
-		U16 uint16 `tls:"varint"`
-		U32 uint32 `tls:"varint"`
-		U64 uint64 `tls:"varint"`
-	}
-	read, err := Unmarshal(zvi, &yvi)
-	if err != nil || !reflect.DeepEqual(yvi, xvi) || read != len(zvi) {
-		t.Fatalf("varint decode failed [%v] [%v]", err, yvi)
-	}
-}
-
-func TestDecodeArray(t *testing.T) {
-	var ya [5]uint16
-	read, err := Unmarshal(za, &ya)
-	if err != nil || !reflect.DeepEqual(ya, xa) || read != 10 {
-		t.Fatalf("[5]uint16 decode failed [%v] [%x]", err, ya)
-	}
-}
-
-func TestDecodeSlice(t *testing.T) {
-	var yv20 struct {
-		V []byte `tls:"head=1"`
-	}
-	read, err := Unmarshal(zv20, &yv20)
-	if err != nil || !reflect.DeepEqual(yv20, xv20) || read != len(zv20) {
-		t.Fatalf("[0x20]uint8 decode failed [%v] [%x]", err, yv20.V)
-	}
-
-	var yv200 struct {
-		V []byte `tls:"head=2"`
-	}
-	read, err = Unmarshal(zv200, &yv200)
-	if err != nil || !reflect.DeepEqual(yv200, xv200) || read != len(zv200) {
-		t.Fatalf("[0x200]uint8 decode failed [%v] [%x]", err, yv200.V)
-	}
-
-	var yv20000 struct {
-		V []byte `tls:"head=3"`
-	}
-	read, err = Unmarshal(zv20000, &yv20000)
-	if err != nil || !reflect.DeepEqual(yv20000, xv20000) || read != len(zv20000) {
-		t.Fatalf("[0x20000]uint8 decode failed [%v] [%x]", err, yv20000.V)
-	}
-
-	var yvEhead struct {
-		V []byte
-	}
-	read, err = Unmarshal(zv20, &yvEhead)
-	if err == nil || read != 0 {
-		t.Fatalf("Allowed a vector decode with no head")
-	}
-
-	var yvEmax struct {
-		V []byte `tls:"head=1,max=31"`
-	}
-	read, err = Unmarshal(zv20, &yvEmax)
-	if err == nil || read != 0 {
-		t.Fatalf("Allowed a vector decode with length exceeding max")
-	}
-
-	var yvEmin struct {
-		V []byte `tls:"head=1,min=33"`
-	}
-	read, err = Unmarshal(zv20, &yvEmin)
-	if err == nil || read != 0 {
-		t.Fatalf("Allowed a vector decode with length below min")
-	}
-
-	read, err = Unmarshal(zv200[:0], &yv200)
-	if err == nil || read != 0 {
-		t.Fatalf("Allowed a vector decode from an empty buffer")
-	}
-
-	read, err = Unmarshal(zv200[:1], &yv200)
-	if err == nil || read != 0 {
-		t.Fatalf("Allowed a vector decode with length too short")
-	}
-
-	read, err = Unmarshal(zv200[:2], &yv200)
-	if err == nil || read != 0 {
-		t.Fatalf("Allowed a vector decode shorter than declared length [%x]", yv200.V)
-	}
-
-	read, err = Unmarshal(zv200[:5], &yv200)
-	if err == nil || read != 0 {
-		t.Fatalf("Allowed a vector decode shorter than declared length [%x]", yv200.V)
-	}
-}
-
-func TestDecodeSliceZeroHead(t *testing.T) {
-	type xv0 struct {
-		V []byte `tls:"head=none"`
-	}
-
-	zv0 := bytes.Repeat([]byte{0xA0}, 64)
-
-	yv0 := xv0{}
-	read, err := Unmarshal(zv0, &yv0)
-
-	if err != nil || !reflect.DeepEqual(zv0, yv0.V) {
-		t.Fatalf("struct decode failed [%v] [%v] != [%v]", err, zv0, yv0.V)
-	}
-
-	if read != len(zv0) {
-		t.Fatalf("Incomplete read: [%v] != [%v]", read, len(zv0))
-	}
-}
-
-func TestDecodeSliceVarintHead(t *testing.T) {
-	type xvV struct {
-		V []byte `tls:"head=varint"`
-	}
-
-	s := bytes.Repeat([]byte{0xA0}, 64)
-	zvV := []byte{0x40, 0x40}
-	zvV = append(zvV, s...)
-
-	yvV := xvV{}
-	read, err := Unmarshal(zvV, &yvV)
-
-	if err != nil || !reflect.DeepEqual(s, yvV.V) {
-		t.Fatalf("struct decode failed [%v] [%v] != [%v]", err, s, yvV.V)
-	}
-
-	if read != len(zvV) {
-		t.Fatalf("Incomplete read: [%v] != [%v]", read, len(zvV))
-	}
-}
-
-func TestDecodeStruct(t *testing.T) {
-	var ys1 struct {
-		A uint16
-		B []uint8 `tls:"head=2"`
-		C [4]uint32
-	}
-	read, err := Unmarshal(zs1, &ys1)
-	if err != nil || !reflect.DeepEqual(ys1, xs1) || read != len(zs1) {
-		t.Fatalf("struct decode failed [%v] [%v]", err, ys1)
-	}
-}
-
-func TestDecodeUnmarshaler(t *testing.T) {
-	crypticStringUnmarshalCalls = 0
-	var ym CrypticString
-	read, err := Unmarshal(zm, &ym)
-
-	if err != nil || !reflect.DeepEqual(ym, xm) || read != len(zm) {
-		t.Fatalf("Unmarshaler decode failed [%v] [%v]", err, ym)
-	}
-
-	if crypticStringUnmarshalCalls != 1 {
-		t.Fatalf("CrypticString.UnmarshalTLS() was not called exactly once [%v]", crypticStringUnmarshalCalls)
-	}
-
-	crypticStringUnmarshalCalls = 0
-	var ysm struct {
-		A CrypticString
-		B uint16
-		C CrypticString
-	}
-	read, err = Unmarshal(zsm, &ysm)
-	if err != nil || !reflect.DeepEqual(ysm, xsm) || read != len(zsm) {
-		t.Fatalf("Struct-embedded unmarshaler decode failed [%v] [%v]", err, ysm)
-	}
-
-	if crypticStringUnmarshalCalls != 2 {
-		t.Fatalf("CrypticString.UnmarshalTLS() was not called exactly twice [%v]", crypticStringUnmarshalCalls)
-	}
-}
-
-func TestDecodeStructWithPointer(t *testing.T) {
-	var ysp struct {
-		A uint16
-		B *CrypticString
-	}
-	read, err := Unmarshal(zsp, &ysp)
-	if err != nil || !reflect.DeepEqual(ysp, xsp) || read != len(zsp) {
-		t.Fatalf("struct decode failed [%v] [%v]", err, ysp)
-	}
-}
-
-func TestIgnoreExtraData(t *testing.T) {
-	zsExtra := append(zs1, 0)
-	var ys1 struct {
-		A uint16
-		B []uint8 `tls:"head=2"`
-		C [4]uint32
-	}
-	read, err := Unmarshal(zsExtra, &ys1)
-	if err != nil || !reflect.DeepEqual(ys1, xs1) || read != len(zs1) {
-		t.Fatalf("struct decode failed [%v] [%v]", err, ys1)
+	for label, testCase := range errorCases {
+		decodedPointer := reflect.New(reflect.TypeOf(testCase.template))
+		read, err := Unmarshal(testCase.encoding, decodedPointer.Interface())
+		t.Logf("[%s] -> [%v]", label, err)
+		if err == nil || read > 0 {
+			t.Fatalf("Incorrectly allowed unmarshal [%s]: %v", label, err)
+		}
 	}
 }

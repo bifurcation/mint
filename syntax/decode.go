@@ -220,7 +220,8 @@ func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) in
 	if opts.head == 0 {
 		panic(fmt.Errorf("Cannot decode a slice without a header length"))
 	}
-	// If head == 0, then read everything from the buffer
+
+	// If the caller indicated there is no header, then read everything from the buffer
 	if opts.head == headValueNoHead {
 		for {
 			chunk := d.Next(1024)
