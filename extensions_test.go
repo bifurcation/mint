@@ -360,17 +360,17 @@ func TestExtensionFind(t *testing.T) {
 	ks := KeyShareExtension{HandshakeType: HandshakeTypeServerHello}
 	found, err := extListKeyShareIn.Find(&ks)
 	assertNotError(t, err, "Failed to parse valid extension")
-	assert(t, found, "Failed to find a valid extension")
+	assertTrue(t, found, "Failed to find a valid extension")
 
 	// Test find failure on absent extension
 	var sg SupportedGroupsExtension
 	found, err = extListKeyShareIn.Find(&sg)
 	assertNotError(t, err, "Error on missing extension")
-	assert(t, !found, "Found an extension that's not present")
+	assertTrue(t, !found, "Found an extension that's not present")
 
 	// Test find failure on unmarshal failure
 	found, err = extListInvalidIn.Find(&ks)
-	assert(t, found, "Didn't found an extension that's not valid")
+	assertTrue(t, found, "Didn't found an extension that's not valid")
 	assertError(t, err, "Parsed an invalid extension")
 }
 
@@ -394,8 +394,8 @@ func TestExtensionParse(t *testing.T) {
 
 	found, err := validExtensions.Parse(extensionsIn)
 	assertNotError(t, err, "Failed to parse valid extensions")
-	assert(t, found[ExtensionTypeKeyShare], "Failed to find key share")
-	assert(t, found[ExtensionTypeSupportedVersions], "Failed to find supported versions")
+	assertTrue(t, found[ExtensionTypeKeyShare], "Failed to find key share")
+	assertTrue(t, found[ExtensionTypeSupportedVersions], "Failed to find supported versions")
 
 	// Now a version with an error
 	sv.HandshakeType = HandshakeTypeServerHello
@@ -644,13 +644,13 @@ func TestPreSharedKeyMarshalUnmarshal(t *testing.T) {
 	// Test finding an identity that is present
 	id := []byte{1, 2, 3, 4}
 	binder, found := pskClientIn.HasIdentity(id)
-	assert(t, found, "Failed to find present identity")
+	assertTrue(t, found, "Failed to find present identity")
 	assertByteEquals(t, binder, bytes.Repeat([]byte{0xA0}, 32))
 
 	// Test finding an identity that is not present
 	id = []byte{1, 2, 4, 3}
 	_, found = pskClientIn.HasIdentity(id)
-	assert(t, !found, "Found a not-present identity")
+	assertTrue(t, !found, "Found a not-present identity")
 }
 
 func TestALPNMarshalUnmarshal(t *testing.T) {

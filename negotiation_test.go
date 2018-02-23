@@ -100,18 +100,18 @@ func TestPSKNegotiation(t *testing.T) {
 func TestPSKModeNegotiation(t *testing.T) {
 	// Test that everything that's allowed gets used
 	usingDH, usingPSK := PSKModeNegotiation(true, true, []PSKKeyExchangeMode{PSKModeKE, PSKModeDHEKE})
-	assert(t, usingDH, "Unnecessarily disabled DH")
-	assert(t, usingPSK, "Unnecessarily disabled PSK")
+	assertTrue(t, usingDH, "Unnecessarily disabled DH")
+	assertTrue(t, usingPSK, "Unnecessarily disabled PSK")
 
 	// Test that DH is disabled when not allowed with the PSK
 	usingDH, usingPSK = PSKModeNegotiation(true, true, []PSKKeyExchangeMode{PSKModeKE})
-	assert(t, !usingDH, "Should not have enabled DH")
-	assert(t, usingPSK, "Unnecessarily disabled PSK")
+	assertTrue(t, !usingDH, "Should not have enabled DH")
+	assertTrue(t, usingPSK, "Unnecessarily disabled PSK")
 
 	// Test that the PSK is disabled when DH is required but not possible
 	usingDH, usingPSK = PSKModeNegotiation(false, true, []PSKKeyExchangeMode{PSKModeDHEKE})
-	assert(t, !usingDH, "Should not have enabled DH")
-	assert(t, !usingPSK, "Should not have enabled PSK")
+	assertTrue(t, !usingDH, "Should not have enabled DH")
+	assertTrue(t, !usingPSK, "Should not have enabled PSK")
 }
 
 func TestCertificateSelection(t *testing.T) {
@@ -142,17 +142,21 @@ func TestCertificateSelection(t *testing.T) {
 }
 
 func TestEarlyDataNegotiation(t *testing.T) {
-	useEarlyData := EarlyDataNegotiation(true, true, true)
-	assert(t, useEarlyData, "Did not use early data when allowed")
+	useEarlyData, rejected := EarlyDataNegotiation(true, true, true)
+	assertTrue(t, useEarlyData, "Did not use early data when allowed")
+	assertTrue(t, !rejected, "Rejected when allowed")
 
-	useEarlyData = EarlyDataNegotiation(false, true, true)
-	assert(t, !useEarlyData, "Allowed early data when not using PSK")
+	useEarlyData, rejected = EarlyDataNegotiation(false, true, true)
+	assertTrue(t, !useEarlyData, "Allowed early data when not using PSK")
+	assertTrue(t, rejected, "Rejected not set")
 
-	useEarlyData = EarlyDataNegotiation(true, false, true)
-	assert(t, !useEarlyData, "Allowed early data when not signaled")
+	useEarlyData, rejected = EarlyDataNegotiation(true, false, true)
+	assertTrue(t, !useEarlyData, "Allowed early data when not signaled")
+	assertTrue(t, !rejected, "Rejected when not signaled")
 
-	useEarlyData = EarlyDataNegotiation(true, true, false)
-	assert(t, !useEarlyData, "Allowed early data when not allowed")
+	useEarlyData, rejected = EarlyDataNegotiation(true, true, false)
+	assertTrue(t, !useEarlyData, "Allowed early data when not allowed")
+	assertTrue(t, rejected, "Rejected not set")
 }
 
 func TestCipherSuiteNegotiation(t *testing.T) {

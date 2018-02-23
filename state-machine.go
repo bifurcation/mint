@@ -17,10 +17,6 @@ type SendQueuedHandshake struct{}
 
 type SendEarlyData struct{}
 
-type ReadEarlyData struct{}
-
-type ReadPastEarlyData struct{}
-
 type RekeyIn struct {
 	epoch  Epoch
 	KeySet keySet
@@ -50,7 +46,6 @@ type AppExtensionHandler interface {
 type ConnectionOptions struct {
 	ServerName string
 	NextProtos []string
-	EarlyData  []byte
 }
 
 // ConnectionParameters objects represent the parameters negotiated for a
@@ -60,6 +55,7 @@ type ConnectionParameters struct {
 	UsingDH                bool
 	ClientSendingEarlyData bool
 	UsingEarlyData         bool
+	RejectedEarlyData      bool
 	UsingClientAuth        bool
 
 	CipherSuite CipherSuite
@@ -69,7 +65,13 @@ type ConnectionParameters struct {
 
 // Working state for the handshake.
 type HandshakeContext struct {
-	hIn, hOut *HandshakeLayer
+	timeoutMS         uint32
+	timers            *timerSet
+	recvdRecords      []uint64
+	sentFragments     []*SentHandshakeFragment
+	hIn, hOut         *HandshakeLayer
+	waitingNextFlight bool
+	earlyData         []byte
 }
 
 func (hc *HandshakeContext) SetVersion(version uint16) {
@@ -84,7 +86,7 @@ func (hc *HandshakeContext) SetVersion(version uint16) {
 // stateConnected is symmetric between client and server
 type stateConnected struct {
 	Params              ConnectionParameters
-	hsCtx               HandshakeContext
+	hsCtx               *HandshakeContext
 	isClient            bool
 	cryptoParams        CipherSuiteParams
 	resumptionSecret    []byte
