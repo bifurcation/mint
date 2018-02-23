@@ -50,7 +50,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			"normal": {
 				clientConfig: &Config{
 					Groups:             []NamedGroup{P256},
-					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes:   []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs:               &PSKMapCache{},
@@ -62,7 +62,7 @@ func TestStateMachineIntegration(t *testing.T) {
 				},
 				serverConfig: &Config{
 					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes: []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs:             &PSKMapCache{},
@@ -90,7 +90,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			"helloRetryRequest": {
 				clientConfig: &Config{
 					Groups:             []NamedGroup{P256},
-					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes:   []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs:               &PSKMapCache{},
@@ -102,7 +102,7 @@ func TestStateMachineIntegration(t *testing.T) {
 				},
 				serverConfig: &Config{
 					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes: []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs:             &PSKMapCache{},
@@ -135,7 +135,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			"psk": {
 				clientConfig: &Config{
 					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes: []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs: &PSKMapCache{
@@ -149,7 +149,7 @@ func TestStateMachineIntegration(t *testing.T) {
 				},
 				serverConfig: &Config{
 					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes: []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs: &PSKMapCache{
@@ -177,7 +177,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			"pskWithEarlyData": {
 				clientConfig: &Config{
 					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes: []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs: &PSKMapCache{
@@ -192,7 +192,7 @@ func TestStateMachineIntegration(t *testing.T) {
 				},
 				serverConfig: &Config{
 					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes: []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs: &PSKMapCache{
@@ -222,7 +222,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			"pskRejected": {
 				clientConfig: &Config{
 					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes: []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs: &PSKMapCache{
@@ -236,7 +236,7 @@ func TestStateMachineIntegration(t *testing.T) {
 				},
 				serverConfig: &Config{
 					Groups:           []NamedGroup{P256},
-					SignatureSchemes: []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes: []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:         []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs:             &PSKMapCache{},
@@ -264,7 +264,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			"clientAuth": {
 				clientConfig: &Config{
 					Groups:             []NamedGroup{P256},
-					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes:   []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs:               &PSKMapCache{},
@@ -277,7 +277,7 @@ func TestStateMachineIntegration(t *testing.T) {
 				},
 				serverConfig: &Config{
 					Groups:            []NamedGroup{P256},
-					SignatureSchemes:  []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes:  []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:          []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:      []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs:              &PSKMapCache{},
@@ -309,7 +309,7 @@ func TestStateMachineIntegration(t *testing.T) {
 			"clientAuthNoCertificate": {
 				clientConfig: &Config{
 					Groups:             []NamedGroup{P256},
-					SignatureSchemes:   []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes:   []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:           []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs:               &PSKMapCache{},
@@ -321,7 +321,7 @@ func TestStateMachineIntegration(t *testing.T) {
 				},
 				serverConfig: &Config{
 					Groups:            []NamedGroup{P256},
-					SignatureSchemes:  []SignatureScheme{RSA_PSS_SHA256},
+					SignatureSchemes:  []SignatureScheme{ECDSA_P256_SHA256},
 					PSKModes:          []PSKKeyExchangeMode{PSKModeDHEKE},
 					CipherSuites:      []CipherSuite{TLS_AES_128_GCM_SHA256},
 					PSKs:              &PSKMapCache{},
