@@ -1608,3 +1608,40 @@ func TestAckDTLSLoseEE(t *testing.T) {
 	hsUntilComplete(t, client)
 	hsUntilComplete(t, server)
 }
+
+func readWriteExpectFail(t *testing.T, c *Conn) {
+	tmp := make([]byte, 10)
+	n, err := c.Read(tmp)
+	assertEquals(t, 0, n)
+	assertError(t, err, "Read too early worked")
+
+	n, err = c.Write(tmp)
+	assertEquals(t, 0, n)
+	assertError(t, err, "Write too early worked")
+}
+
+func writeExpectFail(t *testing.T, c *Conn) {
+	tmp := make([]byte, 10)
+	n, err := c.Write(tmp)
+	assertEquals(t, 0, n)
+	assertError(t, err, "Write too early worked")
+}
+
+func TestEarlyIOFail(t *testing.T) {
+	cConn, sConn := pipe()
+
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+	cbConn.SetAutoflush()
+	sbConn.SetAutoflush()
+
+	client := Client(cbConn, nbConfig)
+	server := Server(sbConn, nbConfig)
+	readWriteExpectFail(t, client)
+	readWriteExpectFail(t, server)
+
+	client.Handshake()
+	server.Handshake()
+	readWriteExpectFail(t, client)
+	readWriteExpectFail(t, server)
+}
