@@ -27,17 +27,10 @@ func hexBuffer(size int) string {
 
 type CrypticString string
 
-var (
-	crypticStringMarshalCalls   = 0
-	crypticStringUnmarshalCalls = 0
-)
-
 // A CrypticString marshalls as one length octet followed by the
 // UTF-8 bytes of the string, XOR'ed with an increasing sequence
 // starting with the length plus one (L+1, L+2, ...).
 func (cs CrypticString) MarshalTLS() ([]byte, error) {
-	crypticStringMarshalCalls += 1
-
 	l := byte(len(cs))
 	b := []byte(cs)
 	for i := range b {
@@ -47,8 +40,6 @@ func (cs CrypticString) MarshalTLS() ([]byte, error) {
 }
 
 func (cs *CrypticString) UnmarshalTLS(data []byte) (int, error) {
-	crypticStringUnmarshalCalls += 1
-
 	if len(data) == 0 {
 		return 0, fmt.Errorf("Length of CrypticString must be at least 1")
 	}
@@ -120,8 +111,8 @@ func TestSuccessCases(t *testing.T) {
 
 		// Arrays
 		"array": {
-			value:    [5]uint16{0x1111, 0x2222, 0x3333, 0x4444, 0x5555},
-			encoding: unhex("11112222333344445555"),
+			value:    [5]uint16{0x0102, 0x0304, 0x0506, 0x0708, 0x090a},
+			encoding: unhex("0102030405060708090a"),
 		},
 
 		// Slices
