@@ -117,20 +117,20 @@ func TestPSKModeNegotiation(t *testing.T) {
 func TestCertificateSelection(t *testing.T) {
 	goodName := "example.com"
 	badName := "not-example.com"
-	rsa := []SignatureScheme{RSA_PKCS1_SHA256}
+	rsa := []SignatureScheme{ECDSA_P256_SHA256}
 	eddsa := []SignatureScheme{Ed25519}
 
 	// Test success
 	cert, scheme, err := CertificateSelection(&goodName, rsa, certificates)
 	assertNotError(t, err, "Failed to find certificate in a valid set")
 	assertNotNil(t, cert, "Failed to set certificate")
-	assertEquals(t, scheme, RSA_PKCS1_SHA256)
+	assertEquals(t, scheme, ECDSA_P256_SHA256)
 
 	// Test success with no name specified
 	cert, scheme, err = CertificateSelection(nil, rsa, certificates)
 	assertNotError(t, err, "Failed to find certificate in a valid set")
 	assertNotNil(t, cert, "Failed to set certificate")
-	assertEquals(t, scheme, RSA_PKCS1_SHA256)
+	assertEquals(t, scheme, ECDSA_P256_SHA256)
 
 	// Test failure on no certs matching host name
 	_, _, err = CertificateSelection(&badName, rsa, certificates)
