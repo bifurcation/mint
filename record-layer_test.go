@@ -21,6 +21,10 @@ const (
 	ciphertext2Hex = "170301001a1da650d5da822b7f4eba67f954767fcbbbd4c4bc7f1c61daf701"
 )
 
+func newRecordLayerFromBytes(b []byte) *RecordLayer {
+	return NewRecordLayerTLS(bytes.NewBuffer(b), directionRead)
+}
+
 func TestRekey(t *testing.T) {
 	key := unhex(keyHex)
 	iv := unhex(ivHex)
@@ -49,7 +53,7 @@ func TestReadRecord(t *testing.T) {
 	plaintext := unhex(plaintextHex)
 
 	// Test that a known-good frame decodes properly
-	r := NewRecordLayerTLS(bytes.NewBuffer(plaintext), directionRead)
+	r := newRecordLayerFromBytes(plaintext)
 	pt, err := r.ReadRecord()
 	assertNotError(t, err, "Failed to decode valid plaintext")
 	assertEquals(t, pt.contentType, RecordTypeAlert)
@@ -57,7 +61,7 @@ func TestReadRecord(t *testing.T) {
 
 	// Test failure on unkown record type
 	plaintext[0] = 0xFF
-	r = NewRecordLayerTLS(bytes.NewBuffer(plaintext), directionRead)
+	r = newRecordLayerFromBytes(plaintext)
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject record with unknown type")
 	plaintext[0] = 0x15
@@ -66,7 +70,7 @@ func TestReadRecord(t *testing.T) {
 	originalAllowWrongVersionNumber := allowWrongVersionNumber
 	allowWrongVersionNumber = false
 	plaintext[2] = 0x02
-	r = NewRecordLayerTLS(bytes.NewBuffer(plaintext), directionRead)
+	r = newRecordLayerFromBytes(plaintext)
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject record with incorrect version")
 	plaintext[2] = 0x01
@@ -74,18 +78,18 @@ func TestReadRecord(t *testing.T) {
 
 	// Test failure on size too big
 	plaintext[3] = 0xFF
-	r = NewRecordLayerTLS(bytes.NewBuffer(plaintext), directionRead)
+	r = newRecordLayerFromBytes(plaintext)
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject record exceeding size limit")
 	plaintext[3] = 0x00
 
 	// Test failure on header read failure
-	r = NewRecordLayerTLS(bytes.NewBuffer(plaintext[:3]), directionRead)
+	r = newRecordLayerFromBytes(plaintext[:3])
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Didn't fail when unable to read header")
 
 	// Test failure on body read failure
-	r = NewRecordLayerTLS(bytes.NewBuffer(plaintext[:7]), directionRead)
+	r = newRecordLayerFromBytes(plaintext[:7])
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Didn't fail when unable to read fragment")
 }
@@ -129,7 +133,7 @@ func TestDecryptRecord(t *testing.T) {
 	ciphertext2 := unhex(ciphertext2Hex)
 
 	// Test successful decrypt
-	r := NewRecordLayerTLS(bytes.NewBuffer(ciphertext1), directionRead)
+	r := newRecordLayerFromBytes(ciphertext1)
 	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
 	pt, err := r.ReadRecord()
 	assertNotError(t, err, "Failed to decrypt valid record")
@@ -137,7 +141,7 @@ func TestDecryptRecord(t *testing.T) {
 	assertByteEquals(t, pt.fragment, plaintext[5:])
 
 	// Test successful decrypt after sequence number change
-	r = NewRecordLayerTLS(bytes.NewBuffer(ciphertext2), directionRead)
+	r = newRecordLayerFromBytes(ciphertext2)
 	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
 	for i := 0; i < sequenceChange; i++ {
 		r.cipher.incrementSequenceNumber()
@@ -149,7 +153,7 @@ func TestDecryptRecord(t *testing.T) {
 
 	// Test failure on decrypt failure
 	ciphertext1[7] ^= 0xFF
-	r = NewRecordLayerTLS(bytes.NewBuffer(ciphertext1), directionRead)
+	r = newRecordLayerFromBytes(ciphertext1)
 	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject invalid record")

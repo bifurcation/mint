@@ -433,14 +433,13 @@ func (r *RecordLayer) writeRecordWithPadding(pt *TLSPlaintext, cipher *cipherSta
 			byte(r.version >> 8), byte(r.version & 0xff),
 			byte(length >> 8), byte(length)}
 	} else {
-		seqb := make([]byte, 8)
-		encodeUint(seq, 8, seqb)
+		header = make([]byte, 13)
 		version := dtlsConvertVersion(r.version)
-		header = []byte{byte(pt.contentType),
+		copy(header, []byte{byte(pt.contentType),
 			byte(version >> 8), byte(version & 0xff),
-		}
-		header = append(header, seqb...)
-		header = append(header, byte(length>>8), byte(length))
+		})
+		encodeUint(seq, 8, header[3:])
+		encodeUint(uint64(length), 2, header[11:])
 	}
 	record := append(header, pt.fragment...)
 
