@@ -6,10 +6,11 @@ import (
 
 // This is a simple timer implementation. Timers are stored in a sorted
 // list.
+// TODO(ekr@rtfm.com): Add a way to uncouple these from the system
+// clock.
 type timerCb func() error
 
 type timer struct {
-	ts       *timerSet
 	label    string
 	cb       timerCb
 	deadline time.Time
@@ -27,7 +28,6 @@ func newTimerSet() *timerSet {
 func (ts *timerSet) start(label string, cb timerCb, delayMs uint32) *timer {
 	now := time.Now()
 	t := timer{
-		ts,
 		label,
 		cb,
 		now.Add(time.Millisecond * time.Duration(delayMs)),

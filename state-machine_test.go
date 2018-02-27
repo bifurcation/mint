@@ -175,6 +175,8 @@ func TestStateMachineIntegration(t *testing.T) {
 
 			/* Commented out because PeekRecordType() not available without a record layer
 
+			TODO(ekr@rtfm.com): Reenable.
+
 			// PSK case, with early data
 			"pskWithEarlyData": {
 				clientConfig: &Config{

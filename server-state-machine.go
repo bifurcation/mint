@@ -756,8 +756,8 @@ func (state serverStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 	}
 	if state.Params.RejectedEarlyData {
 		nextState = serverStateReadPastEarlyData{
-			state.hsCtx,
-			&nextState,
+			hsCtx: state.hsCtx,
+			next:  &nextState,
 		}
 	}
 	return nextState, toSend, AlertNoAlert
@@ -803,7 +803,7 @@ func (state serverStateWaitEOED) Next(hr handshakeMessageReader) (HandshakeState
 		}
 
 		// Read a record into the buffer. Note that this is safe
-		// in blocking mode because we read the record in in
+		// in blocking mode because we read the record in
 		// PeekRecordType.
 		pt, err := state.hsCtx.hIn.conn.ReadRecord()
 		if err != nil {
