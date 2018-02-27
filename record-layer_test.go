@@ -41,7 +41,7 @@ func TestSequenceNumberRollover(t *testing.T) {
 
 	cs, err := newCipherStateAead(EpochApplicationData, newAESGCM, key, iv)
 	assertNotError(t, err, "Couldn't create cipher state")
-	cs.seq = 1 << 48
+	cs.seq = (1 << 48) - 1
 	cs.incrementSequenceNumber()
 }
 

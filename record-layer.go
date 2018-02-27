@@ -138,6 +138,7 @@ func (r *RecordLayer) Rekey(epoch Epoch, factory aeadFactory, key []byte, iv []b
 	return nil
 }
 
+// TODO(ekr@rtfm.com): This is never used, which is a bug.
 func (r *RecordLayer) DiscardReadKey(epoch Epoch) {
 	if !r.datagram {
 		return
@@ -173,7 +174,7 @@ func (c *cipherState) computeNonce(seq uint64) []byte {
 }
 
 func (c *cipherState) incrementSequenceNumber() {
-	if c.seq >= 1<<48 {
+	if c.seq >= (1<<48 - 1) {
 		// Not allowed to let sequence number wrap.
 		// Instead, must renegotiate before it does.
 		// Not likely enough to bother. This is the

@@ -48,6 +48,7 @@ func dtlsConvertVersion(version uint16) uint16 {
 	panic(fmt.Sprintf("Internal error, unexpected version=%d", version))
 }
 
+// TODO(ekr@rtfm.com): Move these to state-machine.go
 func (h *HandshakeContext) handshakeRetransmit() error {
 	if _, err := h.hOut.SendQueuedMessages(); err != nil {
 		return err
@@ -194,7 +195,6 @@ func (h *HandshakeContext) receivedFinalFlight() {
 
 	// But send an ACK immediately.
 	h.sendAck()
-
 }
 
 func (h *HandshakeContext) fragmentAcked(seq uint32, offset int, fraglen int) bool {
