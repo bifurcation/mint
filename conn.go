@@ -466,10 +466,8 @@ func (c *Conn) Write(buffer []byte) (int, error) {
 	c.out.Lock()
 	defer c.out.Unlock()
 
-	if _, connected := c.hState.(stateConnected); !connected {
-		if !c.isClient || c.out.cipher.epoch != EpochEarlyData {
-			return 0, errors.New("Write called before the handshake completed (and early data not in use)")
-		}
+	if !c.Writable() {
+		return 0, errors.New("Write called before the handshake completed (and early data not in use)")
 	}
 
 	// Send full-size fragments
@@ -887,6 +885,15 @@ func (c *Conn) ConnectionState() ConnectionState {
 	}
 
 	return state
+}
+
+func (c *Conn) Writable() bool {
+	if _, connected := c.hState.(stateConnected); !connected {
+		if !c.isClient || c.out.cipher.epoch != EpochEarlyData {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Conn) label() string {

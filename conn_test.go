@@ -359,11 +359,11 @@ func testConnInner(t *testing.T, name string, p testInstanceState) {
 		"x25519": x25519Config,
 	}
 
-	c := configs[p.get("config")]
+	c := configs[p["config"]]
 	conf := *c
 
 	// Set up the test parameters.
-	if p.get("nonblocking") == "true" {
+	if p["nonblocking"] == "true" {
 		conf.NonBlocking = true
 	}
 
@@ -390,21 +390,15 @@ func testConnInner(t *testing.T, name string, p testInstanceState) {
 }
 
 func TestBasicFlows(t *testing.T) {
-	params := []testParameter{
-		testParameter{
-			"config",
-			[]string{
-				"basic config",
-				"HRR",
-				"ALPN",
-				"FFDH",
-				"x25519",
-			},
+	params := map[string][]string{
+		"config": []string{
+			"basic config",
+			"HRR",
+			"ALPN",
+			"FFDH",
+			"x25519",
 		},
-		testParameter{
-			"blocking",
-			[]string{"true", "false"},
-		},
+		"blocking": []string{"true", "false"},
 	}
 
 	runParametrizedTest(t, params, testConnInner)
@@ -857,7 +851,7 @@ func test0xRTT(t *testing.T, name string, p testInstanceState) {
 	conf := *pskConfig
 	conf.NonBlocking = true
 
-	if p.get("dtls") == "true" {
+	if p["dtls"] == "true" {
 		conf.UseDTLS = true
 	}
 
@@ -890,11 +884,8 @@ func test0xRTT(t *testing.T, name string, p testInstanceState) {
 }
 
 func Test0xRTT(t *testing.T) {
-	params := []testParameter{
-		testParameter{
-			"dtls",
-			[]string{"true", "false"},
-		},
+	params := map[string][]string{
+		"dtls": []string{"true", "false"},
 	}
 	runParametrizedTest(t, params, test0xRTT)
 }

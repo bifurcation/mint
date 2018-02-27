@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"sort"
 	"testing"
 )
 
@@ -93,49 +94,22 @@ func assertSameType(t *testing.T, a, b interface{}) {
 
 // Utilities for parametrized tests
 // Represents the configuration for a given test instance.
-type testInstanceState interface {
-	set(string, string)
-	get(string) string
-}
-
-// This complicated mixin stuff is in case we want to extend this to
-// pass other parameters that aren't srings. Arguably YAGNI.
-type testInstanceStateMixin struct {
-	params map[string]string
-}
-
-func (m *testInstanceStateMixin) set(k string, v string) {
-	m.params[k] = v
-}
-
-func (m *testInstanceStateMixin) get(k string) string {
-	return m.params[k]
-}
-
-func newTestInstanceStateMixin() testInstanceStateMixin {
-	return testInstanceStateMixin{make(map[string]string, 0)}
-}
-
-type testInstanceStateBase struct {
-	testInstanceStateMixin
-}
-
-func newTestInstanceStateBase() testInstanceState {
-	return &testInstanceStateBase{newTestInstanceStateMixin()}
-}
+type testInstanceState map[string]string
 
 // Helper function.
-func runParametrizedInner(t *testing.T, name string, state testInstanceState, inparams []testParameter, f parametrizedTest) {
-	next := inparams[1:]
+func runParametrizedInner(t *testing.T, name string, state testInstanceState, inparams map[string][]string, inparamList []string, f parametrizedTest) {
 
-	param := inparams[0]
-	for _, p := range param.vals {
-		state.set(param.name, p)
+	paramName := inparamList[0]
+	param := inparams[paramName]
+	next := inparamList[1:]
+
+	for _, paramVal := range param {
+		state[paramName] = paramVal
 		var n string
 		if len(name) > 0 {
 			n = name + "/"
 		}
-		n = n + param.name + "=" + p
+		n = n + paramName + "=" + paramVal
 
 		if len(next) == 0 {
 			t.Run(n, func(t *testing.T) {
@@ -143,7 +117,7 @@ func runParametrizedInner(t *testing.T, name string, state testInstanceState, in
 			})
 			continue
 		}
-		runParametrizedInner(t, n, state, next, f)
+		runParametrizedInner(t, n, state, inparams, next, f)
 	}
 }
 
@@ -156,6 +130,13 @@ type testParameter struct {
 type parametrizedTest func(t *testing.T, name string, p testInstanceState)
 
 // This is the function you call.
-func runParametrizedTest(t *testing.T, inparams []testParameter, f parametrizedTest) {
-	runParametrizedInner(t, "", newTestInstanceStateBase(), inparams, f)
+func runParametrizedTest(t *testing.T, inparams map[string][]string, f parametrizedTest) {
+	// Make a sorted list of the names, so we get a consistent order.
+	il := make([]string, 0)
+	for k, _ := range inparams {
+		il = append(il, k)
+	}
+	sort.Slice(il, func(i, j int) bool { return il[i] < il[j] })
+
+	runParametrizedInner(t, "", make(map[string]string), inparams, il, f)
 }
