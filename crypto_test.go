@@ -13,6 +13,8 @@ import (
 	"io"
 	"math/big"
 	"testing"
+
+	"golang.org/x/crypto/ed25519"
 )
 
 var (
@@ -162,7 +164,7 @@ func TestNewSigningKey(t *testing.T) {
 
 	// Test ECDSA success (P-256)
 	privECDSA, err := newSigningKey(ECDSA_P256_SHA256)
-	assertNotError(t, err, "failed to generate RSA private key")
+	assertNotError(t, err, "failed to generate ECDSA private key")
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
 	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
 	pub := privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
@@ -170,7 +172,7 @@ func TestNewSigningKey(t *testing.T) {
 
 	// Test ECDSA success (P-384)
 	privECDSA, err = newSigningKey(ECDSA_P384_SHA384)
-	assertNotError(t, err, "failed to generate RSA private key")
+	assertNotError(t, err, "failed to generate ECDSA private key")
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
 	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
 	pub = privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
@@ -178,14 +180,20 @@ func TestNewSigningKey(t *testing.T) {
 
 	// Test ECDSA success (P-521)
 	privECDSA, err = newSigningKey(ECDSA_P521_SHA512)
-	assertNotError(t, err, "failed to generate RSA private key")
+	assertNotError(t, err, "failed to generate ECDSA private key")
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
 	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
 	pub = privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
 	assertEquals(t, P521, namedGroupFromECDSAKey(pub))
 
+	// Test Ed25519 success
+	privEd25519, err := newSigningKey(Ed25519)
+	assertNotError(t, err, "failed to generate Ed25519 private key")
+	_, ok = privEd25519.(ed25519.PrivateKey)
+	assert(t, ok, "New Ed25519 key was not actually an Ed25519 key")
+
 	// Test unsupported algorithm
-	_, err = newSigningKey(Ed25519)
+	_, err = newSigningKey(Ed448 + 1)
 	assertError(t, err, "Created a private key for an unsupported algorithm")
 }
 
@@ -221,6 +229,8 @@ func TestSignVerify(t *testing.T) {
 	assertNotError(t, err, "failed to generate RSA private key")
 	privECDSA, err := newSigningKey(ECDSA_P256_SHA256)
 	assertNotError(t, err, "failed to generate ECDSA private key")
+	privEd25519, err := newSigningKey(Ed25519)
+	assertNotError(t, err, "failed to generate Ed25519 private key")
 
 	// Test successful signing with PKCS#1 when it is allowed
 	originalAllowPKCS1 := allowPKCS1
@@ -247,6 +257,10 @@ func TestSignVerify(t *testing.T) {
 	// Test successful signing with ECDSA
 	sigECDSA, err := sign(ECDSA_P256_SHA256, privECDSA, data)
 	assertNotError(t, err, "Failed to generate ECDSA signature")
+
+	// Test successful signing with Ed25519
+	sigEd25519, err := sign(Ed25519, privEd25519, data)
+	assertNotError(t, err, "Failed to generate Ed25519 signature")
 
 	// Test signature failure on use of SHA-1
 	_, err = sign(RSA_PKCS1_SHA1, privRSA, data)
@@ -289,6 +303,10 @@ func TestSignVerify(t *testing.T) {
 	// Test successful verification with ECDSA
 	err = verify(ECDSA_P256_SHA256, privECDSA.Public(), data, sigECDSA)
 	assertNotError(t, err, "Failed to verify a valid ECDSA signature")
+
+	// Test successful verification with Ed25519
+	err = verify(Ed25519, privEd25519.Public(), data, sigEd25519)
+	assertNotError(t, err, "Failed to verify a valid Ed25519 signature")
 
 	// Test that SHA-1 is forbidden
 	err = verify(RSA_PKCS1_SHA1, privECDSA.Public(), data, sigECDSA)
