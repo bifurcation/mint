@@ -17,7 +17,7 @@ import (
 
 var (
 	ecGroups    = []NamedGroup{P256, P384, P521}
-	nonECGroups = []NamedGroup{FFDHE2048, FFDHE3072, FFDHE4096, FFDHE6144, FFDHE8192, X25519}
+	nonECGroups = []NamedGroup{FFDHE2048, FFDHE3072, FFDHE4096, FFDHE6144, FFDHE8192, X25519, X448}
 	dhGroups    = append(ecGroups, nonECGroups...)
 
 	shortKeyPubHex = "04e9f6076620ddf6a24e4398162057eccd3077892f046b412" +
@@ -92,6 +92,15 @@ func TestNewKeyShare(t *testing.T) {
 	assertError(t, err, "Generated an X25519 key with no entropy")
 	prng = originalPRNG
 
+	// Test failure case for an X448 key generation failure
+	originalPRNG = prng
+	prng = bytes.NewReader(nil)
+	_, _, err = newKeyShare(X448)
+	assertError(t, err, "Generated an X448 key with no entropy")
+	prng = originalPRNG
+
+	// TODO(rlb@ipv.sx): Test failure for X448 when the zero key is derived
+
 	// Test failure case for an unknown group
 	_, _, err = newKeyShare(NamedGroup(0))
 	assertError(t, err, "Generated a key for an unsupported group")
@@ -133,6 +142,10 @@ func TestKeyAgreement(t *testing.T) {
 
 	// Test failure for a too-short X25519 public key
 	_, err = keyAgreement(X25519, shortKeyPub[:5], shortKeyPriv)
+	assertError(t, err, "Performed key agreement with a truncated public key")
+
+	// Test failure for a too-short X448 public key
+	_, err = keyAgreement(X448, shortKeyPub[:5], shortKeyPriv)
 	assertError(t, err, "Performed key agreement with a truncated public key")
 
 	// Test failure case for an unknown group

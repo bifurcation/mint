@@ -17,6 +17,8 @@ import (
 	"math/big"
 	"time"
 
+	"git.schwanenlied.me/yawning/x448.git"
+	//"github.com/twstrike/ed448"
 	"golang.org/x/crypto/curve25519"
 
 	// Blank includes to ensure hash support
@@ -148,6 +150,8 @@ func keyExchangeSizeFromNamedGroup(group NamedGroup) (size int) {
 	switch group {
 	case X25519:
 		size = 32
+	case X448:
+		size = 56
 	case P256:
 		size = 65
 	case P384:
@@ -257,6 +261,22 @@ func newKeyShare(group NamedGroup) (pub []byte, priv []byte, err error) {
 		pub = public[:]
 		return
 
+	case X448:
+		var private, public [56]byte
+		_, err = prng.Read(private[:])
+		if err != nil {
+			return
+		}
+
+		rv := x448.ScalarBaseMult(&public, &private)
+		if rv != 0 {
+			return nil, nil, fmt.Errorf("tls.newkeyshare: X448 failed")
+		}
+
+		priv = private[:]
+		pub = public[:]
+		return
+
 	default:
 		return nil, nil, fmt.Errorf("tls.newkeyshare: Unsupported group %v", group)
 	}
@@ -305,6 +325,21 @@ func keyAgreement(group NamedGroup, pub []byte, priv []byte) ([]byte, error) {
 		copy(private[:], priv)
 		copy(public[:], pub)
 		curve25519.ScalarMult(&ret, &private, &public)
+
+		return ret[:], nil
+
+	case X448:
+		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
+			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
+		}
+
+		var private, public, ret [56]byte
+		copy(private[:], priv)
+		copy(public[:], pub)
+		rv := x448.ScalarMult(&ret, &private, &public)
+		if rv != 0 {
+			return nil, fmt.Errorf("tls.keyagreement: Error in X448")
+		}
 
 		return ret[:], nil
 
