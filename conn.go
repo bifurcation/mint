@@ -797,12 +797,15 @@ func (c *Conn) Handshake() Alert {
 						}
 					}
 				}
-			}
 
-			// If there is early data, move it into the main buffer
-			if c.hsCtx.earlyData != nil {
-				c.readBuffer = c.hsCtx.earlyData
-				c.hsCtx.earlyData = nil
+				// If there is early data, move it into the main buffer
+				if c.hsCtx.earlyData != nil {
+					c.readBuffer = c.hsCtx.earlyData
+					c.hsCtx.earlyData = nil
+				}
+
+			} else {
+				assert(c.hsCtx.earlyData == nil)
 			}
 		}
 

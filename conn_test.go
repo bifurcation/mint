@@ -1427,24 +1427,24 @@ func TestTimeoutAndRetransmissionDTLS(t *testing.T) {
 	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
 }
 
-func checkTimers(t *testing.T, c *Conn, labels []string) {
-	armed := c.hsCtx.timers.getAllTimers()
+func checkTimersEqualLabels(t *testing.T, c *Conn, labels []string) {
+	timers := c.hsCtx.timers.getAllTimers()
 
-	ma := make(map[string]bool)
-	mb := make(map[string]bool)
+	timerLabels := make(map[string]bool)
+	expectedLabels := make(map[string]bool)
 
 	// Check that the arrays are the same
-	for _, a := range armed {
-		ma[a] = true
+	for _, timer := range timers {
+		timerLabels[timer] = true
 	}
 
-	for _, a := range labels {
-		mb[a] = true
-		assertTrue(t, ma[a], fmt.Sprintf("Timer should have been armed: %v", a))
+	for _, label := range labels {
+		expectedLabels[label] = true
+		assertTrue(t, timerLabels[label], fmt.Sprintf("Timer should have been armed: %v", label))
 	}
 
-	for _, a := range armed {
-		assertTrue(t, mb[a], fmt.Sprintf("Timer should not have been armed: %v", a))
+	for _, timer := range timers {
+		assertTrue(t, expectedLabels[timer], fmt.Sprintf("Timer should not have been armed: %v", timer))
 	}
 
 }
@@ -1539,18 +1539,18 @@ func TestAckDTLSNormal(t *testing.T) {
 	hsUntilBlocked(t, server, sbConn)
 
 	// Both sides should be have armed retransmit timers.
-	checkTimers(t, client, []string{retransmitTimerLabel})
-	checkTimers(t, server, []string{retransmitTimerLabel})
+	checkTimersEqualLabels(t, client, []string{retransmitTimerLabel})
+	checkTimersEqualLabels(t, server, []string{retransmitTimerLabel})
 
 	// Now run the client and server to completion
 	hsUntilComplete(t, client)
 	hsUntilComplete(t, server)
 
 	// Client will have retransmit until we read the ACK
-	checkTimers(t, client, []string{retransmitTimerLabel})
+	checkTimersEqualLabels(t, client, []string{retransmitTimerLabel})
 
 	// Server should have no timer
-	checkTimers(t, server, []string{})
+	checkTimersEqualLabels(t, server, []string{})
 
 	// Now read some data from the server so we get the ACK
 	b := make([]byte, 10)
@@ -1558,7 +1558,7 @@ func TestAckDTLSNormal(t *testing.T) {
 	assertEquals(t, 0, n)
 
 	// Client will now have no timers
-	checkTimers(t, client, []string{})
+	checkTimersEqualLabels(t, client, []string{})
 }
 
 func TestAckDTLSLoseEE(t *testing.T) {
@@ -1580,14 +1580,14 @@ func TestAckDTLSLoseEE(t *testing.T) {
 	hsUntilBlocked(t, server, sbConn)
 
 	// Both sides should be have armed retransmit timers.
-	checkTimers(t, client, []string{retransmitTimerLabel})
-	checkTimers(t, server, []string{retransmitTimerLabel})
+	checkTimersEqualLabels(t, client, []string{retransmitTimerLabel})
+	checkTimersEqualLabels(t, server, []string{retransmitTimerLabel})
 
 	// Now process as much of the server first flight as is there.
 	hsUntilBlocked(t, client, cbConn)
 
 	// Client should now have the ACK timer armed
-	checkTimers(t, client, []string{ackTimerLabel})
+	checkTimersEqualLabels(t, client, []string{ackTimerLabel})
 
 	// Now expire the timers
 	runAllTimers(t, client)
