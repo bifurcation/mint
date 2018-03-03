@@ -368,16 +368,17 @@ func (r *RecordLayer) nextRecord(allowOldEpoch bool) (*TLSPlaintext, error) {
 		epoch := Epoch(seq >> 48)
 
 		// Look up the cipher suite from the epoch
+		c, ok := r.readCiphers[epoch]
+		if !ok {
+			logf(logTypeIO, "%s Message from unknown epoch: [%v]", r.label, epoch)
+			fmt.Println("Known epochs = ", r.readCiphers)
+			return nil, AlertWouldBlock
+		}
+
 		if epoch != cipher.epoch {
 			logf(logTypeIO, "%s Message from non-current epoch: [%v != %v] out-of-epoch reads=%v", r.label, epoch,
 				cipher.epoch, allowOldEpoch)
 			if !allowOldEpoch {
-				return nil, AlertWouldBlock
-			}
-			c, ok := r.readCiphers[epoch]
-			if !ok {
-				logf(logTypeIO, "%s Message from unknown epoch: [%v]", r.label, epoch)
-				fmt.Println("Known epochs = ", r.readCiphers)
 				return nil, AlertWouldBlock
 			}
 			cipher = c
