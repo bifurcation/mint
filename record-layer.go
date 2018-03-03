@@ -371,7 +371,6 @@ func (r *RecordLayer) nextRecord(allowOldEpoch bool) (*TLSPlaintext, error) {
 		c, ok := r.readCiphers[epoch]
 		if !ok {
 			logf(logTypeIO, "%s Message from unknown epoch: [%v]", r.label, epoch)
-			fmt.Println("Known epochs = ", r.readCiphers)
 			return nil, AlertWouldBlock
 		}
 
