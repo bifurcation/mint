@@ -24,14 +24,17 @@ import (
 //                                | [Send CertificateRequest]
 // Can send                       | [Send Certificate + CertificateVerify]
 // app data -->                   | Send Finished
-// after                 +--------+--------+
-// here         No 0-RTT |                 | 0-RTT
-//                       |                 v
-//                       |             WAIT_EOED <---+
-//                       |            Recv |   |     | Recv
-//                       |  EndOfEarlyData |   |     | early data
-//                       |                 |   +-----+
-//                       +> WAIT_FLIGHT2 <-+
+// after here                     |
+//                    +-----------+--------+
+//                    |           |        |
+//     Rejected 0-RTT |        No |        | 0-RTT
+//                    |     0-RTT |        |
+//                    |           |        v
+//          +---->READ_PAST       |    WAIT_EOED <---+
+//  Decrypt |     |   | Decrypt   |   Recv |   |     | Recv
+//    error |     |   | OK + HS   |   EOED |   |     | early data
+//          +-----+   |           V        |   +-----+
+//                    +---> WAIT_FLIGHT2 <-+
 //                                |
 //                       +--------+--------+
 //               No auth |                 | Client auth
@@ -50,16 +53,17 @@ import (
 //
 // NB: Not using state RECVD_CH
 //
-//  State							Instructions
-//  START							{}
-//  NEGOTIATED				Send(SH); [RekeyIn;] RekeyOut; Send(EE); [Send(CertReq);] [Send(Cert); Send(CV)]
-//  WAIT_EOED					RekeyIn;
-//  WAIT_FLIGHT2			{}
-//  WAIT_CERT_CR			{}
-//  WAIT_CERT					{}
-//  WAIT_CV						{}
-//  WAIT_FINISHED			RekeyIn; RekeyOut;
-//  CONNECTED					StoreTicket || (RekeyIn; [RekeyOut])
+//  State          Instructions
+//  START          {}
+//  NEGOTIATED     Send(SH); [RekeyIn;] RekeyOut; Send(EE); [Send(CertReq);] [Send(Cert); Send(CV)]
+//  WAIT_EOED      RekeyIn;
+//  READ_PAST      {}
+//  WAIT_FLIGHT2   {}
+//  WAIT_CERT_CR   {}
+//  WAIT_CERT      {}
+//  WAIT_CV        {}
+//  WAIT_FINISHED  RekeyIn; RekeyOut;
+//  CONNECTED      StoreTicket || (RekeyIn; [RekeyOut])
 
 // A cookie can be sent to the client in a HRR.
 type cookie struct {
