@@ -118,6 +118,7 @@ func NewRecordLayerDTLS(conn io.ReadWriter, dir direction) *RecordLayer {
 	r.frame = newFrameReader(recordLayerFrameDetails{true})
 	r.cipher = newCipherStateNull()
 	r.readCiphers = make(map[Epoch]*cipherState, 0)
+	r.readCiphers[0] = r.cipher
 	r.datagram = true
 	return &r
 }
@@ -368,14 +369,15 @@ func (r *RecordLayer) nextRecord(allowOldEpoch bool) (*TLSPlaintext, error) {
 
 		// Look up the cipher suite from the epoch
 		if epoch != cipher.epoch {
-			logf(logTypeIO, "%s Message from non-current epoch: [%v != %v]", r.label, epoch,
-				cipher.epoch)
+			logf(logTypeIO, "%s Message from non-current epoch: [%v != %v] out-of-epoch reads=%v", r.label, epoch,
+				cipher.epoch, allowOldEpoch)
 			if !allowOldEpoch {
 				return nil, AlertWouldBlock
 			}
 			c, ok := r.readCiphers[epoch]
 			if !ok {
 				logf(logTypeIO, "%s Message from unknown epoch: [%v]", r.label, epoch)
+				fmt.Println("Known epochs = ", r.readCiphers)
 				return nil, AlertWouldBlock
 			}
 			cipher = c

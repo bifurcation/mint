@@ -1636,3 +1636,54 @@ func TestEarlyIOFail(t *testing.T) {
 	readWriteExpectFail(t, client)
 	readWriteExpectFail(t, server)
 }
+
+func TestDTLSOutOfEpochHSFail(t *testing.T) {
+	cConn, sConn := pipe()
+
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+	cbConn.SetAutoflush()
+	sbConn.SetAutoflush()
+
+	client := Client(cbConn, nbConfigDTLS)
+	server := Server(sbConn, nbConfigDTLS)
+
+	hsUntilBlocked(t, client, cbConn)
+	hsUntilBlocked(t, server, sbConn)
+
+	cbConn.Write([]byte{byte(RecordTypeApplicationData),
+		byte(dtls12WireVersion >> 8), byte(dtls12WireVersion & 0xff),
+		0, 0, 0, 0, 0, 0, 0, 0, // Epoch 0, seq 0
+		0, 5, 1, 2, 3, 4, 5, // Payload
+	})
+
+	// This causes an error because it's an unexpected record type.
+	err := server.Handshake()
+	assertEquals(t, err, AlertCloseNotify)
+}
+
+func TestDTLSOutOfEpochPostHSDiscard(t *testing.T) {
+	cConn, sConn := pipe()
+
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+	cbConn.SetAutoflush()
+	sbConn.SetAutoflush()
+
+	client := Client(cbConn, pskDTLSConfig)
+	server := Server(sbConn, pskDTLSConfig)
+
+	hsRunHandshakeOneThread(t, client, server)
+
+	// Now inject something with epoch 0, but as app data.
+	// It will get discarded.
+	cbConn.Write([]byte{byte(RecordTypeApplicationData),
+		byte(dtls12WireVersion >> 8), byte(dtls12WireVersion & 0xff),
+		0, 0, 0, 0, 0, 0, 0, 0, // Epoch 0, seq 0
+		0, 5, 1, 2, 3, 4, 5, // Payload
+	})
+
+	tmp := make([]byte, 10)
+	_, err := server.Read(tmp)
+	assertEquals(t, err, AlertWouldBlock)
+}
