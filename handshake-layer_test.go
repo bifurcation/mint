@@ -281,7 +281,7 @@ func newTestReassembleFixture(t *testing.T) *testReassembleFixture {
 	f := testReassembleFixture{t: t}
 	// Make two messages, m0 and m1, with m0 fragmented
 	m0 := make([]byte, 2048)
-	for i, _ := range m0 {
+	for i := range m0 {
 		m0[i] = byte(i % 13)
 	}
 	f.m0 = newHsFragment(m0, 0, 0, 2048)
@@ -292,7 +292,7 @@ func newTestReassembleFixture(t *testing.T) *testReassembleFixture {
 	f.m0f1y = newHsFragment(m0, 0, 512, 1048)
 
 	m1 := make([]byte, 2048)
-	for i, _ := range m1 {
+	for i := range m1 {
 		m1[i] = byte(i % 23)
 	}
 	f.m1 = newHsFragment(m1, 1, 0, 2048)

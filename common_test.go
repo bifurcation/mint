@@ -133,7 +133,7 @@ type parametrizedTest func(t *testing.T, name string, p testInstanceState)
 func runParametrizedTest(t *testing.T, inparams map[string][]string, f parametrizedTest) {
 	// Make a sorted list of the names, so we get a consistent order.
 	il := make([]string, 0)
-	for k, _ := range inparams {
+	for k := range inparams {
 		il = append(il, k)
 	}
 	sort.Slice(il, func(i, j int) bool { return il[i] < il[j] })

@@ -394,14 +394,14 @@ func testConnInner(t *testing.T, name string, p testInstanceState) {
 
 func TestBasicFlows(t *testing.T) {
 	params := map[string][]string{
-		"config": []string{
+		"config": {
 			"basic config",
 			"HRR",
 			"ALPN",
 			"FFDH",
 			"x25519",
 		},
-		"blocking": []string{"true", "false"},
+		"blocking": {"true", "false"},
 	}
 
 	runParametrizedTest(t, params, testConnInner)
@@ -602,7 +602,7 @@ func TestCertChain(t *testing.T) {
 
 	serverConfig := &Config{
 		Certificates: []*Certificate{
-			&Certificate{Chain: []*x509.Certificate{cert, cacert}, PrivateKey: key},
+			{Chain: []*x509.Certificate{cert, cacert}, PrivateKey: key},
 		},
 	}
 
@@ -888,7 +888,7 @@ func test0xRTT(t *testing.T, name string, p testInstanceState) {
 
 func Test0xRTT(t *testing.T) {
 	params := map[string][]string{
-		"dtls": []string{"true", "false"},
+		"dtls": {"true", "false"},
 	}
 	runParametrizedTest(t, params, test0xRTT)
 }
