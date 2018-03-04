@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// This file is a placeholder. DTLS-specific stuff (timer management,
-// ACKs, retransmits, etc. will eventually go here.
 const (
 	initialMtu     = 1200
 	initialTimeout = 100
@@ -129,8 +127,6 @@ func (h *HandshakeContext) processAck(data []byte) error {
 
 	return nil
 }
-
-type connTimerCb func(c *Conn) error
 
 func (c *Conn) GetDTLSTimeout() (bool, time.Duration) {
 	return c.hsCtx.timers.remaining()

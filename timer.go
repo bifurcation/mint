@@ -22,7 +22,7 @@ type timerSet struct {
 }
 
 func newTimerSet() *timerSet {
-	return &timerSet{nil}
+	return &timerSet{}
 }
 
 func (ts *timerSet) start(label string, cb timerCb, delayMs uint32) *timer {

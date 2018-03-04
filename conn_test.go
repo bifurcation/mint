@@ -86,20 +86,20 @@ func (p *pipeConn) RemoteAddr() net.Addr               { return nil }
 func (p *pipeConn) SetDeadline(t time.Time) error      { return nil }
 func (p *pipeConn) SetReadDeadline(t time.Time) error  { return nil }
 func (p *pipeConn) SetWriteDeadline(t time.Time) error { return nil }
-func (p *pipeConn) Left() int                          { return p.r.Len() }
+func (p *pipeConn) Empty() bool                        { return p.r.Len() == 0 }
 
 type bufferedConn struct {
-	autoflush   bool
-	buffer      bytes.Buffer
-	w           net.Conn
-	ctr         int
-	lossPattern map[int]bool
+	autoflush    bool
+	buffer       bytes.Buffer
+	w            net.Conn
+	writeCounter int
+	lostWrite    map[int]bool
 }
 
 func (b *bufferedConn) Write(buf []byte) (int, error) {
-	ctr := b.ctr
-	b.ctr++
-	if ok := b.lossPattern[ctr]; ok {
+	ctr := b.writeCounter
+	b.writeCounter++
+	if b.lostWrite[ctr] {
 		fmt.Println("Losing write ", ctr)
 		return 0, nil
 	}
@@ -135,9 +135,9 @@ func (p *bufferedConn) SetWriteDeadline(t time.Time) error { return nil }
 func (b *bufferedConn) SetAutoflush() {
 	b.autoflush = true
 }
-func (b *bufferedConn) Left() int {
+func (b *bufferedConn) Empty() bool {
 	p := b.w.(*pipeConn)
-	return p.Left()
+	return p.Empty()
 }
 
 func (b *bufferedConn) Flush() error {
@@ -155,7 +155,7 @@ func (b *bufferedConn) Flush() error {
 }
 
 func (b *bufferedConn) Lose(m int) {
-	b.lossPattern[m] = true
+	b.lostWrite[m] = true
 }
 
 func (b *bufferedConn) Clear() {
@@ -164,7 +164,10 @@ func (b *bufferedConn) Clear() {
 
 func newBufferedConn(p net.Conn) *bufferedConn {
 	return &bufferedConn{
-		false, bytes.Buffer{}, p, 0, make(map[int]bool, 0),
+		autoflush: false,
+		buffer:    bytes.Buffer{},
+		w:         p,
+		lostWrite: make(map[int]bool, 0),
 	}
 }
 
@@ -177,7 +180,7 @@ var (
 	psk  PreSharedKey
 	psks *PSKMapCache
 
-	basicConfig, dtlsConfig, nbConfig, nbConfigDTLS, hrrConfig, alpnConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
+	basicConfig, dtlsConfig, nbConfig, nbDTLSConfig, hrrConfig, alpnConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
 )
 
 func init() {
@@ -238,7 +241,7 @@ func init() {
 		InsecureSkipVerify: true,
 	}
 
-	nbConfigDTLS = &Config{
+	nbDTLSConfig = &Config{
 		ServerName:         serverName,
 		Certificates:       certificates,
 		NonBlocking:        true,
@@ -867,7 +870,7 @@ func test0xRTT(t *testing.T, name string, p testInstanceState) {
 	client.Handshake() // This sends CH
 	zdata := []byte("ABC")
 	n, err := client.Write(zdata) // This should succeeed
-	assertNotError(t, err, "Client was able to write")
+	assertNotError(t, err, "Client was not able to write")
 	assertEquals(t, n, len(zdata))
 	hsUntilBlocked(t, server, sbConn) // Read CH and early data.
 	tmp := make([]byte, 10)
@@ -1274,8 +1277,8 @@ func TestNonblockingHandshakeAndDataFlowDTLS(t *testing.T) {
 	cbConn := newBufferedConn(cConn)
 	sbConn := newBufferedConn(sConn)
 
-	client := Client(cbConn, nbConfigDTLS)
-	server := Server(sbConn, nbConfigDTLS)
+	client := Client(cbConn, nbDTLSConfig)
+	server := Server(sbConn, nbDTLSConfig)
 
 	var clientAlert, serverAlert Alert
 
@@ -1344,8 +1347,8 @@ func TestTimeoutAndRetransmissionDTLS(t *testing.T) {
 	cbConn := newBufferedConn(cConn)
 	sbConn := newBufferedConn(sConn)
 
-	client := Client(cbConn, nbConfigDTLS)
-	server := Server(sbConn, nbConfigDTLS)
+	client := Client(cbConn, nbDTLSConfig)
+	server := Server(sbConn, nbDTLSConfig)
 
 	var clientAlert, serverAlert Alert
 
@@ -1451,7 +1454,7 @@ func checkTimersEqualLabels(t *testing.T, c *Conn, labels []string) {
 
 func hsUntilBlocked(t *testing.T, c *Conn, b *bufferedConn) {
 	// First run until we have consumed all the data
-	for b.Left() > 0 {
+	for !b.Empty() {
 		alert := c.Handshake()
 		switch alert {
 		default:
@@ -1529,8 +1532,8 @@ func TestAckDTLSNormal(t *testing.T) {
 	cbConn.SetAutoflush()
 	sbConn.SetAutoflush()
 
-	client := Client(cbConn, nbConfigDTLS)
-	server := Server(sbConn, nbConfigDTLS)
+	client := Client(cbConn, nbDTLSConfig)
+	server := Server(sbConn, nbDTLSConfig)
 
 	// Send ClientHello
 	hsUntilBlocked(t, client, cbConn)
@@ -1570,8 +1573,8 @@ func TestAckDTLSLoseEE(t *testing.T) {
 	cbConn.SetAutoflush()
 	sbConn.SetAutoflush()
 
-	client := Client(cbConn, nbConfigDTLS)
-	server := Server(sbConn, nbConfigDTLS)
+	client := Client(cbConn, nbDTLSConfig)
+	server := Server(sbConn, nbDTLSConfig)
 
 	// Send ClientHello
 	hsUntilBlocked(t, client, cbConn)
@@ -1645,8 +1648,8 @@ func TestDTLSOutOfEpochHSFail(t *testing.T) {
 	cbConn.SetAutoflush()
 	sbConn.SetAutoflush()
 
-	client := Client(cbConn, nbConfigDTLS)
-	server := Server(sbConn, nbConfigDTLS)
+	client := Client(cbConn, nbDTLSConfig)
+	server := Server(sbConn, nbDTLSConfig)
 
 	hsUntilBlocked(t, client, cbConn)
 	hsUntilBlocked(t, server, sbConn)
