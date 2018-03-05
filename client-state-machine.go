@@ -175,7 +175,7 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		// TODO(ekr@rtfm.com): Check that the ticket can be used for early
 		// data.
 		// Signal early data if we're going to do it
-		if state.Config.AllowEarlyData {
+		if state.Config.AllowEarlyData && state.helloRetryRequest == nil {
 			state.Params.ClientSendingEarlyData = true
 			ed = &EarlyDataExtension{}
 			err = ch.Extensions.Add(ed)
@@ -423,7 +423,7 @@ func (state clientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 			cookie:            serverCookie.Cookie,
 			firstClientHello:  firstClientHello,
 			helloRetryRequest: hm,
-		}, nil, AlertNoAlert
+		}, []HandshakeAction{ResetOut{1}}, AlertNoAlert
 	}
 
 	// This is SH.

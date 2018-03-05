@@ -1502,7 +1502,7 @@ func hsRunHandshakeOneThread(t *testing.T, client *Conn, server *Conn) {
 		switch alert {
 		default:
 			t.Fatalf("Unexpected alert %v", alert)
-		case AlertWouldBlock, AlertNoAlert:
+		case AlertWouldBlock, AlertNoAlert, AlertStatelessRetry:
 		}
 	}
 	checkConsistency(t, client, server)
@@ -1689,4 +1689,21 @@ func TestDTLSOutOfEpochPostHSDiscard(t *testing.T) {
 	tmp := make([]byte, 10)
 	_, err := server.Read(tmp)
 	assertEquals(t, err, AlertWouldBlock)
+}
+
+// Test for issue #175.
+func TestEarlyDataWithHRR(t *testing.T) {
+	cConn, sConn := pipe()
+
+	cconf := *pskConfig
+	cconf.NonBlocking = true
+	client := Client(cConn, &cconf)
+	sconf := *hrrConfig
+	cp, err := NewDefaultCookieProtector()
+	assertNotError(t, err, "Couldn't make default cookie protector")
+	sconf.CookieProtector = cp
+	sconf.NonBlocking = true
+	server := Server(sConn, &sconf)
+
+	hsRunHandshakeOneThread(t, client, server)
 }

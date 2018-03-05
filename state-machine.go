@@ -27,6 +27,10 @@ type RekeyOut struct {
 	KeySet keySet
 }
 
+type ResetOut struct {
+	seq uint64
+}
+
 type StorePSK struct {
 	PSK PreSharedKey
 }

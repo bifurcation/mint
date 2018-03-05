@@ -607,6 +607,10 @@ func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 			return AlertInternalError
 		}
 
+	case ResetOut:
+		logf(logTypeHandshake, "%s Rekeying out to %s seq=%v", label, EpochClear, action.seq)
+		c.out.ResetClear(action.seq)
+
 	case StorePSK:
 		logf(logTypeHandshake, "%s Storing new session ticket with identity [%x]", label, action.PSK.Identity)
 		if c.isClient {
@@ -891,12 +895,17 @@ func (c *Conn) ConnectionState() ConnectionState {
 }
 
 func (c *Conn) Writable() bool {
-	if _, connected := c.hState.(stateConnected); !connected {
-		if !c.isClient || c.out.cipher.epoch != EpochEarlyData {
-			return false
-		}
+	// If we're connected, we're writable.
+	if _, connected := c.hState.(stateConnected); connected {
+		return true
 	}
-	return true
+
+	// If we're a client in 0-RTT, then we're writable.
+	if c.isClient && c.out.cipher.epoch == EpochEarlyData {
+		return true
+	}
+
+	return false
 }
 
 func (c *Conn) label() string {

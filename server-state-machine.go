@@ -239,10 +239,6 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 			logf(logTypeHandshake, "[ServerStateStart] Error in PSK negotiation [%v]", err)
 			return nil, nil, AlertInternalError
 		}
-		if clientSentCookie && initialCipherSuite.Suite != params.Suite {
-			logf(logTypeHandshake, "[ServerStateStart] Would have selected a different CipherSuite after receiving the client's Cookie")
-			return nil, nil, AlertInternalError
-		}
 	}
 
 	// Figure out if we actually should do DH / PSK

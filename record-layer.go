@@ -127,6 +127,11 @@ func (r *RecordLayer) SetVersion(v uint16) {
 	r.version = v
 }
 
+func (r *RecordLayer) ResetClear(seq uint64) {
+	r.cipher = newCipherStateNull()
+	r.cipher.seq = seq
+}
+
 func (r *RecordLayer) Rekey(epoch Epoch, factory aeadFactory, key []byte, iv []byte) error {
 	cipher, err := newCipherStateAead(epoch, factory, key, iv)
 	if err != nil {
