@@ -1459,7 +1459,7 @@ func hsUntilBlocked(t *testing.T, c *Conn, b *bufferedConn) {
 		switch alert {
 		default:
 			t.Fatalf("Unexpected alert")
-		case AlertWouldBlock, AlertNoAlert:
+		case AlertWouldBlock, AlertNoAlert, AlertStatelessRetry:
 		}
 	}
 
@@ -1705,5 +1705,41 @@ func TestEarlyDataWithHRR(t *testing.T) {
 	sconf.NonBlocking = true
 	server := Server(sConn, &sconf)
 
+	hsRunHandshakeOneThread(t, client, server)
+}
+
+func TestEarlyDataNotWritableAfterHRR(t *testing.T) {
+	cConn, sConn := pipe()
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+	cbConn.SetAutoflush()
+	sbConn.SetAutoflush()
+
+	cconf := *pskConfig
+	cconf.NonBlocking = true
+	client := Client(cbConn, &cconf)
+	sconf := *hrrConfig
+	cp, err := NewDefaultCookieProtector()
+	assertNotError(t, err, "Couldn't make default cookie protector")
+	sconf.CookieProtector = cp
+	sconf.NonBlocking = true
+	server := Server(sbConn, &sconf)
+
+	// Send CH
+	hsUntilBlocked(t, client, cbConn)
+	assertTrue(t, client.Writable(), "Client was not writeable")
+
+	// Reject 0-RTT
+	hsUntilBlocked(t, server, sbConn)
+
+	// Process HRR
+	err = client.Handshake()
+	assertEquals(t, err, AlertNoAlert)
+	assertTrue(t, !client.Writable(), "Client not writeable after HRR")
+	n, err := client.Write([]byte{1, 2, 3})
+	assertError(t, err, "Write succeeded")
+	assertEquals(t, n, 0)
+
+	// Finish handshake
 	hsRunHandshakeOneThread(t, client, server)
 }
