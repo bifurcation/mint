@@ -60,8 +60,8 @@ func TestNewKeyShare(t *testing.T) {
 
 		crv := curveFromNamedGroup(group)
 		x, y := elliptic.Unmarshal(crv, pub)
-		assert(t, x != nil && y != nil, "Public key failed to unmarshal")
-		assert(t, crv.Params().IsOnCurve(x, y), "Public key not on curve")
+		assertTrue(t, x != nil && y != nil, "Public key failed to unmarshal")
+		assertTrue(t, crv.Params().IsOnCurve(x, y), "Public key not on curve")
 	}
 
 	for _, group := range nonECGroups {
@@ -145,13 +145,13 @@ func TestNewSigningKey(t *testing.T) {
 	privRSA, err := newSigningKey(RSA_PKCS1_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
 	_, ok := privRSA.(*rsa.PrivateKey)
-	assert(t, ok, "New RSA key was not actually an RSA key")
+	assertTrue(t, ok, "New RSA key was not actually an RSA key")
 
 	// Test ECDSA success (P-256)
 	privECDSA, err := newSigningKey(ECDSA_P256_SHA256)
 	assertNotError(t, err, "failed to generate RSA private key")
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
-	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
+	assertTrue(t, ok, "New ECDSA key was not actually an ECDSA key")
 	pub := privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
 	assertEquals(t, P256, namedGroupFromECDSAKey(pub))
 
@@ -159,7 +159,7 @@ func TestNewSigningKey(t *testing.T) {
 	privECDSA, err = newSigningKey(ECDSA_P384_SHA384)
 	assertNotError(t, err, "failed to generate RSA private key")
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
-	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
+	assertTrue(t, ok, "New ECDSA key was not actually an ECDSA key")
 	pub = privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
 	assertEquals(t, P384, namedGroupFromECDSAKey(pub))
 
@@ -167,7 +167,7 @@ func TestNewSigningKey(t *testing.T) {
 	privECDSA, err = newSigningKey(ECDSA_P521_SHA512)
 	assertNotError(t, err, "failed to generate RSA private key")
 	_, ok = privECDSA.(*ecdsa.PrivateKey)
-	assert(t, ok, "New ECDSA key was not actually an ECDSA key")
+	assertTrue(t, ok, "New ECDSA key was not actually an ECDSA key")
 	pub = privECDSA.(*ecdsa.PrivateKey).Public().(*ecdsa.PublicKey)
 	assertEquals(t, P521, namedGroupFromECDSAKey(pub))
 
@@ -184,7 +184,7 @@ func TestSelfSigned(t *testing.T) {
 	alg := ECDSA_P256_SHA256
 	cert, err := newSelfSigned("example.com", alg, priv)
 	assertNotError(t, err, "Failed to sign certificate")
-	assert(t, len(cert.Raw) > 0, "Certificate had empty raw value")
+	assertTrue(t, len(cert.Raw) > 0, "Certificate had empty raw value")
 	assertEquals(t, cert.SignatureAlgorithm, x509AlgMap[alg])
 
 	// Test failure on unknown signature algorithm

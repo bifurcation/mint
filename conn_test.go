@@ -86,14 +86,38 @@ func (p *pipeConn) RemoteAddr() net.Addr               { return nil }
 func (p *pipeConn) SetDeadline(t time.Time) error      { return nil }
 func (p *pipeConn) SetReadDeadline(t time.Time) error  { return nil }
 func (p *pipeConn) SetWriteDeadline(t time.Time) error { return nil }
+func (p *pipeConn) Empty() bool                        { return p.r.Len() == 0 }
 
 type bufferedConn struct {
-	buffer bytes.Buffer
-	w      net.Conn
+	autoflush    bool
+	buffer       bytes.Buffer
+	w            net.Conn
+	writeCounter int
+	lostWrite    map[int]bool
 }
 
-func (b *bufferedConn) Write(buf []byte) (n int, err error) {
-	return b.buffer.Write(buf)
+func (b *bufferedConn) Write(buf []byte) (int, error) {
+	ctr := b.writeCounter
+	b.writeCounter++
+	if b.lostWrite[ctr] {
+		fmt.Println("Losing write ", ctr)
+		return 0, nil
+	}
+
+	n, err := b.buffer.Write(buf)
+	if err != nil {
+		return 0, err
+	}
+	if n != len(buf) {
+		return n, fmt.Errorf("Incomplete write")
+	}
+	if b.autoflush {
+		err := b.Flush()
+		if err != nil {
+			return 0, err
+		}
+	}
+	return 0, nil
 }
 
 func (p *bufferedConn) Read(data []byte) (n int, err error) {
@@ -108,6 +132,13 @@ func (p *bufferedConn) RemoteAddr() net.Addr               { return nil }
 func (p *bufferedConn) SetDeadline(t time.Time) error      { return nil }
 func (p *bufferedConn) SetReadDeadline(t time.Time) error  { return nil }
 func (p *bufferedConn) SetWriteDeadline(t time.Time) error { return nil }
+func (b *bufferedConn) SetAutoflush() {
+	b.autoflush = true
+}
+func (b *bufferedConn) Empty() bool {
+	p := b.w.(*pipeConn)
+	return p.Empty()
+}
 
 func (b *bufferedConn) Flush() error {
 	buf := b.buffer.Bytes()
@@ -123,28 +154,41 @@ func (b *bufferedConn) Flush() error {
 	return nil
 }
 
+func (b *bufferedConn) Lose(m int) {
+	b.lostWrite[m] = true
+}
+
+func (b *bufferedConn) Clear() {
+	b.buffer.Reset()
+}
+
 func newBufferedConn(p net.Conn) *bufferedConn {
-	return &bufferedConn{bytes.Buffer{}, p}
+	return &bufferedConn{
+		autoflush: false,
+		buffer:    bytes.Buffer{},
+		w:         p,
+		lostWrite: make(map[int]bool, 0),
+	}
 }
 
 var (
 	serverKey, clientKey             crypto.Signer
 	serverCert, clientCert           *x509.Certificate
 	certificates, clientCertificates []*Certificate
+	clientName, serverName           string
 
 	psk  PreSharedKey
 	psks *PSKMapCache
 
-	basicConfig, dtlsConfig, nbConfig, hrrConfig, alpnConfig, pskConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
-)
-
-const (
-	serverName = "example.com"
-	clientName = "example.org"
+	basicConfig, dtlsConfig, nbConfig, nbDTLSConfig, hrrConfig, alpnConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
 )
 
 func init() {
 	var err error
+
+	serverName = "example.com"
+	clientName = "example.org"
+
 	serverKey, serverCert, err = MakeNewSelfSignedCert(serverName, ECDSA_P256_SHA256)
 	if err != nil {
 		panic(err)
@@ -197,6 +241,14 @@ func init() {
 		InsecureSkipVerify: true,
 	}
 
+	nbDTLSConfig = &Config{
+		ServerName:         serverName,
+		Certificates:       certificates,
+		NonBlocking:        true,
+		UseDTLS:            true,
+		InsecureSkipVerify: true,
+	}
+
 	hrrConfig = &Config{
 		ServerName:         serverName,
 		Certificates:       certificates,
@@ -216,6 +268,16 @@ func init() {
 		CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
 		PSKs:               psks,
 		AllowEarlyData:     true,
+		InsecureSkipVerify: true,
+	}
+
+	pskDTLSConfig = &Config{
+		ServerName:         serverName,
+		CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+		PSKs:               psks,
+		AllowEarlyData:     true,
+		UseDTLS:            true,
+		NonBlocking:        true,
 		InsecureSkipVerify: true,
 	}
 
@@ -274,55 +336,75 @@ func computeExporter(t *testing.T, c *Conn, label string, context []byte, length
 	return res
 }
 
+func checkConsistency(t *testing.T, client *Conn, server *Conn) {
+	assertDeepEquals(t, client.state.Params, server.state.Params)
+	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+	assertByteEquals(t, client.state.exporterSecret, server.state.exporterSecret)
+
+	emptyContext := []byte{}
+
+	assertByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 20))
+	assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 21))
+	assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "F", emptyContext, 20))
+	assertByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'A'}, 20))
+	assertNotByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'B'}, 20))
+}
+
+func testConnInner(t *testing.T, name string, p testInstanceState) {
+	// Configs array:
+	configs := map[string]*Config{"basic config": basicConfig,
+		"HRR":    hrrConfig,
+		"ALPN":   alpnConfig,
+		"FFDH":   ffdhConfig,
+		"x25519": x25519Config,
+	}
+
+	c := configs[p["config"]]
+	conf := *c
+
+	// Set up the test parameters.
+	if p["nonblocking"] == "true" {
+		conf.NonBlocking = true
+	}
+
+	cConn, sConn := pipe()
+
+	client := Client(cConn, &conf)
+	server := Server(sConn, &conf)
+
+	var clientAlert, serverAlert Alert
+
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+
+	<-done
+
+	checkConsistency(t, client, server)
+}
+
 func TestBasicFlows(t *testing.T) {
-	tests := []struct {
-		name   string
-		config *Config
-	}{
-		{"basic config", basicConfig},
-		{"HRR", hrrConfig},
-		{"ALPN", alpnConfig},
-		{"FFDH", ffdhConfig},
-		{"x25519", x25519Config},
+	params := map[string][]string{
+		"config": {
+			"basic config",
+			"HRR",
+			"ALPN",
+			"FFDH",
+			"x25519",
+		},
+		"blocking": {"true", "false"},
 	}
-	for _, testcase := range tests {
-		t.Run(fmt.Sprintf("with %s", testcase.name), func(t *testing.T) {
-			conf := testcase.config
-			cConn, sConn := pipe()
 
-			client := Client(cConn, conf)
-			server := Server(sConn, conf)
-
-			var clientAlert, serverAlert Alert
-
-			done := make(chan bool)
-			go func(t *testing.T) {
-				serverAlert = server.Handshake()
-				assertEquals(t, serverAlert, AlertNoAlert)
-				done <- true
-			}(t)
-
-			clientAlert = client.Handshake()
-			assertEquals(t, clientAlert, AlertNoAlert)
-
-			<-done
-
-			assertDeepEquals(t, client.state.Params, server.state.Params)
-			assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
-			assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
-			assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
-			assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
-			assertByteEquals(t, client.state.exporterSecret, server.state.exporterSecret)
-
-			emptyContext := []byte{}
-
-			assertByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 20))
-			assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "E", emptyContext, 21))
-			assertNotByteEquals(t, computeExporter(t, client, "E", emptyContext, 20), computeExporter(t, server, "F", emptyContext, 20))
-			assertByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'A'}, 20))
-			assertNotByteEquals(t, computeExporter(t, client, "E", []byte{'A'}, 20), computeExporter(t, server, "E", []byte{'B'}, 20))
-		})
-	}
+	runParametrizedTest(t, params, testConnInner)
 }
 
 func TestInvalidSelfSigned(t *testing.T) {
@@ -520,7 +602,7 @@ func TestCertChain(t *testing.T) {
 
 	serverConfig := &Config{
 		Certificates: []*Certificate{
-			&Certificate{Chain: []*x509.Certificate{cert, cacert}, PrivateKey: key},
+			{Chain: []*x509.Certificate{cert, cacert}, PrivateKey: key},
 		},
 	}
 
@@ -578,12 +660,8 @@ func TestClientAuth(t *testing.T) {
 
 	<-done
 
-	assertDeepEquals(t, client.state.Params, server.state.Params)
-	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
-	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
-	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
-	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
-	assert(t, client.state.Params.UsingClientAuth, "Session did not negotiate client auth")
+	checkConsistency(t, client, server)
+	assertTrue(t, client.state.Params.UsingClientAuth, "Session did not negotiate client auth")
 }
 
 func TestClientAuthVerifyPeerAccepted(t *testing.T) {
@@ -681,12 +759,9 @@ func TestPSKFlows(t *testing.T) {
 
 		<-done
 
-		assertDeepEquals(t, client.state.Params, server.state.Params)
-		assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
-		assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
-		assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
-		assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
-		assert(t, client.state.Params.UsingPSK, "Session did not use the provided PSK")
+		checkConsistency(t, client, server)
+
+		assertTrue(t, client.state.Params.UsingPSK, "Session did not use the provided PSK")
 	}
 }
 
@@ -724,11 +799,7 @@ func TestResumption(t *testing.T) {
 	assertEquals(t, 1, n)
 	<-done
 
-	assertDeepEquals(t, client1.state.Params, server1.state.Params)
-	assertCipherSuiteParamsEquals(t, client1.state.cryptoParams, server1.state.cryptoParams)
-	assertByteEquals(t, client1.state.resumptionSecret, server1.state.resumptionSecret)
-	assertByteEquals(t, client1.state.clientTrafficSecret, server1.state.clientTrafficSecret)
-	assertByteEquals(t, client1.state.serverTrafficSecret, server1.state.serverTrafficSecret)
+	checkConsistency(t, client1, server1)
 	assertEquals(t, clientConfig.PSKs.Size(), 1)
 	assertEquals(t, serverConfig.PSKs.Size(), 1)
 
@@ -755,8 +826,8 @@ func TestResumption(t *testing.T) {
 
 	receivedDelta := clientPSK.ReceivedAt.Sub(serverPSK.ReceivedAt) / time.Millisecond
 	expiresDelta := clientPSK.ExpiresAt.Sub(serverPSK.ExpiresAt) / time.Millisecond
-	assert(t, receivedDelta < 10 && receivedDelta > -10, "Unequal received times")
-	assert(t, expiresDelta < 10 && expiresDelta > -10, "Unequal received times")
+	assertTrue(t, receivedDelta < 10 && receivedDelta > -10, "Unequal received times")
+	assertTrue(t, expiresDelta < 10 && expiresDelta > -10, "Unequal received times")
 
 	// Phase 2: Verify that the session ticket gets used as a PSK
 	cConn2, sConn2 := pipe()
@@ -775,42 +846,51 @@ func TestResumption(t *testing.T) {
 	client2.Read(nil)
 	<-done
 
-	assertDeepEquals(t, client2.state.Params, server2.state.Params)
-	assertCipherSuiteParamsEquals(t, client2.state.cryptoParams, server2.state.cryptoParams)
-	assertByteEquals(t, client2.state.resumptionSecret, server2.state.resumptionSecret)
-	assertByteEquals(t, client2.state.clientTrafficSecret, server2.state.clientTrafficSecret)
-	assertByteEquals(t, client2.state.serverTrafficSecret, server2.state.serverTrafficSecret)
-	assert(t, client2.state.Params.UsingPSK, "Session did not use the provided PSK")
+	checkConsistency(t, client2, server2)
+	assertTrue(t, client2.state.Params.UsingPSK, "Session did not use the provided PSK")
+}
+
+func test0xRTT(t *testing.T, name string, p testInstanceState) {
+	conf := *pskConfig
+	conf.NonBlocking = true
+
+	if p["dtls"] == "true" {
+		conf.UseDTLS = true
+	}
+
+	cConn, sConn := pipe()
+	cbConn := newBufferedConn(cConn)
+	cbConn.SetAutoflush()
+	sbConn := newBufferedConn(sConn)
+	sbConn.SetAutoflush()
+
+	client := Client(cbConn, &conf)
+	server := Server(sbConn, &conf)
+
+	client.Handshake() // This sends CH
+	zdata := []byte("ABC")
+	n, err := client.Write(zdata) // This should succeeed
+	assertNotError(t, err, "Client was not able to write")
+	assertEquals(t, n, len(zdata))
+	hsUntilBlocked(t, server, sbConn) // Read CH and early data.
+	tmp := make([]byte, 10)
+	n, err = server.Read(tmp)
+	assertNotError(t, err, "Error reading early data")
+	tmp = tmp[:n]
+	assertByteEquals(t, zdata, tmp)
+	hsRunHandshakeOneThread(t, client, server)
+
+	assertTrue(t, client.state.Params.UsingEarlyData, "Session did not negotiate early data")
+	n, err = server.Read(tmp)
+	assertEquals(t, AlertWouldBlock, err)
+	assertEquals(t, 0, n)
 }
 
 func Test0xRTT(t *testing.T) {
-	conf := pskConfig
-	cConn, sConn := pipe()
-
-	client := Client(cConn, conf)
-	client.EarlyData = []byte("hello 0xRTT world!")
-
-	server := Server(sConn, conf)
-
-	done := make(chan bool)
-	go func(t *testing.T) {
-		alert := server.Handshake()
-		assertEquals(t, alert, AlertNoAlert)
-		done <- true
-	}(t)
-
-	alert := client.Handshake()
-	assertEquals(t, alert, AlertNoAlert)
-
-	<-done
-
-	assertDeepEquals(t, client.state.Params, server.state.Params)
-	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
-	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
-	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
-	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
-	assert(t, client.state.Params.UsingEarlyData, "Session did not negotiate early data")
-	assertByteEquals(t, client.EarlyData, server.EarlyData)
+	params := map[string][]string{
+		"dtls": {"true", "false"},
+	}
+	runParametrizedTest(t, params, test0xRTT)
 }
 
 func Test0xRTTFailure(t *testing.T) {
@@ -831,7 +911,6 @@ func Test0xRTTFailure(t *testing.T) {
 	cConn, sConn := pipe()
 
 	client := Client(cConn, clientConfig)
-	client.EarlyData = []byte("hello 0xRTT world!")
 
 	server := Server(sConn, serverConfig)
 
@@ -1076,11 +1155,11 @@ func (h *testExtensionHandler) Check(t *testing.T, hs []HandshakeType) {
 
 	for _, ht := range hs {
 		v, ok := h.sent[ht]
-		assert(t, ok, "Cannot find handshake type in sent")
-		assert(t, v, "Value wasn't true in sent")
+		assertTrue(t, ok, "Cannot find handshake type in sent")
+		assertTrue(t, v, "Value wasn't true in sent")
 		v, ok = h.rcvd[ht]
-		assert(t, ok, "Cannot find handshake type in rcvd")
-		assert(t, v, "Value wasn't true in rcvd")
+		assertTrue(t, ok, "Cannot find handshake type in rcvd")
+		assertTrue(t, v, "Value wasn't true in rcvd")
 	}
 }
 
@@ -1189,4 +1268,478 @@ func TestDTLS(t *testing.T) {
 		HandshakeTypeServerHello,
 		HandshakeTypeEncryptedExtensions,
 	})
+}
+
+func TestNonblockingHandshakeAndDataFlowDTLS(t *testing.T) {
+	cConn, sConn := pipe()
+
+	// Wrap these in a buffer so we can simulate blocking
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+
+	client := Client(cbConn, nbDTLSConfig)
+	server := Server(sbConn, nbDTLSConfig)
+
+	var clientAlert, serverAlert Alert
+
+	// Send ClientHello
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+	assertEquals(t, client.GetHsState(), StateClientWaitSH)
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+	assertEquals(t, server.GetHsState(), StateServerStart)
+
+	// Release ClientHello
+	cbConn.Flush()
+
+	// Process ClientHello, send server first flight.
+	states := []State{StateServerNegotiated, StateServerWaitFlight2, StateServerWaitFinished}
+	for _, state := range states {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		assertEquals(t, server.GetHsState(), state)
+	}
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertWouldBlock)
+
+	// Release server first flight
+	sbConn.Flush()
+	states = []State{StateClientWaitEE, StateClientWaitCertCR, StateClientWaitCV, StateClientWaitFinished, StateClientConnected}
+	for _, state := range states {
+		clientAlert = client.Handshake()
+		assertEquals(t, client.GetHsState(), state)
+		assertEquals(t, clientAlert, AlertNoAlert)
+	}
+
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+	assertEquals(t, server.GetHsState(), StateServerWaitFinished)
+
+	// Release client's second flight.
+	cbConn.Flush()
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertNoAlert)
+	assertEquals(t, server.GetHsState(), StateServerConnected)
+
+	assertDeepEquals(t, client.state.Params, server.state.Params)
+	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+
+	buf := []byte{'a', 'b', 'c'}
+	n, err := client.Write(buf)
+	assertNotError(t, err, "Couldn't write")
+	assertEquals(t, n, len(buf))
+
+	// read := make([]byte, 5)
+	// n, err = server.Read(buf)
+}
+
+func TestTimeoutAndRetransmissionDTLS(t *testing.T) {
+	cConn, sConn := pipe()
+
+	// Wrap these in a buffer so we can simulate blocking
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+
+	client := Client(cbConn, nbDTLSConfig)
+	server := Server(sbConn, nbDTLSConfig)
+
+	var clientAlert, serverAlert Alert
+
+	// Send ClientHello
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+	assertEquals(t, client.GetHsState(), StateClientWaitSH)
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+	assertEquals(t, server.GetHsState(), StateServerStart)
+
+	// Simulate loss for the ClientHello
+	cbConn.Clear()
+
+	// Only client should be running a timer.
+	waiting, timeout := server.GetDTLSTimeout()
+	assertTrue(t, !waiting, fmt.Sprintf("Server timer armed: %v", timeout))
+
+	waiting, timeout = client.GetDTLSTimeout()
+	assertTrue(t, waiting, "Client timer not armed")
+
+	// Now check the timer.
+	time.Sleep(timeout)
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertWouldBlock)
+	assertEquals(t, client.GetHsState(), StateClientWaitSH)
+
+	// Release ClientHello
+	cbConn.Flush()
+
+	// Process ClientHello, send server first flight.
+	states := []State{StateServerNegotiated, StateServerWaitFlight2, StateServerWaitFinished}
+	for _, state := range states {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		assertEquals(t, server.GetHsState(), state)
+	}
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+
+	// Simulate loss for the server's first flight.
+	sbConn.Clear()
+
+	// Both sides should be running timers
+	waiting, timeout = client.GetDTLSTimeout()
+	assertTrue(t, waiting, "Client timer not armed")
+
+	waiting, timeout = server.GetDTLSTimeout()
+	assertTrue(t, waiting, "Server timer not armed")
+
+	// Now check the timer.
+	time.Sleep(timeout)
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+	assertEquals(t, server.GetHsState(), StateServerWaitFinished)
+
+	sbConn.Flush()
+	states = []State{StateClientWaitEE, StateClientWaitCertCR, StateClientWaitCV, StateClientWaitFinished, StateClientConnected}
+	for _, state := range states {
+		clientAlert = client.Handshake()
+		assertEquals(t, client.GetHsState(), state)
+		assertEquals(t, clientAlert, AlertNoAlert)
+	}
+
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+	assertEquals(t, server.GetHsState(), StateServerWaitFinished)
+
+	// Release client's second flight.
+	cbConn.Flush()
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertNoAlert)
+	assertEquals(t, server.GetHsState(), StateServerConnected)
+
+	assertDeepEquals(t, client.state.Params, server.state.Params)
+	assertCipherSuiteParamsEquals(t, client.state.cryptoParams, server.state.cryptoParams)
+	assertByteEquals(t, client.state.resumptionSecret, server.state.resumptionSecret)
+	assertByteEquals(t, client.state.clientTrafficSecret, server.state.clientTrafficSecret)
+	assertByteEquals(t, client.state.serverTrafficSecret, server.state.serverTrafficSecret)
+}
+
+func checkTimersEqualLabels(t *testing.T, c *Conn, labels []string) {
+	timers := c.hsCtx.timers.getAllTimers()
+
+	timerLabels := make(map[string]bool)
+	expectedLabels := make(map[string]bool)
+
+	// Check that the arrays are the same
+	for _, timer := range timers {
+		timerLabels[timer] = true
+	}
+
+	for _, label := range labels {
+		expectedLabels[label] = true
+		assertTrue(t, timerLabels[label], fmt.Sprintf("Timer should have been armed: %v", label))
+	}
+
+	for _, timer := range timers {
+		assertTrue(t, expectedLabels[timer], fmt.Sprintf("Timer should not have been armed: %v", timer))
+	}
+
+}
+
+func hsUntilBlocked(t *testing.T, c *Conn, b *bufferedConn) {
+	// First run until we have consumed all the data
+	for !b.Empty() {
+		alert := c.Handshake()
+		switch alert {
+		default:
+			t.Fatalf("Unexpected alert")
+		case AlertWouldBlock, AlertNoAlert, AlertStatelessRetry:
+		}
+	}
+
+	// Now run until we block
+	for {
+		alert := c.Handshake()
+		if alert == AlertWouldBlock {
+			return
+		}
+		assertEquals(t, alert, AlertNoAlert)
+	}
+}
+
+func hsUntilComplete(t *testing.T, c *Conn) {
+	for {
+		alert := c.Handshake()
+		assertTrue(t,
+			alert == AlertWouldBlock ||
+				alert == AlertNoAlert,
+			"Unexpected alert")
+
+		if c.GetHsState() == StateClientConnected ||
+			c.GetHsState() == StateServerConnected {
+			break
+		}
+	}
+}
+
+func hsRunHandshakeOneThread(t *testing.T, client *Conn, server *Conn) {
+	assertTrue(t, client.config.NonBlocking && server.config.NonBlocking, "Both sides need to be in nonblocking mode")
+	for client.GetHsState() != StateClientConnected || server.GetHsState() != StateServerConnected {
+		alert := client.Handshake()
+		switch alert {
+		default:
+			t.Fatalf("Unexpected alert")
+		case AlertWouldBlock, AlertNoAlert:
+		}
+
+		alert = server.Handshake()
+		switch alert {
+		default:
+			t.Fatalf("Unexpected alert %v", alert)
+		case AlertWouldBlock, AlertNoAlert, AlertStatelessRetry:
+		}
+	}
+	checkConsistency(t, client, server)
+}
+
+func runAllTimers(t *testing.T, c *Conn) {
+	for {
+		waiting, timeout := c.GetDTLSTimeout()
+		if !waiting {
+			return
+		}
+
+		if timeout > 0 {
+			time.Sleep(timeout)
+		}
+
+		alert := c.Handshake()
+		assertEquals(t, alert, AlertWouldBlock)
+	}
+}
+
+func TestAckDTLSNormal(t *testing.T) {
+	cConn, sConn := pipe()
+
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+	cbConn.SetAutoflush()
+	sbConn.SetAutoflush()
+
+	client := Client(cbConn, nbDTLSConfig)
+	server := Server(sbConn, nbDTLSConfig)
+
+	// Send ClientHello
+	hsUntilBlocked(t, client, cbConn)
+
+	// Process ClientHello, send server first flight.
+	hsUntilBlocked(t, server, sbConn)
+
+	// Both sides should be have armed retransmit timers.
+	checkTimersEqualLabels(t, client, []string{retransmitTimerLabel})
+	checkTimersEqualLabels(t, server, []string{retransmitTimerLabel})
+
+	// Now run the client and server to completion
+	hsUntilComplete(t, client)
+	hsUntilComplete(t, server)
+
+	// Client will have retransmit until we read the ACK
+	checkTimersEqualLabels(t, client, []string{retransmitTimerLabel})
+
+	// Server should have no timer
+	checkTimersEqualLabels(t, server, []string{})
+
+	// Now read some data from the server so we get the ACK
+	b := make([]byte, 10)
+	n, _ := client.Read(b)
+	assertEquals(t, 0, n)
+
+	// Client will now have no timers
+	checkTimersEqualLabels(t, client, []string{})
+}
+
+func TestAckDTLSLoseEE(t *testing.T) {
+	cConn, sConn := pipe()
+
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+	sbConn.Lose(1) // Lose EE
+	cbConn.SetAutoflush()
+	sbConn.SetAutoflush()
+
+	client := Client(cbConn, nbDTLSConfig)
+	server := Server(sbConn, nbDTLSConfig)
+
+	// Send ClientHello
+	hsUntilBlocked(t, client, cbConn)
+
+	// Process ClientHello, send server first flight.
+	hsUntilBlocked(t, server, sbConn)
+
+	// Both sides should be have armed retransmit timers.
+	checkTimersEqualLabels(t, client, []string{retransmitTimerLabel})
+	checkTimersEqualLabels(t, server, []string{retransmitTimerLabel})
+
+	// Now process as much of the server first flight as is there.
+	hsUntilBlocked(t, client, cbConn)
+
+	// Client should now have the ACK timer armed
+	checkTimersEqualLabels(t, client, []string{ackTimerLabel})
+
+	// Now expire the timers
+	runAllTimers(t, client)
+
+	// Process ACK
+	hsUntilBlocked(t, server, sbConn)
+
+	// Now run the client and server to completion
+	hsUntilComplete(t, client)
+	hsUntilComplete(t, server)
+}
+
+func readWriteExpectFail(t *testing.T, c *Conn) {
+	tmp := make([]byte, 10)
+	n, err := c.Read(tmp)
+	assertEquals(t, 0, n)
+	assertError(t, err, "Read too early worked")
+
+	n, err = c.Write(tmp)
+	assertEquals(t, 0, n)
+	assertError(t, err, "Write too early worked")
+}
+
+func writeExpectFail(t *testing.T, c *Conn) {
+	tmp := make([]byte, 10)
+	n, err := c.Write(tmp)
+	assertEquals(t, 0, n)
+	assertError(t, err, "Write too early worked")
+}
+
+func TestEarlyIOFail(t *testing.T) {
+	cConn, sConn := pipe()
+
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+	cbConn.SetAutoflush()
+	sbConn.SetAutoflush()
+
+	client := Client(cbConn, nbConfig)
+	server := Server(sbConn, nbConfig)
+	readWriteExpectFail(t, client)
+	readWriteExpectFail(t, server)
+
+	client.Handshake()
+	server.Handshake()
+	readWriteExpectFail(t, client)
+	readWriteExpectFail(t, server)
+}
+
+func TestDTLSOutOfEpochHSFail(t *testing.T) {
+	cConn, sConn := pipe()
+
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+	cbConn.SetAutoflush()
+	sbConn.SetAutoflush()
+
+	client := Client(cbConn, nbDTLSConfig)
+	server := Server(sbConn, nbDTLSConfig)
+
+	hsUntilBlocked(t, client, cbConn)
+	hsUntilBlocked(t, server, sbConn)
+
+	cbConn.Write([]byte{byte(RecordTypeApplicationData),
+		byte(dtls12WireVersion >> 8), byte(dtls12WireVersion & 0xff),
+		0, 0, 0, 0, 0, 0, 0, 0, // Epoch 0, seq 0
+		0, 5, 1, 2, 3, 4, 5, // Payload
+	})
+
+	// This causes an error because it's an unexpected record type.
+	err := server.Handshake()
+	assertEquals(t, err, AlertCloseNotify)
+}
+
+func TestDTLSOutOfEpochPostHSDiscard(t *testing.T) {
+	cConn, sConn := pipe()
+
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+	cbConn.SetAutoflush()
+	sbConn.SetAutoflush()
+
+	client := Client(cbConn, pskDTLSConfig)
+	server := Server(sbConn, pskDTLSConfig)
+
+	hsRunHandshakeOneThread(t, client, server)
+
+	// Now inject something with epoch 0, but as app data.
+	// It will get discarded.
+	cbConn.Write([]byte{byte(RecordTypeApplicationData),
+		byte(dtls12WireVersion >> 8), byte(dtls12WireVersion & 0xff),
+		0, 0, 0, 0, 0, 0, 0, 0, // Epoch 0, seq 0
+		0, 5, 1, 2, 3, 4, 5, // Payload
+	})
+
+	tmp := make([]byte, 10)
+	_, err := server.Read(tmp)
+	assertEquals(t, err, AlertWouldBlock)
+}
+
+// Test for issue #175.
+func TestEarlyDataWithHRR(t *testing.T) {
+	cConn, sConn := pipe()
+
+	cconf := *pskConfig
+	cconf.NonBlocking = true
+	client := Client(cConn, &cconf)
+	sconf := *hrrConfig
+	cp, err := NewDefaultCookieProtector()
+	assertNotError(t, err, "Couldn't make default cookie protector")
+	sconf.CookieProtector = cp
+	sconf.NonBlocking = true
+	server := Server(sConn, &sconf)
+
+	hsRunHandshakeOneThread(t, client, server)
+}
+
+func TestEarlyDataNotWritableAfterHRR(t *testing.T) {
+	cConn, sConn := pipe()
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+	cbConn.SetAutoflush()
+	sbConn.SetAutoflush()
+
+	cconf := *pskConfig
+	cconf.NonBlocking = true
+	client := Client(cbConn, &cconf)
+	sconf := *hrrConfig
+	cp, err := NewDefaultCookieProtector()
+	assertNotError(t, err, "Couldn't make default cookie protector")
+	sconf.CookieProtector = cp
+	sconf.NonBlocking = true
+	server := Server(sbConn, &sconf)
+
+	// Send CH
+	hsUntilBlocked(t, client, cbConn)
+	assertTrue(t, client.Writable(), "Client was not writeable")
+
+	// Reject 0-RTT
+	hsUntilBlocked(t, server, sbConn)
+
+	// Process HRR
+	err = client.Handshake()
+	assertEquals(t, err, AlertNoAlert)
+	assertTrue(t, !client.Writable(), "Client not writeable after HRR")
+	n, err := client.Write([]byte{1, 2, 3})
+	assertError(t, err, "Write succeeded")
+	assertEquals(t, n, 0)
+
+	// Finish handshake
+	hsRunHandshakeOneThread(t, client, server)
 }

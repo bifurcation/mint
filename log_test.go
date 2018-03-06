@@ -20,15 +20,15 @@ func TestLogging(t *testing.T) {
 	logSettings = map[string]bool{}
 	env := []string{"MINT_LOG=*"}
 	parseLogEnv(env)
-	assert(t, logAll, "Failed to parse wildcard log directive")
-	assert(t, len(logSettings) == 0, "Mistakenly set log settings")
+	assertTrue(t, logAll, "Failed to parse wildcard log directive")
+	assertTrue(t, len(logSettings) == 0, "Mistakenly set log settings")
 
 	logAll = false
 	logSettings = map[string]bool{}
 	env = []string{"MINT_LOG=foo,bar"}
 	parseLogEnv(env)
-	assert(t, !logAll, "Mistakenly set logAll")
-	assert(t, logSettings["foo"] && logSettings["bar"], "Failed to parse string log directive")
+	assertTrue(t, !logAll, "Mistakenly set logAll")
+	assertTrue(t, logSettings["foo"] && logSettings["bar"], "Failed to parse string log directive")
 
 	logFunction = testLogFunction
 	logAll = false

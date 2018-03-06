@@ -64,7 +64,7 @@ func TestFrameReaderTrickle(t *testing.T) {
 	for i := 0; i <= len(kTestFrame); i += 1 {
 		hdr, body, err = r.process()
 		if i < len(kTestFrame) {
-			assertEquals(t, err, WouldBlock)
+			assertEquals(t, err, AlertWouldBlock)
 			assertEquals(t, 0, len(hdr))
 			assertEquals(t, 0, len(body))
 			r.addChunk(kTestFrame[i : i+1])

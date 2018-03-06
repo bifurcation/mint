@@ -173,6 +173,10 @@ func TestStateMachineIntegration(t *testing.T) {
 				},
 			},
 
+			/* Commented out because PeekRecordType() not available without a record layer
+
+			TODO(ekr@rtfm.com): Reenable.
+
 			// PSK case, with early data
 			"pskWithEarlyData": {
 				clientConfig: &Config{
@@ -218,6 +222,7 @@ func TestStateMachineIntegration(t *testing.T) {
 				},
 			},
 
+			*/
 			// PSK case, server rejects PSK
 			"pskRejected": {
 				clientConfig: &Config{
@@ -362,9 +367,9 @@ func TestStateMachineIntegration(t *testing.T) {
 			clientState = clientStateStart{
 				Config: params.clientConfig,
 				Opts:   params.clientOptions,
-				hsCtx:  chsCtx,
+				hsCtx:  &chsCtx,
 			}
-			serverState = serverStateStart{Config: params.serverConfig, hsCtx: shsCtx}
+			serverState = serverStateStart{Config: params.serverConfig, hsCtx: &shsCtx}
 
 			t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
 			t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
@@ -399,7 +404,7 @@ func TestStateMachineIntegration(t *testing.T) {
 					}
 					serverState = nextState
 					serverResponses := messagesFromActions(serverInstr)
-					assert(t, alert == AlertNoAlert || alert == AlertStatelessRetry, fmt.Sprintf("Alert from server [%v]", alert))
+					assertTrue(t, alert == AlertNoAlert || alert == AlertStatelessRetry, fmt.Sprintf("Alert from server [%v]", alert))
 					serverStateSequence = append(serverStateSequence, serverState)
 					t.Logf("Server: %s", reflect.TypeOf(serverState).Name())
 					clientHandshakeMessageReader.queue = append(clientHandshakeMessageReader.queue, serverResponses...)
@@ -417,7 +422,7 @@ func TestStateMachineIntegration(t *testing.T) {
 					}
 					clientState = nextState
 					clientResponses := messagesFromActions(clientInstr)
-					assert(t, alert == AlertNoAlert, fmt.Sprintf("Alert from client [%v]", alert))
+					assertTrue(t, alert == AlertNoAlert, fmt.Sprintf("Alert from client [%v]", alert))
 					clientStateSequence = append(clientStateSequence, clientState)
 					t.Logf("Client: %s", reflect.TypeOf(clientState).Name())
 					serverHandshakeMessageReader.queue = append(serverHandshakeMessageReader.queue, clientResponses...)
