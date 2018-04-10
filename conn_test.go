@@ -100,7 +100,6 @@ func (b *bufferedConn) Write(buf []byte) (int, error) {
 	ctr := b.writeCounter
 	b.writeCounter++
 	if b.lostWrite[ctr] {
-		fmt.Println("Losing write ", ctr)
 		return 0, nil
 	}
 
