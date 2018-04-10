@@ -125,6 +125,7 @@ const (
 	ExtensionTypeCookie              ExtensionType = 44
 	ExtensionTypePSKKeyExchangeModes ExtensionType = 45
 	ExtensionTypeTicketEarlyDataInfo ExtensionType = 46
+	ExtensionTypeSPAKE2              ExtensionType = 47 // XXX(rlb@ipv.sx): Unassigned
 )
 
 // enum {...} NamedGroup

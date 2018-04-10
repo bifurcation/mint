@@ -624,3 +624,90 @@ func (c CookieExtension) Marshal() ([]byte, error) {
 func (c *CookieExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, c)
 }
+
+// struct {
+//     opaque identity<0..2^16-1>;
+//     opaque key_exchange<1..2^16-1>;
+// } SPAKE2Share;
+//
+// struct {
+//     select (Handshake.msg_type) {
+//         case client_hello:
+//             SPAKE2Share client_shares<0..2^16-1>;
+//
+//         case server_hello:
+//						 uint16 selected_identity;
+//             opaque key_exchange<1..2^16-1>;
+//     };
+// } SPAKE2;
+type SPAKE2Share struct {
+	Identity    []byte `tls:"head=2"`
+	KeyExchange []byte `tls:"head=2,min=1"`
+}
+
+type SPAKE2ClientHelloInner struct {
+	ClientShares []SPAKE2Share `tls:"head=2"`
+}
+
+type SPAKE2ServerHelloInner struct {
+	SelectedIdentity uint16
+	KeyExchange      []byte `tls:"head=2"`
+}
+
+type SPAKE2Extension struct {
+	HandshakeType    HandshakeType
+	SelectedIdentity uint16
+	Shares           []SPAKE2Share
+}
+
+func (spake2 SPAKE2Extension) Type() ExtensionType {
+	return ExtensionTypeSPAKE2
+}
+
+func (spake2 SPAKE2Extension) Marshal() ([]byte, error) {
+	switch spake2.HandshakeType {
+	case HandshakeTypeClientHello:
+		return syntax.Marshal(SPAKE2ClientHelloInner{spake2.Shares})
+
+	case HandshakeTypeServerHello:
+		if len(spake2.Shares) != 1 {
+			return nil, fmt.Errorf("tls.spake2: ServerHello extension must have one share")
+		}
+
+		return syntax.Marshal(SPAKE2ServerHelloInner{
+			SelectedIdentity: spake2.SelectedIdentity,
+			KeyExchange:      spake2.Shares[0].KeyExchange,
+		})
+
+	default:
+		return nil, fmt.Errorf("tls.spake2: Handshake type not allowed")
+	}
+}
+
+func (spake2 *SPAKE2Extension) Unmarshal(data []byte) (int, error) {
+	switch spake2.HandshakeType {
+	case HandshakeTypeClientHello:
+		var inner SPAKE2ClientHelloInner
+		read, err := syntax.Unmarshal(data, &inner)
+		if err != nil {
+			return 0, err
+		}
+
+		spake2.Shares = inner.ClientShares
+		return read, nil
+
+	case HandshakeTypeServerHello:
+		var inner SPAKE2ServerHelloInner
+		read, err := syntax.Unmarshal(data, &inner)
+		if err != nil {
+			return 0, err
+		}
+
+		spake2.SelectedIdentity = inner.SelectedIdentity
+		spake2.Shares = []SPAKE2Share{{KeyExchange: inner.KeyExchange}}
+		return read, nil
+
+	default:
+		return 0, fmt.Errorf("tls.spake2: Handshake type not allowed")
+	}
+}

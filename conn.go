@@ -62,6 +62,33 @@ func (cache PSKMapCache) Size() int {
 	return len(cache)
 }
 
+type Password struct {
+	Group    NamedGroup
+	Identity string
+	Password []byte
+}
+
+type PasswordCache interface {
+	Get(string) (Password, bool)
+	Put(Password)
+	Size() int
+}
+
+type PasswordMapCache map[string]Password
+
+func (cache PasswordMapCache) Get(identity string) (pw Password, ok bool) {
+	pw, ok = cache[identity]
+	return
+}
+
+func (cache *PasswordMapCache) Put(identity string, pw Password) {
+	(*cache)[pw.Identity] = pw
+}
+
+func (cache PasswordMapCache) Size() int {
+	return len(cache)
+}
+
 // Config is the struct used to pass configuration settings to a TLS client or
 // server instance.  The settings for client and server are pretty different,
 // but we just throw them all in here.

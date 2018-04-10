@@ -124,6 +124,29 @@ var (
 		HandshakeType: HandshakeTypeHelloRetryRequest,
 	}
 
+	// SPAKE2 test cases
+	spake2ClientHex = "000c" + "000400010203" + "000404050607"
+	spake2ServerHex = "fffe" + "000408090a0b"
+	spake2ClientIn  = &SPAKE2Extension{
+		HandshakeType: HandshakeTypeClientHello,
+		Shares: []SPAKE2Share{
+			{
+				Identity:    []byte{0, 1, 2, 3},
+				KeyExchange: []byte{4, 5, 6, 7},
+			},
+		},
+	}
+	spake2ServerIn = &SPAKE2Extension{
+		HandshakeType:    HandshakeTypeServerHello,
+		SelectedIdentity: 0xfffe,
+		Shares: []SPAKE2Share{
+			{
+				Identity:    nil,
+				KeyExchange: []byte{8, 9, 10, 11},
+			},
+		},
+	}
+
 	// SNI test cases (pre-declared so that we can take references in the test case)
 	serverNameRaw = "example.com"
 	serverNameIn  = ServerNameExtension(serverNameRaw)
@@ -187,6 +210,8 @@ var validExtensionTestCases = map[ExtensionType]struct {
 	// Omitted: KeyShare (depends on HandshakeType)
 	// Omitted: PreSharedKey (depends on HandshakeType)
 	// Omitted: SupportedVersions (depends on HandshakeType)
+	// Omitted: SPAKE2 (depends on HandshakeType)
+
 	// EarlyData
 	ExtensionTypeEarlyData: {
 		blank:        &EarlyDataExtension{},
@@ -661,4 +686,42 @@ func TestALPNMarshalUnmarshal(t *testing.T) {
 	ext := &ALPNExtension{}
 	_, err := ext.Unmarshal(alpn[:1])
 	assertError(t, err, "Unmarshaled a ALPN extension with a too-long interior length")
+}
+
+func TestSPAKE2MarshalUnmarshal(t *testing.T) {
+	spake2Client := unhex(spake2ClientHex)
+	spake2Server := unhex(spake2ServerHex)
+
+	// Test extension type
+	assertEquals(t, SPAKE2Extension{}.Type(), ExtensionTypeSPAKE2)
+
+	// Test successful marshal (client side)
+	out, err := spake2ClientIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid SPAKE2 (client)")
+	assertByteEquals(t, out, spake2Client)
+
+	// Test successful marshal (server side)
+	out, err = spake2ServerIn.Marshal()
+	assertNotError(t, err, "Failed to marshal valid SPAKE2 (server)")
+	assertByteEquals(t, out, spake2Server)
+
+	// Test marshal failure on server trying to send multiple
+	keyShareClientIn.HandshakeType = HandshakeTypeServerHello
+	out, err = keyShareClientIn.Marshal()
+	assertError(t, err, "Marshaled multiple key shares for server")
+	keyShareClientIn.HandshakeType = HandshakeTypeClientHello
+
+	// Test successful unmarshal (client)
+	ks := SPAKE2Extension{HandshakeType: HandshakeTypeClientHello}
+	read, err := ks.Unmarshal(spake2Client)
+	assertNotError(t, err, "Failed to unmarshal valid KeyShare (client)")
+	assertDeepEquals(t, &ks, spake2ClientIn)
+	assertEquals(t, read, len(spake2Client))
+
+	// Test successful unmarshal (server)
+	ks = SPAKE2Extension{HandshakeType: HandshakeTypeServerHello}
+	read, err = ks.Unmarshal(spake2Server)
+	assertNotError(t, err, "Failed to unmarshal valid KeyShare (server)")
+	assertDeepEquals(t, &ks, spake2ServerIn)
+	assertEquals(t, read, len(spake2Server))
 }
