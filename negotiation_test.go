@@ -99,19 +99,28 @@ func TestPSKNegotiation(t *testing.T) {
 
 func TestPSKModeNegotiation(t *testing.T) {
 	// Test that everything that's allowed gets used
-	usingDH, usingPSK := PSKModeNegotiation(true, true, []PSKKeyExchangeMode{PSKModeKE, PSKModeDHEKE})
+	usingDH, usingPSK, usingSPAKE2 := PSKModeNegotiation(true, true, false, []PSKKeyExchangeMode{PSKModeKE, PSKModeDHEKE})
 	assertTrue(t, usingDH, "Unnecessarily disabled DH")
 	assertTrue(t, usingPSK, "Unnecessarily disabled PSK")
+	assertTrue(t, !usingSPAKE2, "Should not have enabled SPAKE2")
 
 	// Test that DH is disabled when not allowed with the PSK
-	usingDH, usingPSK = PSKModeNegotiation(true, true, []PSKKeyExchangeMode{PSKModeKE})
+	usingDH, usingPSK, usingSPAKE2 = PSKModeNegotiation(true, true, false, []PSKKeyExchangeMode{PSKModeKE})
 	assertTrue(t, !usingDH, "Should not have enabled DH")
 	assertTrue(t, usingPSK, "Unnecessarily disabled PSK")
+	assertTrue(t, !usingSPAKE2, "Should not have enabled SPAKE2")
 
 	// Test that the PSK is disabled when DH is required but not possible
-	usingDH, usingPSK = PSKModeNegotiation(false, true, []PSKKeyExchangeMode{PSKModeDHEKE})
+	usingDH, usingPSK, usingSPAKE2 = PSKModeNegotiation(false, true, false, []PSKKeyExchangeMode{PSKModeDHEKE})
 	assertTrue(t, !usingDH, "Should not have enabled DH")
 	assertTrue(t, !usingPSK, "Should not have enabled PSK")
+	assertTrue(t, !usingSPAKE2, "Should not have enabled SPAKE2")
+
+	// Test that SPAKE2 overrides everything else
+	usingDH, usingPSK, usingSPAKE2 = PSKModeNegotiation(true, true, true, []PSKKeyExchangeMode{PSKModeKE, PSKModeDHEKE})
+	assertTrue(t, !usingDH, "Should not have enabled DH")
+	assertTrue(t, !usingPSK, "Should not have enabled PSK")
+	assertTrue(t, usingSPAKE2, "Unnecessarily disabled SPAKE2")
 }
 
 func TestCertificateSelection(t *testing.T) {

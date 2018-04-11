@@ -115,8 +115,13 @@ func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context 
 	return false, 0, nil, CipherSuiteParams{}, nil
 }
 
-func PSKModeNegotiation(canDoDH, canDoPSK bool, modes []PSKKeyExchangeMode) (bool, bool) {
-	logf(logTypeNegotiation, "Negotiating PSK modes [%v] [%v] [%+v]", canDoDH, canDoPSK, modes)
+func PSKModeNegotiation(canDoDH, canDoPSK, canDoSPAKE2 bool, modes []PSKKeyExchangeMode) (bool, bool, bool) {
+	logf(logTypeNegotiation, "Negotiating PSK modes [%v] [%v] [%v] [%+v]", canDoDH, canDoPSK, canDoSPAKE2, modes)
+
+	if canDoSPAKE2 {
+		return false, false, true
+	}
+
 	dhAllowed := false
 	dhRequired := true
 	for _, mode := range modes {
@@ -131,7 +136,7 @@ func PSKModeNegotiation(canDoDH, canDoPSK bool, modes []PSKKeyExchangeMode) (boo
 	usingDH := canDoDH && (dhAllowed || !usingPSK)
 
 	logf(logTypeNegotiation, "Results of PSK mode negotiation: usingDH=[%v] usingPSK=[%v]", usingDH, usingPSK)
-	return usingDH, usingPSK
+	return usingDH, usingPSK, false
 }
 
 func CertificateSelection(serverName *string, signatureSchemes []SignatureScheme, certs []*Certificate) (*Certificate, SignatureScheme, error) {
@@ -215,4 +220,27 @@ func ALPNNegotiation(psk *PreSharedKey, offered, supported []string) (string, er
 		err = fmt.Errorf("ALPN for PSK not provided")
 	}
 	return "", err
+}
+
+func PasswordNegotiation(keyShares []SPAKE2Share, passwords PasswordCache) (bool, []byte, []byte, []byte, []byte) {
+	for _, share := range keyShares {
+		password, ok := passwords.Get(string(share.Identity))
+		if !ok {
+			return false, nil, nil, nil, nil
+		}
+
+		priv, pub, err := newSPAKE2KeyShare(password.Group, false, password.Password)
+		if err != nil {
+			continue
+		}
+
+		spake2Secret, err := spake2KeyAgreement(password.Group, false, share.KeyExchange, priv, password.Password)
+		if err != nil {
+			continue
+		}
+
+		return true, share.Identity, pub, spake2Secret, password.Password
+	}
+
+	return false, nil, nil, nil, nil
 }

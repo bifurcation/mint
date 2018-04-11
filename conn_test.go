@@ -176,10 +176,12 @@ var (
 	certificates, clientCertificates []*Certificate
 	clientName, serverName           string
 
-	psk  PreSharedKey
-	psks *PSKMapCache
+	password  Password
+	passwords *PasswordMapCache
+	psk       PreSharedKey
+	psks      *PSKMapCache
 
-	basicConfig, dtlsConfig, nbConfig, nbDTLSConfig, hrrConfig, alpnConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
+	basicConfig, dtlsConfig, nbConfig, nbDTLSConfig, hrrConfig, alpnConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, spake2Config, resumptionConfig, ffdhConfig, x25519Config *Config
 )
 
 func init() {
@@ -203,6 +205,11 @@ func init() {
 		Identity:     []byte{0, 1, 2, 3},
 		Key:          []byte{4, 5, 6, 7},
 	}
+	password = Password{
+		Group:    P256,
+		Identity: "alice",
+		Password: []byte("white rabbit"),
+	}
 	certificates = []*Certificate{
 		{
 			Chain:      []*x509.Certificate{serverCert},
@@ -218,6 +225,9 @@ func init() {
 	psks = &PSKMapCache{
 		serverName: psk,
 		"00010203": psk,
+	}
+	passwords = &PasswordMapCache{
+		"alice": password,
 	}
 
 	basicConfig = &Config{
@@ -294,6 +304,14 @@ func init() {
 		Certificates:       certificates,
 		PSKs:               psks,
 		Groups:             []NamedGroup{FFDHE2048},
+		InsecureSkipVerify: true,
+	}
+
+	spake2Config = &Config{
+		ServerName:         serverName,
+		CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+		Certificates:       certificates,
+		Passwords:          passwords,
 		InsecureSkipVerify: true,
 	}
 
@@ -892,6 +910,36 @@ func Test0xRTT(t *testing.T) {
 	runParametrizedTest(t, params, test0xRTT)
 }
 
+func testSPAKE2(t *testing.T, name string, p testInstanceState) {
+	conf := *spake2Config
+	conf.NonBlocking = true
+
+	if p["dtls"] == "true" {
+		conf.UseDTLS = true
+	}
+
+	cConn, sConn := pipe()
+	cbConn := newBufferedConn(cConn)
+	cbConn.SetAutoflush()
+	sbConn := newBufferedConn(sConn)
+	sbConn.SetAutoflush()
+
+	client := Client(cbConn, &conf)
+	server := Server(sbConn, &conf)
+	hsRunHandshakeOneThread(t, client, server)
+
+	checkConsistency(t, client, server)
+	assertTrue(t, client.state.Params.UsingSPAKE2, "Session did not negotiate SPAKE2")
+	assertEquals(t, client.state.Params.SPAKE2Identity, password.Identity)
+}
+
+func TestSPAKE2HS(t *testing.T) {
+	params := map[string][]string{
+		"dtls": {"true", "false"},
+	}
+	runParametrizedTest(t, params, testSPAKE2)
+}
+
 func Test0xRTTFailure(t *testing.T) {
 	// Client thinks it has a PSK
 	clientConfig := &Config{
@@ -1457,7 +1505,7 @@ func hsUntilBlocked(t *testing.T, c *Conn, b *bufferedConn) {
 		alert := c.Handshake()
 		switch alert {
 		default:
-			t.Fatalf("Unexpected alert")
+			t.Fatalf("Unexpected alert [%v]", alert)
 		case AlertWouldBlock, AlertNoAlert, AlertStatelessRetry:
 		}
 	}
@@ -1478,7 +1526,7 @@ func hsUntilComplete(t *testing.T, c *Conn) {
 		assertTrue(t,
 			alert == AlertWouldBlock ||
 				alert == AlertNoAlert,
-			"Unexpected alert")
+			fmt.Sprintf("Unexpected alert [%v]", alert))
 
 		if c.GetHsState() == StateClientConnected ||
 			c.GetHsState() == StateServerConnected {
@@ -1493,14 +1541,14 @@ func hsRunHandshakeOneThread(t *testing.T, client *Conn, server *Conn) {
 		alert := client.Handshake()
 		switch alert {
 		default:
-			t.Fatalf("Unexpected alert")
+			t.Fatalf("Unexpected alert from client [%v]", alert)
 		case AlertWouldBlock, AlertNoAlert:
 		}
 
 		alert = server.Handshake()
 		switch alert {
 		default:
-			t.Fatalf("Unexpected alert %v", alert)
+			t.Fatalf("Unexpected alert from server [%v]", alert)
 		case AlertWouldBlock, AlertNoAlert, AlertStatelessRetry:
 		}
 	}

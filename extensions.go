@@ -636,8 +636,7 @@ func (c *CookieExtension) Unmarshal(data []byte) (int, error) {
 //             SPAKE2Share client_shares<0..2^16-1>;
 //
 //         case server_hello:
-//						 uint16 selected_identity;
-//             opaque key_exchange<1..2^16-1>;
+//						 SPAKE2Share server_share;
 //     };
 // } SPAKE2;
 type SPAKE2Share struct {
@@ -650,14 +649,12 @@ type SPAKE2ClientHelloInner struct {
 }
 
 type SPAKE2ServerHelloInner struct {
-	SelectedIdentity uint16
-	KeyExchange      []byte `tls:"head=2"`
+	ServerShare SPAKE2Share
 }
 
 type SPAKE2Extension struct {
-	HandshakeType    HandshakeType
-	SelectedIdentity uint16
-	Shares           []SPAKE2Share
+	HandshakeType HandshakeType
+	KeyShares     []SPAKE2Share
 }
 
 func (spake2 SPAKE2Extension) Type() ExtensionType {
@@ -667,17 +664,14 @@ func (spake2 SPAKE2Extension) Type() ExtensionType {
 func (spake2 SPAKE2Extension) Marshal() ([]byte, error) {
 	switch spake2.HandshakeType {
 	case HandshakeTypeClientHello:
-		return syntax.Marshal(SPAKE2ClientHelloInner{spake2.Shares})
+		return syntax.Marshal(SPAKE2ClientHelloInner{spake2.KeyShares})
 
 	case HandshakeTypeServerHello:
-		if len(spake2.Shares) != 1 {
+		if len(spake2.KeyShares) != 1 {
 			return nil, fmt.Errorf("tls.spake2: ServerHello extension must have one share")
 		}
 
-		return syntax.Marshal(SPAKE2ServerHelloInner{
-			SelectedIdentity: spake2.SelectedIdentity,
-			KeyExchange:      spake2.Shares[0].KeyExchange,
-		})
+		return syntax.Marshal(SPAKE2ServerHelloInner{ServerShare: spake2.KeyShares[0]})
 
 	default:
 		return nil, fmt.Errorf("tls.spake2: Handshake type not allowed")
@@ -693,7 +687,7 @@ func (spake2 *SPAKE2Extension) Unmarshal(data []byte) (int, error) {
 			return 0, err
 		}
 
-		spake2.Shares = inner.ClientShares
+		spake2.KeyShares = inner.ClientShares
 		return read, nil
 
 	case HandshakeTypeServerHello:
@@ -703,8 +697,7 @@ func (spake2 *SPAKE2Extension) Unmarshal(data []byte) (int, error) {
 			return 0, err
 		}
 
-		spake2.SelectedIdentity = inner.SelectedIdentity
-		spake2.Shares = []SPAKE2Share{{KeyExchange: inner.KeyExchange}}
+		spake2.KeyShares = []SPAKE2Share{inner.ServerShare}
 		return read, nil
 
 	default:

@@ -102,6 +102,32 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		alpn = &ALPNExtension{Protocols: state.Opts.NextProtos}
 	}
 
+	// SPAKE2
+	offeredSPAKE2 := map[string][]byte{}
+	var spake2 *SPAKE2Extension
+	if state.Config.Passwords != nil && state.Config.Passwords.Size() > 0 {
+		passwords := state.Config.Passwords.GetAll()
+
+		spake2 = &SPAKE2Extension{
+			HandshakeType: HandshakeTypeClientHello,
+			KeyShares:     make([]SPAKE2Share, len(passwords)),
+		}
+
+		for i, password := range passwords {
+			priv, pub, err := newSPAKE2KeyShare(password.Group, true, password.Password)
+			if err != nil {
+				logf(logTypeHandshake, "[ClientStateStart] Error creating SPAKE2 share [%v]", err)
+				return nil, nil, AlertInternalError
+			}
+
+			offeredSPAKE2[password.Identity] = priv
+			spake2.KeyShares[i] = SPAKE2Share{
+				Identity:    []byte(password.Identity),
+				KeyExchange: pub,
+			}
+		}
+	}
+
 	// Construct base ClientHello
 	ch := &ClientHelloBody{
 		LegacyVersion: wireVersion(state.hsCtx.hIn),
@@ -125,6 +151,13 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		err := ch.Extensions.Add(alpn)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateStart] Error adding ALPN extension [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+	}
+	if spake2 != nil {
+		err := ch.Extensions.Add(spake2)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error adding SPAKE2 extension [%v]", err)
 			return nil, nil, AlertInternalError
 		}
 	}
@@ -220,7 +253,7 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 
 		earlyHash = params.Hash
 		earlySecret = HkdfExtract(params.Hash, zero, key.Key)
-		logf(logTypeCrypto, "early secret: [%d] %x", len(earlySecret), earlySecret)
+		logf(logTypeCrypto, "early secret (psk): [%d] %x", len(earlySecret), earlySecret)
 
 		binderLabel := labelExternalBinder
 		if key.IsResumption {
@@ -268,12 +301,13 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	logf(logTypeHandshake, "[ClientStateStart] -> [ClientStateWaitSH]")
 	state.hsCtx.SetVersion(tls12Version) // Everything after this should be 1.2.
 	nextState := clientStateWaitSH{
-		Config:     state.Config,
-		Opts:       state.Opts,
-		Params:     state.Params,
-		hsCtx:      state.hsCtx,
-		OfferedDH:  offeredDH,
-		OfferedPSK: offeredPSK,
+		Config:        state.Config,
+		Opts:          state.Opts,
+		Params:        state.Params,
+		hsCtx:         state.hsCtx,
+		OfferedDH:     offeredDH,
+		OfferedPSK:    offeredPSK,
+		OfferedSPAKE2: offeredSPAKE2,
 
 		earlySecret: earlySecret,
 		earlyHash:   earlyHash,
@@ -297,13 +331,14 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 }
 
 type clientStateWaitSH struct {
-	Config     *Config
-	Opts       ConnectionOptions
-	Params     ConnectionParameters
-	hsCtx      *HandshakeContext
-	OfferedDH  map[NamedGroup][]byte
-	OfferedPSK PreSharedKey
-	PSK        []byte
+	Config        *Config
+	Opts          ConnectionOptions
+	Params        ConnectionParameters
+	hsCtx         *HandshakeContext
+	OfferedDH     map[NamedGroup][]byte
+	OfferedPSK    PreSharedKey
+	OfferedSPAKE2 map[string][]byte
+	PSK           []byte
 
 	earlySecret []byte
 	earlyHash   crypto.Hash
@@ -439,11 +474,13 @@ func (state clientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 	// Do PSK or key agreement depending on extensions
 	serverPSK := PreSharedKeyExtension{HandshakeType: HandshakeTypeServerHello}
 	serverKeyShare := KeyShareExtension{HandshakeType: HandshakeTypeServerHello}
+	serverSPAKE2 := SPAKE2Extension{HandshakeType: HandshakeTypeServerHello}
 
 	foundExts, err := sh.Extensions.Parse(
 		[]ExtensionBody{
 			&serverPSK,
 			&serverKeyShare,
+			&serverSPAKE2,
 		})
 	if err != nil {
 		logf(logTypeHandshake, "[ClientWaitSH] Error processing extensions [%v]", err)
@@ -465,6 +502,25 @@ func (state clientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 
 		state.Params.UsingDH = true
 		dhSecret, _ = keyAgreement(sks.Group, sks.KeyExchange, priv)
+	}
+
+	var spake2Password []byte
+	var spake2Secret []byte
+	if foundExts[ExtensionTypeSPAKE2] {
+		sks := serverSPAKE2.KeyShares[0]
+		state.Params.UsingSPAKE2 = true
+		state.Params.SPAKE2Identity = string(sks.Identity)
+
+		password, ok := state.Config.Passwords.Get(state.Params.SPAKE2Identity)
+		if !ok {
+			logf(logTypeHandshake, "[ClientStateWaitSH] SPAKE2 for unknown identity")
+			return nil, nil, AlertIllegalParameter
+		}
+
+		pub := sks.KeyExchange
+		priv := state.OfferedSPAKE2[state.Params.SPAKE2Identity]
+		spake2Password = password.Password
+		spake2Secret, _ = spake2KeyAgreement(password.Group, true, pub, priv, spake2Password)
 	}
 
 	suite := sh.CipherSuite
@@ -494,11 +550,15 @@ func (state clientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 		}
 
 		earlySecret = state.earlySecret
+	} else if state.Params.UsingSPAKE2 {
+		earlySecret = HkdfExtract(params.Hash, zero, spake2Password)
 	} else {
 		earlySecret = HkdfExtract(params.Hash, zero, zero)
 	}
 
-	if dhSecret == nil {
+	if state.Params.UsingSPAKE2 {
+		dhSecret = spake2Secret
+	} else if dhSecret == nil {
 		dhSecret = zero
 	}
 

@@ -118,6 +118,7 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	signatureAlgorithms := new(SignatureAlgorithmsExtension)
 	clientKeyShares := &KeyShareExtension{HandshakeType: HandshakeTypeClientHello}
 	clientPSK := &PreSharedKeyExtension{HandshakeType: HandshakeTypeClientHello}
+	clientSPAKE2 := &SPAKE2Extension{HandshakeType: HandshakeTypeClientHello}
 	clientEarlyData := &EarlyDataExtension{}
 	clientALPN := new(ALPNExtension)
 	clientPSKModes := new(PSKKeyExchangeModesExtension)
@@ -141,6 +142,7 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 			clientEarlyData,
 			clientKeyShares,
 			clientPSK,
+			clientSPAKE2,
 			clientALPN,
 			clientPSKModes,
 			clientCookie,
@@ -241,8 +243,18 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		}
 	}
 
-	// Figure out if we actually should do DH / PSK
-	connParams.UsingDH, connParams.UsingPSK = PSKModeNegotiation(canDoDH, canDoPSK, clientPSKModes.KEModes)
+	// Figure out if we can do SPAKE2
+	canDoSPAKE2 := false
+	var spake2Identity []byte
+	var spake2KeyShare []byte
+	var spake2Secret []byte
+	var spake2Password []byte
+	if foundExts[ExtensionTypeSPAKE2] {
+		canDoSPAKE2, spake2Identity, spake2KeyShare, spake2Secret, spake2Password = PasswordNegotiation(clientSPAKE2.KeyShares, state.Config.Passwords)
+	}
+
+	// Figure out what combination of DH / PSK / SPAKE2 we're actually going to do
+	connParams.UsingDH, connParams.UsingPSK, connParams.UsingSPAKE2 = PSKModeNegotiation(canDoDH, canDoPSK, canDoSPAKE2, clientPSKModes.KEModes)
 
 	// Select a ciphersuite
 	connParams.CipherSuite, err = CipherSuiteNegotiation(psk, ch.CipherSuites, state.Config.CipherSuites)
@@ -323,7 +335,7 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}
 
 	// If we've got no entropy to make keys from, fail
-	if !connParams.UsingDH && !connParams.UsingPSK {
+	if !connParams.UsingDH && !connParams.UsingPSK && !connParams.UsingSPAKE2 {
 		logf(logTypeHandshake, "[ServerStateStart] Neither DH nor PSK negotiated")
 		return nil, nil, AlertHandshakeFailure
 	}
@@ -356,6 +368,13 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 
 	if !connParams.UsingDH {
 		dhSecret = nil
+	}
+
+	if !connParams.UsingSPAKE2 {
+		spake2Identity = nil
+		spake2KeyShare = nil
+		spake2Password = nil
+		spake2Secret = nil
 	}
 
 	// Figure out if we're going to do early data
@@ -391,6 +410,10 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		dhPublic:                 dhPublic,
 		dhSecret:                 dhSecret,
 		pskSecret:                pskSecret,
+		spake2Identity:           spake2Identity,
+		spake2KeyShare:           spake2KeyShare,
+		spake2Password:           spake2Password,
+		spake2Secret:             spake2Secret,
 		selectedPSK:              selectedPSK,
 		cert:                     cert,
 		certScheme:               certScheme,
@@ -452,6 +475,10 @@ type serverStateNegotiated struct {
 	dhPublic                 []byte
 	dhSecret                 []byte
 	pskSecret                []byte
+	spake2Identity           []byte
+	spake2KeyShare           []byte
+	spake2Password           []byte
+	spake2Secret             []byte
 	clientEarlyTrafficSecret []byte
 	selectedPSK              int
 	cert                     *Certificate
@@ -488,6 +515,21 @@ func (state serverStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 	if err != nil {
 		logf(logTypeHandshake, "[ServerStateNegotiated] Error adding supported_versions extension [%v]", err)
 		return nil, nil, AlertInternalError
+	}
+	if state.Params.UsingSPAKE2 {
+		logf(logTypeHandshake, "[ServerStateNegotiated] sending spake2 extension")
+		err := sh.Extensions.Add(&SPAKE2Extension{
+			HandshakeType: HandshakeTypeServerHello,
+			KeyShares: []SPAKE2Share{{
+				Identity:    state.spake2Identity,
+				KeyExchange: state.spake2KeyShare,
+			}},
+		})
+		if err != nil {
+			logf(logTypeHandshake, "[ServerStateNegotiated] Error adding spake2 extension [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+		state.Params.SPAKE2Identity = string(state.spake2Identity)
 	}
 	if state.Params.UsingDH {
 		logf(logTypeHandshake, "[ServerStateNegotiated] sending DH extension")
@@ -547,11 +589,15 @@ func (state serverStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 	var earlySecret []byte
 	if state.Params.UsingPSK {
 		earlySecret = HkdfExtract(params.Hash, zero, state.pskSecret)
+	} else if state.Params.UsingSPAKE2 {
+		earlySecret = HkdfExtract(params.Hash, zero, state.spake2Password)
 	} else {
 		earlySecret = HkdfExtract(params.Hash, zero, zero)
 	}
 
-	if state.dhSecret == nil {
+	if state.Params.UsingSPAKE2 {
+		state.dhSecret = state.spake2Secret
+	} else if state.dhSecret == nil {
 		state.dhSecret = zero
 	}
 

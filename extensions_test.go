@@ -126,10 +126,10 @@ var (
 
 	// SPAKE2 test cases
 	spake2ClientHex = "000c" + "000400010203" + "000404050607"
-	spake2ServerHex = "fffe" + "000408090a0b"
+	spake2ServerHex = "000408090a0b" + "00040c0d0e0f"
 	spake2ClientIn  = &SPAKE2Extension{
 		HandshakeType: HandshakeTypeClientHello,
-		Shares: []SPAKE2Share{
+		KeyShares: []SPAKE2Share{
 			{
 				Identity:    []byte{0, 1, 2, 3},
 				KeyExchange: []byte{4, 5, 6, 7},
@@ -137,12 +137,11 @@ var (
 		},
 	}
 	spake2ServerIn = &SPAKE2Extension{
-		HandshakeType:    HandshakeTypeServerHello,
-		SelectedIdentity: 0xfffe,
-		Shares: []SPAKE2Share{
+		HandshakeType: HandshakeTypeServerHello,
+		KeyShares: []SPAKE2Share{
 			{
-				Identity:    nil,
-				KeyExchange: []byte{8, 9, 10, 11},
+				Identity:    []byte{8, 9, 10, 11},
+				KeyExchange: []byte{12, 13, 14, 15},
 			},
 		},
 	}

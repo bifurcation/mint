@@ -70,7 +70,7 @@ type Password struct {
 
 type PasswordCache interface {
 	Get(string) (Password, bool)
-	Put(Password)
+	GetAll() []Password
 	Size() int
 }
 
@@ -81,8 +81,13 @@ func (cache PasswordMapCache) Get(identity string) (pw Password, ok bool) {
 	return
 }
 
-func (cache *PasswordMapCache) Put(identity string, pw Password) {
-	(*cache)[pw.Identity] = pw
+func (cache PasswordMapCache) GetAll() []Password {
+	out := make([]Password, len(cache))
+	i := 0
+	for _, pw := range cache {
+		out[i] = pw
+	}
+	return out
 }
 
 func (cache PasswordMapCache) Size() int {
@@ -152,6 +157,7 @@ type Config struct {
 	SignatureSchemes []SignatureScheme
 	NextProtos       []string
 	PSKs             PreSharedKeyCache
+	Passwords        PasswordCache
 	PSKModes         []PSKKeyExchangeMode
 	NonBlocking      bool
 	UseDTLS          bool
@@ -191,6 +197,7 @@ func (c *Config) Clone() *Config {
 		SignatureSchemes:      c.SignatureSchemes,
 		NextProtos:            c.NextProtos,
 		PSKs:                  c.PSKs,
+		Passwords:             c.Passwords,
 		PSKModes:              c.PSKModes,
 		NonBlocking:           c.NonBlocking,
 		UseDTLS:               c.UseDTLS,
@@ -278,8 +285,10 @@ type ConnectionState struct {
 	PeerCertificates []*x509.Certificate   // certificate chain presented by remote peer
 	VerifiedChains   [][]*x509.Certificate // verified chains built from PeerCertificates
 	NextProto        string                // Selected ALPN proto
-	UsingPSK         bool                  // Are we using PSK.
-	UsingEarlyData   bool                  // Did we negotiate 0-RTT.
+	UsingPSK         bool                  // Are we using PSK?
+	UsingEarlyData   bool                  // Did we negotiate 0-RTT?
+	UsingSPAKE2      bool                  // Did we negotiate SPAKE2?
+	SPAKE2Identity   string                // Which identity was authenticated with SPAKE2?
 }
 
 // Conn implements the net.Conn interface, as with "crypto/tls"
@@ -914,8 +923,10 @@ func (c *Conn) ConnectionState() ConnectionState {
 		state.NextProto = c.state.Params.NextProto
 		state.VerifiedChains = c.state.verifiedChains
 		state.PeerCertificates = c.state.peerCertificates
-		state.UsingPSK = c.state.Params.UsingPSK
 		state.UsingEarlyData = c.state.Params.UsingEarlyData
+		state.UsingPSK = c.state.Params.UsingPSK
+		state.UsingSPAKE2 = c.state.Params.UsingSPAKE2
+		state.SPAKE2Identity = c.state.Params.SPAKE2Identity
 	}
 
 	return state

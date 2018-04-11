@@ -57,14 +57,16 @@ type ConnectionOptions struct {
 type ConnectionParameters struct {
 	UsingPSK               bool
 	UsingDH                bool
+	UsingSPAKE2            bool
 	ClientSendingEarlyData bool
 	UsingEarlyData         bool
 	RejectedEarlyData      bool
 	UsingClientAuth        bool
 
-	CipherSuite CipherSuite
-	ServerName  string
-	NextProto   string
+	CipherSuite    CipherSuite
+	ServerName     string
+	NextProto      string
+	SPAKE2Identity string
 }
 
 // Working state for the handshake.
