@@ -975,7 +975,10 @@ func (state serverStateWaitCert) Next(hr handshakeMessageReader) (HandshakeState
 
 	state.handshakeHash.Write(hm.Marshal())
 
-	if len(cert.CertificateList) == 0 {
+	if len(cert.CertificateList) == 0 && state.Config.RequireClientAuth {
+		logf(logTypeHandshake, "[ServerStateWaitCert] WARNING client did not provide a certificate and RequireClientAuth is set")
+		return nil, nil, AlertBadCertificate
+	} else if len(cert.CertificateList) == 0 {
 		logf(logTypeHandshake, "[ServerStateWaitCert] WARNING client did not provide a certificate")
 
 		logf(logTypeHandshake, "[ServerStateWaitCert] -> [ServerStateWaitFinished]")
