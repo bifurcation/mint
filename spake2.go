@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 const (
@@ -86,6 +88,82 @@ func spakeBasePoint(group NamedGroup, client bool) (x, y *big.Int) {
 	}
 }
 
+type passwordHash func([]byte) ([]byte, error)
+
+// struct {
+//   uint16 context;
+//   opaque client\_identity<0..255>;
+//   opaque server\_name<0..255>;
+//   opaque password<0..255>;
+// } PasswordInput;
+type passwordInput struct {
+	Context        uint16
+	ClientIdentity []byte `tls:"head=1"`
+	ServerIdentity []byte `tls:"head=1"`
+	Password       []byte `tls:"head=1"`
+}
+
+const (
+	contextW  uint16 = 0x7700
+	contextW0 uint16 = 0x7730
+	contextW1 uint16 = 0x7731
+)
+
+func encodeSPAKE2Password(group NamedGroup, hash passwordHash, context uint16, client, server, password []byte) ([]byte, error) {
+	inputStruct := passwordInput{
+		Context:        context,
+		ClientIdentity: client,
+		ServerIdentity: server,
+		Password:       password,
+	}
+
+	input, err := syntax.Marshal(inputStruct)
+	if err != nil {
+		return nil, err
+	}
+
+	wBytes, err := hash(input)
+	if err != nil {
+		return nil, err
+	}
+
+	w := new(big.Int).SetBytes(wBytes)
+	crv := curveFromNamedGroup(group)
+	w.Mod(w, crv.Params().N)
+
+	// NB: If this method is extended to support other groups, it
+	// will also need to do cofactor clearing as necessary.  There
+	// is no cofactor clearing above because the NIST curves all
+	// have cofactor 1.
+	return w.Bytes(), nil
+}
+
+func spake2pClientSetup(group NamedGroup, hash passwordHash, client, server, password []byte) ([]byte, []byte, error) {
+	w0, err := encodeSPAKE2Password(group, hash, contextW0, client, server, password)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	w1, err := encodeSPAKE2Password(group, hash, contextW1, client, server, password)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return w0, w1, nil
+}
+
+func spake2pServerSetup(group NamedGroup, hash passwordHash, client, server, password []byte) ([]byte, []byte, error) {
+	w0, w1, err := spake2pClientSetup(group, hash, client, server, password)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	crv := curveFromNamedGroup(group)
+	Lx, Ly := crv.Params().ScalarBaseMult(w1)
+	L := elliptic.Marshal(crv, Lx, Ly)
+	return w0, L, nil
+}
+
 // Generate an ephemeral `x` and return `w * M + x * G` (or the
 // appropriate server-side equivalents)
 func newSPAKE2KeyShare(group NamedGroup, client bool, w []byte) (x, T []byte, err error) {
@@ -117,6 +195,14 @@ func newSPAKE2KeyShare(group NamedGroup, client bool, w []byte) (x, T []byte, er
 //
 // K = x * (S - w*N) = y * (T - w*M)
 
+func fixedWidthBytes(curve elliptic.Curve, X *big.Int) []byte {
+	b := X.Bytes()
+	size := len(curve.Params().P.Bytes())
+	ret := make([]byte, size)
+	copy(ret[size-len(b):], b)
+	return ret
+}
+
 // Generate an ephemeral `x` and return `K = x * (S - w*N)` (or the
 // appropriate server-side equivalents)
 func spake2KeyAgreement(group NamedGroup, client bool, S, x, w []byte) ([]byte, error) {
@@ -133,13 +219,55 @@ func spake2KeyAgreement(group NamedGroup, client bool, S, x, w []byte) ([]byte, 
 		SwNx, SwNy := crv.Params().Add(Sx, Sy, wNx, wNy)
 		Kx, _ := crv.Params().ScalarMult(SwNx, SwNy, x)
 
-		xBytes := Kx.Bytes()
-		numBytes := len(crv.Params().P.Bytes())
-		ret := make([]byte, numBytes)
-		copy(ret[numBytes-len(xBytes):], xBytes)
-		return ret, nil
+		return fixedWidthBytes(crv, Kx), nil
 
 	default:
 		return nil, fmt.Errorf("tls.spake2: Unsupported group %v", group)
+	}
+}
+
+func spake2pClient(group NamedGroup, S, x, w0, w1 []byte) ([]byte, []byte, error) {
+	switch group {
+	case P256, P384, P521:
+		crv := curveFromNamedGroup(group)
+		Sx, Sy := elliptic.Unmarshal(crv, S)
+		Nx, Ny := spakeBasePoint(group, false)
+
+		wNx, wNy := crv.Params().ScalarMult(Nx, Ny, w0)
+		wNy.Neg(wNy)
+		wNy.Mod(wNy, crv.Params().P)
+
+		SwNx, SwNy := crv.Params().Add(Sx, Sy, wNx, wNy)
+
+		Zx, _ := crv.Params().ScalarMult(SwNx, SwNy, x)
+		Z := fixedWidthBytes(crv, Zx)
+
+		Vx, _ := crv.Params().ScalarMult(SwNx, SwNy, w1)
+		V := fixedWidthBytes(crv, Vx)
+
+		return Z, V, nil
+
+	default:
+		return nil, nil, fmt.Errorf("tls.spake2: Unsupported group %v", group)
+	}
+}
+
+func spake2pServer(group NamedGroup, T, y, w0, L []byte) ([]byte, []byte, error) {
+	switch group {
+	case P256, P384, P521:
+		Z, err := spake2KeyAgreement(group, false, T, y, w0)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		crv := curveFromNamedGroup(group)
+		Lx, Ly := elliptic.Unmarshal(crv, L)
+		Vx, _ := crv.Params().ScalarMult(Lx, Ly, y)
+		V := fixedWidthBytes(crv, Vx)
+
+		return Z, V, nil
+
+	default:
+		return nil, nil, fmt.Errorf("tls.spake2: Unsupported group %v", group)
 	}
 }
