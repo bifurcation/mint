@@ -910,7 +910,7 @@ func Test0xRTT(t *testing.T) {
 	runParametrizedTest(t, params, test0xRTT)
 }
 
-func testSPAKE2(t *testing.T, name string, p testInstanceState) {
+func testSPAKE2HS(t *testing.T, name string, p testInstanceState) {
 	conf := *spake2Config
 	conf.NonBlocking = true
 
@@ -937,7 +937,7 @@ func TestSPAKE2HS(t *testing.T) {
 	params := map[string][]string{
 		"dtls": {"true", "false"},
 	}
-	runParametrizedTest(t, params, testSPAKE2)
+	runParametrizedTest(t, params, testSPAKE2HS)
 }
 
 func Test0xRTTFailure(t *testing.T) {

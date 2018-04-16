@@ -7,6 +7,8 @@ import (
 	"math/big"
 
 	"github.com/bifurcation/mint/syntax"
+	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/scrypt"
 )
 
 const (
@@ -88,7 +90,36 @@ func spakeBasePoint(group NamedGroup, client bool) (x, y *big.Int) {
 	}
 }
 
-type passwordHash func([]byte) ([]byte, error)
+type PasswordHash uint8
+
+const (
+	PasswordHashScrypt PasswordHash = iota
+	PasswordHashArgon2
+)
+
+// Recommended values taken from the relevant documentation
+const (
+	scryptN = 16384
+	scryptR = 8
+	scryptP = 1
+
+	argon2Time    = 1
+	argon2Memory  = 1 << 16
+	argon2Threads = 4
+)
+
+func passwordHash(hash PasswordHash, pw []byte, size int) ([]byte, error) {
+	switch hash {
+	case PasswordHashArgon2:
+		return argon2.IDKey(pw, nil, argon2Time, argon2Memory, argon2Threads, uint32(size)), nil
+
+	case PasswordHashScrypt:
+		return scrypt.Key(pw, nil, scryptN, scryptR, scryptP, size)
+
+	default:
+		return nil, fmt.Errorf("tls.spake2hash: Unknown password hash")
+	}
+}
 
 // struct {
 //   uint16 context;
@@ -109,7 +140,9 @@ const (
 	contextW1 uint16 = 0x7731
 )
 
-func encodeSPAKE2Password(group NamedGroup, hash passwordHash, context uint16, client, server, password []byte) ([]byte, error) {
+func encodeSPAKE2Password(group NamedGroup, hash PasswordHash, context uint16, client, server, password []byte) ([]byte, error) {
+	size := (keyExchangeSizeFromNamedGroup(group) - 1) / 2
+
 	inputStruct := passwordInput{
 		Context:        context,
 		ClientIdentity: client,
@@ -122,7 +155,7 @@ func encodeSPAKE2Password(group NamedGroup, hash passwordHash, context uint16, c
 		return nil, err
 	}
 
-	wBytes, err := hash(input)
+	wBytes, err := passwordHash(hash, input, size)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +171,7 @@ func encodeSPAKE2Password(group NamedGroup, hash passwordHash, context uint16, c
 	return w.Bytes(), nil
 }
 
-func spake2pClientSetup(group NamedGroup, hash passwordHash, client, server, password []byte) ([]byte, []byte, error) {
+func spake2pClientSetup(group NamedGroup, hash PasswordHash, client, server, password []byte) ([]byte, []byte, error) {
 	w0, err := encodeSPAKE2Password(group, hash, contextW0, client, server, password)
 	if err != nil {
 		return nil, nil, err
@@ -152,7 +185,7 @@ func spake2pClientSetup(group NamedGroup, hash passwordHash, client, server, pas
 	return w0, w1, nil
 }
 
-func spake2pServerSetup(group NamedGroup, hash passwordHash, client, server, password []byte) ([]byte, []byte, error) {
+func spake2pServerSetup(group NamedGroup, hash PasswordHash, client, server, password []byte) ([]byte, []byte, error) {
 	w0, w1, err := spake2pClientSetup(group, hash, client, server, password)
 	if err != nil {
 		return nil, nil, err
