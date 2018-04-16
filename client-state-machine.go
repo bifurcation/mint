@@ -103,7 +103,7 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}
 
 	// SPAKE2
-	offeredSPAKE2 := map[string][]byte{}
+	offeredSPAKE2 := map[string]spake2pClientState{}
 	var spake2 *SPAKE2Extension
 	if state.Config.Passwords != nil && state.Config.Passwords.Size() > 0 {
 		passwords := state.Config.Passwords.GetAll()
@@ -114,13 +114,26 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		}
 
 		for i, password := range passwords {
-			priv, pub, err := newSPAKE2KeyShare(password.Group, true, password.Password)
+			clientIdentity := []byte(password.Identity)
+			serverIdentity := []byte(state.Opts.ServerName)
+			w0, w1, err := spake2pClientSetup(password.Group, password.Hash, clientIdentity, serverIdentity, password.Password)
+			if err != nil {
+				logf(logTypeHandshake, "[ClientStateStart] Error initializing SPAKE2 client state [%v]", err)
+				return nil, nil, AlertInternalError
+			}
+
+			priv, pub, err := newSPAKE2KeyShare(password.Group, true, w0)
 			if err != nil {
 				logf(logTypeHandshake, "[ClientStateStart] Error creating SPAKE2 share [%v]", err)
 				return nil, nil, AlertInternalError
 			}
 
-			offeredSPAKE2[password.Identity] = priv
+			offeredSPAKE2[password.Identity] = spake2pClientState{
+				x:  priv,
+				w0: w0,
+				w1: w1,
+			}
+
 			spake2.KeyShares[i] = SPAKE2Share{
 				Identity:    []byte(password.Identity),
 				KeyExchange: pub,
@@ -337,7 +350,7 @@ type clientStateWaitSH struct {
 	hsCtx         *HandshakeContext
 	OfferedDH     map[NamedGroup][]byte
 	OfferedPSK    PreSharedKey
-	OfferedSPAKE2 map[string][]byte
+	OfferedSPAKE2 map[string]spake2pClientState
 	PSK           []byte
 
 	earlySecret []byte
@@ -504,8 +517,8 @@ func (state clientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 		dhSecret, _ = keyAgreement(sks.Group, sks.KeyExchange, priv)
 	}
 
-	var spake2Password []byte
-	var spake2Secret []byte
+	var spake2DH []byte
+	var spake2PSK []byte
 	if foundExts[ExtensionTypeSPAKE2] {
 		sks := serverSPAKE2.KeyShares[0]
 		state.Params.UsingSPAKE2 = true
@@ -518,9 +531,12 @@ func (state clientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 		}
 
 		pub := sks.KeyExchange
-		priv := state.OfferedSPAKE2[state.Params.SPAKE2Identity]
-		spake2Password = password.Password
-		spake2Secret, _ = spake2KeyAgreement(password.Group, true, pub, priv, spake2Password)
+		s2 := state.OfferedSPAKE2[state.Params.SPAKE2Identity]
+		spake2DH, spake2PSK, err = spake2pClient(password.Group, pub, s2.x, s2.w0, s2.w1)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateWaitSH] Error computing SPAKE2 secrets")
+			return nil, nil, AlertInternalError
+		}
 	}
 
 	suite := sh.CipherSuite
@@ -551,16 +567,19 @@ func (state clientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 
 		earlySecret = state.earlySecret
 	} else if state.Params.UsingSPAKE2 {
-		earlySecret = HkdfExtract(params.Hash, zero, spake2Password)
+		logf(logTypeCrypto, "PSK secret (spake2): [%d] %x", len(spake2PSK), spake2PSK)
+		earlySecret = HkdfExtract(params.Hash, zero, spake2PSK)
 	} else {
+		logf(logTypeCrypto, "PSK secret (default): [%d] %x", len(zero), zero)
 		earlySecret = HkdfExtract(params.Hash, zero, zero)
 	}
 
 	if state.Params.UsingSPAKE2 {
-		dhSecret = spake2Secret
+		dhSecret = spake2DH
 	} else if dhSecret == nil {
 		dhSecret = zero
 	}
+	logf(logTypeCrypto, "DH secret: [%d] %x", len(dhSecret), dhSecret)
 
 	h0 := params.Hash.New().Sum(nil)
 	h2 := handshakeHash.Sum(nil)

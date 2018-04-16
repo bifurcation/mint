@@ -90,13 +90,6 @@ func spakeBasePoint(group NamedGroup, client bool) (x, y *big.Int) {
 	}
 }
 
-type PasswordHash uint8
-
-const (
-	PasswordHashScrypt PasswordHash = iota
-	PasswordHashArgon2
-)
-
 // Recommended values taken from the relevant documentation
 const (
 	scryptN = 16384
@@ -162,13 +155,19 @@ func encodeSPAKE2Password(group NamedGroup, hash PasswordHash, context uint16, c
 
 	w := new(big.Int).SetBytes(wBytes)
 	crv := curveFromNamedGroup(group)
-	w.Mod(w, crv.Params().N)
 
 	// NB: If this method is extended to support other groups, it
 	// will also need to do cofactor clearing as necessary.  There
 	// is no cofactor clearing above because the NIST curves all
 	// have cofactor 1.
+	w.Mod(w, crv.Params().N)
+
 	return w.Bytes(), nil
+}
+
+// Used by client state machine
+type spake2pClientState struct {
+	x, w0, w1 []byte
 }
 
 func spake2pClientSetup(group NamedGroup, hash PasswordHash, client, server, password []byte) ([]byte, []byte, error) {
@@ -200,6 +199,9 @@ func spake2pServerSetup(group NamedGroup, hash PasswordHash, client, server, pas
 // Generate an ephemeral `x` and return `w * M + x * G` (or the
 // appropriate server-side equivalents)
 func newSPAKE2KeyShare(group NamedGroup, client bool, w []byte) (x, T []byte, err error) {
+	logf(logTypeCrypto, "SPAKE2+ Key Share Generation (client = %v)", client)
+	logf(logTypeCrypto, "w: [%d] %x", len(w), w)
+
 	switch group {
 	case P256, P384, P521:
 		crv := curveFromNamedGroup(group)
@@ -215,6 +217,9 @@ func newSPAKE2KeyShare(group NamedGroup, client bool, w []byte) (x, T []byte, er
 
 		Tx, Ty := crv.Params().Add(wMx, wMy, xGx, xGy)
 		T = elliptic.Marshal(crv, Tx, Ty)
+
+		logf(logTypeCrypto, "x: [%d] %x", len(x), x)
+		logf(logTypeCrypto, "T: [%d] %x", len(T), T)
 
 		return x, T, nil
 
@@ -260,6 +265,17 @@ func spake2KeyAgreement(group NamedGroup, client bool, S, x, w []byte) ([]byte, 
 }
 
 func spake2pClient(group NamedGroup, S, x, w0, w1 []byte) ([]byte, []byte, error) {
+	logf(logTypeCrypto, "SPAKE2+ Client Key Agreement")
+	logf(logTypeCrypto, "S: [%d] %x", len(S), S)
+	logf(logTypeCrypto, "x: [%d] %x", len(x), x)
+	logf(logTypeCrypto, "w0: [%d] %x", len(w0), w0)
+	logf(logTypeCrypto, "w1: [%d] %x", len(w1), w1)
+
+	crv := curveFromNamedGroup(group)
+	Lx, Ly := crv.Params().ScalarBaseMult(w1)
+	L := elliptic.Marshal(crv, Lx, Ly)
+	logf(logTypeCrypto, "L: [%d] %x", len(L), L)
+
 	switch group {
 	case P256, P384, P521:
 		crv := curveFromNamedGroup(group)
@@ -278,6 +294,9 @@ func spake2pClient(group NamedGroup, S, x, w0, w1 []byte) ([]byte, []byte, error
 		Vx, _ := crv.Params().ScalarMult(SwNx, SwNy, w1)
 		V := fixedWidthBytes(crv, Vx)
 
+		logf(logTypeCrypto, "Z: [%d] %x", len(Z), Z)
+		logf(logTypeCrypto, "V: [%d] %x", len(V), V)
+
 		return Z, V, nil
 
 	default:
@@ -286,6 +305,12 @@ func spake2pClient(group NamedGroup, S, x, w0, w1 []byte) ([]byte, []byte, error
 }
 
 func spake2pServer(group NamedGroup, T, y, w0, L []byte) ([]byte, []byte, error) {
+	logf(logTypeCrypto, "SPAKE2+ Server Key Agreement")
+	logf(logTypeCrypto, "T: [%d] %x", len(T), T)
+	logf(logTypeCrypto, "y: [%d] %x", len(y), y)
+	logf(logTypeCrypto, "w0: [%d] %x", len(w0), w0)
+	logf(logTypeCrypto, "L: [%d] %x", len(L), L)
+
 	switch group {
 	case P256, P384, P521:
 		Z, err := spake2KeyAgreement(group, false, T, y, w0)
@@ -297,6 +322,9 @@ func spake2pServer(group NamedGroup, T, y, w0, L []byte) ([]byte, []byte, error)
 		Lx, Ly := elliptic.Unmarshal(crv, L)
 		Vx, _ := crv.Params().ScalarMult(Lx, Ly, y)
 		V := fixedWidthBytes(crv, Vx)
+
+		logf(logTypeCrypto, "Z: [%d] %x", len(Z), Z)
+		logf(logTypeCrypto, "V: [%d] %x", len(V), V)
 
 		return Z, V, nil
 

@@ -176,12 +176,13 @@ var (
 	certificates, clientCertificates []*Certificate
 	clientName, serverName           string
 
-	password  Password
-	passwords *PasswordMapCache
-	psk       PreSharedKey
-	psks      *PSKMapCache
+	psk  PreSharedKey
+	psks *PSKMapCache
 
-	basicConfig, dtlsConfig, nbConfig, nbDTLSConfig, hrrConfig, alpnConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, spake2Config, resumptionConfig, ffdhConfig, x25519Config *Config
+	clientPassword Password
+	serverPassword Password
+
+	basicConfig, dtlsConfig, nbConfig, nbDTLSConfig, hrrConfig, alpnConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, clientSPAKE2Config, serverSPAKE2Config, resumptionConfig, ffdhConfig, x25519Config *Config
 )
 
 func init() {
@@ -205,11 +206,6 @@ func init() {
 		Identity:     []byte{0, 1, 2, 3},
 		Key:          []byte{4, 5, 6, 7},
 	}
-	password = Password{
-		Group:    P256,
-		Identity: "alice",
-		Password: []byte("white rabbit"),
-	}
 	certificates = []*Certificate{
 		{
 			Chain:      []*x509.Certificate{serverCert},
@@ -226,9 +222,27 @@ func init() {
 		serverName: psk,
 		"00010203": psk,
 	}
-	passwords = &PasswordMapCache{
-		"alice": password,
+
+	// w0 = d5f4b74abf30e3714146739ab3a3ff712948e799807ee50d1f78a013f9385954
+	// w1 = 9d59ca6ed921721f2f56e1b866c087d772009561fd1a96991427410eed70c70b
+	// L  = 04 a87fd82c3a838b915c9e0f161a14fd32c0caef4c8cbeab153a056bcdbb381871
+	//         824273b1ff2c12c843f4ca9fdb7b58d17ee30358a5b2fc7e49ca9068cc7b3c4b
+	clientPassword = Password{
+		Identity: clientName,
+		Group:    P256,
+		Hash:     PasswordHashArgon2,
+		Password: []byte("example password"),
 	}
+	serverPassword = Password{
+		Identity:     clientName,
+		Group:        P256,
+		PasswordHash: unhex("d5f4b74abf30e3714146739ab3a3ff712948e799807ee50d1f78a013f9385954"),
+		Point: unhex("04" + "a87fd82c3a838b915c9e0f161a14fd32c0caef4c8cbeab153a056bcdbb381871" +
+			"824273b1ff2c12c843f4ca9fdb7b58d17ee30358a5b2fc7e49ca9068cc7b3c4b"),
+	}
+
+	clientPasswords := &PasswordMapCache{clientName: clientPassword}
+	serverPasswords := &PasswordMapCache{clientName: serverPassword}
 
 	basicConfig = &Config{
 		ServerName:         serverName,
@@ -307,11 +321,18 @@ func init() {
 		InsecureSkipVerify: true,
 	}
 
-	spake2Config = &Config{
+	clientSPAKE2Config = &Config{
 		ServerName:         serverName,
 		CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
 		Certificates:       certificates,
-		Passwords:          passwords,
+		Passwords:          clientPasswords,
+		InsecureSkipVerify: true,
+	}
+	serverSPAKE2Config = &Config{
+		ServerName:         serverName,
+		CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+		Certificates:       certificates,
+		Passwords:          serverPasswords,
 		InsecureSkipVerify: true,
 	}
 
@@ -911,11 +932,14 @@ func Test0xRTT(t *testing.T) {
 }
 
 func testSPAKE2HS(t *testing.T, name string, p testInstanceState) {
-	conf := *spake2Config
-	conf.NonBlocking = true
+	cConf := *clientSPAKE2Config
+	cConf.NonBlocking = true
+	sConf := *serverSPAKE2Config
+	sConf.NonBlocking = true
 
 	if p["dtls"] == "true" {
-		conf.UseDTLS = true
+		cConf.UseDTLS = true
+		sConf.UseDTLS = true
 	}
 
 	cConn, sConn := pipe()
@@ -924,13 +948,13 @@ func testSPAKE2HS(t *testing.T, name string, p testInstanceState) {
 	sbConn := newBufferedConn(sConn)
 	sbConn.SetAutoflush()
 
-	client := Client(cbConn, &conf)
-	server := Server(sbConn, &conf)
+	client := Client(cbConn, &cConf)
+	server := Server(sbConn, &sConf)
 	hsRunHandshakeOneThread(t, client, server)
 
 	checkConsistency(t, client, server)
 	assertTrue(t, client.state.Params.UsingSPAKE2, "Session did not negotiate SPAKE2")
-	assertEquals(t, client.state.Params.SPAKE2Identity, password.Identity)
+	assertEquals(t, client.state.Params.SPAKE2Identity, clientPassword.Identity)
 }
 
 func TestSPAKE2HS(t *testing.T) {

@@ -86,3 +86,22 @@ func testSPAKE2Plus(t *testing.T, name string, p testInstanceState) {
 func TestSPAKE2Plus(t *testing.T) {
 	runParametrizedTest(t, spake2Algorithms, testSPAKE2Plus)
 }
+
+/*
+// Uncomment and run to re-generate conn test parameters
+func TestSPAKE2Setup(t *testing.T) {
+	serverName := []byte("example.com")
+	clientName := []byte("example.org")
+	password := []byte("example password")
+	group := P256
+	hash := PasswordHashArgon2
+
+	w0, w1, _ := spake2pClientSetup(group, hash, clientName, serverName, password)
+	fmt.Printf("w0: [%x]\n", w0)
+	fmt.Printf("w1: [%x]\n", w1)
+
+	w0, L, _ := spake2pServerSetup(group, hash, clientName, serverName, password)
+	fmt.Printf("w0 : [%x]\n", w0)
+	fmt.Printf("L : [%x]\n", L)
+}
+*/

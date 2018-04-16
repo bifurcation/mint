@@ -229,17 +229,17 @@ func PasswordNegotiation(keyShares []SPAKE2Share, passwords PasswordCache) (bool
 			return false, nil, nil, nil, nil
 		}
 
-		priv, pub, err := newSPAKE2KeyShare(password.Group, false, password.Password)
+		priv, pub, err := newSPAKE2KeyShare(password.Group, false, password.PasswordHash)
 		if err != nil {
 			continue
 		}
 
-		spake2Secret, err := spake2KeyAgreement(password.Group, false, share.KeyExchange, priv, password.Password)
+		Z, V, err := spake2pServer(password.Group, share.KeyExchange, priv, password.PasswordHash, password.Point)
 		if err != nil {
 			continue
 		}
 
-		return true, share.Identity, pub, spake2Secret, password.Password
+		return true, share.Identity, pub, Z, V
 	}
 
 	return false, nil, nil, nil, nil

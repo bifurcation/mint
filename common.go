@@ -147,6 +147,14 @@ const (
 	FFDHE8192 NamedGroup = 260
 )
 
+// No TLS syntax, used internally
+type PasswordHash uint8
+
+const (
+	PasswordHashScrypt PasswordHash = iota
+	PasswordHashArgon2
+)
+
 // enum {...} PskKeyExchangeMode;
 type PSKKeyExchangeMode uint8
 

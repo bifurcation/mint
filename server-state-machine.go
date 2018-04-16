@@ -247,10 +247,10 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	canDoSPAKE2 := false
 	var spake2Identity []byte
 	var spake2KeyShare []byte
-	var spake2Secret []byte
-	var spake2Password []byte
+	var spake2DH []byte
+	var spake2PSK []byte
 	if foundExts[ExtensionTypeSPAKE2] {
-		canDoSPAKE2, spake2Identity, spake2KeyShare, spake2Secret, spake2Password = PasswordNegotiation(clientSPAKE2.KeyShares, state.Config.Passwords)
+		canDoSPAKE2, spake2Identity, spake2KeyShare, spake2DH, spake2PSK = PasswordNegotiation(clientSPAKE2.KeyShares, state.Config.Passwords)
 	}
 
 	// Figure out what combination of DH / PSK / SPAKE2 we're actually going to do
@@ -373,8 +373,8 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	if !connParams.UsingSPAKE2 {
 		spake2Identity = nil
 		spake2KeyShare = nil
-		spake2Password = nil
-		spake2Secret = nil
+		spake2DH = nil
+		spake2PSK = nil
 	}
 
 	// Figure out if we're going to do early data
@@ -412,8 +412,8 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		pskSecret:                pskSecret,
 		spake2Identity:           spake2Identity,
 		spake2KeyShare:           spake2KeyShare,
-		spake2Password:           spake2Password,
-		spake2Secret:             spake2Secret,
+		spake2DH:                 spake2DH,
+		spake2PSK:                spake2PSK,
 		selectedPSK:              selectedPSK,
 		cert:                     cert,
 		certScheme:               certScheme,
@@ -477,8 +477,8 @@ type serverStateNegotiated struct {
 	pskSecret                []byte
 	spake2Identity           []byte
 	spake2KeyShare           []byte
-	spake2Password           []byte
-	spake2Secret             []byte
+	spake2DH                 []byte
+	spake2PSK                []byte
 	clientEarlyTrafficSecret []byte
 	selectedPSK              int
 	cert                     *Certificate
@@ -588,18 +588,22 @@ func (state serverStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 
 	var earlySecret []byte
 	if state.Params.UsingPSK {
+		logf(logTypeCrypto, "PSK secret (psk): [%d] %x", len(state.pskSecret), state.pskSecret)
 		earlySecret = HkdfExtract(params.Hash, zero, state.pskSecret)
 	} else if state.Params.UsingSPAKE2 {
-		earlySecret = HkdfExtract(params.Hash, zero, state.spake2Password)
+		logf(logTypeCrypto, "PSK secret (spake2): [%d] %x", len(state.spake2PSK), state.spake2PSK)
+		earlySecret = HkdfExtract(params.Hash, zero, state.spake2PSK)
 	} else {
+		logf(logTypeCrypto, "PSK secret (default): [%d] %x", len(zero), zero)
 		earlySecret = HkdfExtract(params.Hash, zero, zero)
 	}
 
 	if state.Params.UsingSPAKE2 {
-		state.dhSecret = state.spake2Secret
+		state.dhSecret = state.spake2DH
 	} else if state.dhSecret == nil {
 		state.dhSecret = zero
 	}
+	logf(logTypeCrypto, "DH secret: [%d] %x", len(state.dhSecret), state.dhSecret)
 
 	h0 := params.Hash.New().Sum(nil)
 	h2 := handshakeHash.Sum(nil)

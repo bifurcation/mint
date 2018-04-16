@@ -63,9 +63,12 @@ func (cache PSKMapCache) Size() int {
 }
 
 type Password struct {
-	Group    NamedGroup
-	Identity string
-	Password []byte
+	Identity     string
+	Group        NamedGroup
+	Hash         PasswordHash // Should only be provided for client
+	Password     []byte       // Should only be provided for client
+	PasswordHash []byte       // w0; should only be provided for server
+	Point        []byte       // L; should only be provided for server
 }
 
 type PasswordCache interface {
