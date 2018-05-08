@@ -125,6 +125,7 @@ const (
 	ExtensionTypeCookie              ExtensionType = 44
 	ExtensionTypePSKKeyExchangeModes ExtensionType = 45
 	ExtensionTypeTicketEarlyDataInfo ExtensionType = 46
+	ExtensionTypeEncryptedExtensions ExtensionType = 47
 )
 
 // enum {...} NamedGroup

@@ -165,6 +165,123 @@ func (ch ClientHelloBody) Truncated() ([]byte, error) {
 	return chData[:chLen-binderLen], nil
 }
 
+func (ch ClientHelloBody) Encrypt(keyID uint32, pub []byte, group NamedGroup, suite CipherSuite) (*ClientHelloBody, []byte, error) {
+	params, ok := cipherSuiteMap[suite]
+	if !ok {
+		return nil, nil, fmt.Errorf("tls.ch.encrypt: Unknown ciphersuite")
+	}
+
+	// Generate key pair and shared secret
+	pubE, privE, err := newKeyShare(group)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ss, err := keyAgreement(group, pub, privE)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// XXX error if ss not long enough
+	key := ss[:params.KeyLen]
+	iv := ss[params.KeyLen : params.KeyLen+params.IvLen]
+
+	// Marshal and encrypt extensions
+	pt, err := syntax.Marshal(ch.Extensions)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cipher, err := params.Cipher(key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// XXX Want some AD here?
+	ct := cipher.Seal(nil, iv, pt, nil)
+
+	ee := &EncryptedExtensionsExtension{
+		KeyID:      keyID,
+		KeyShare:   pubE,
+		Extensions: ct,
+	}
+
+	// Form new CH
+	ch2 := &ClientHelloBody{
+		LegacyVersion:   ch.LegacyVersion,
+		Random:          ch.Random,
+		LegacySessionID: ch.LegacySessionID,
+		CipherSuites:    ch.CipherSuites,
+	}
+
+	err = ch2.Extensions.Add(ee)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return ch2, privE, nil
+}
+
+func (ch ClientHelloBody) Decrypt(keyID uint32, priv []byte, group NamedGroup, suite CipherSuite) (*ClientHelloBody, error) {
+	params, ok := cipherSuiteMap[suite]
+	if !ok {
+		return nil, fmt.Errorf("tls.ch.encrypt: Unknown ciphersuite")
+	}
+
+	// Find, parse, and validate EncryptedExtensions extension
+	var ee *EncryptedExtensionsExtension
+	found, err := ch.Extensions.Find(ee)
+	if err != nil {
+		return nil, err
+	}
+
+	if !found {
+		return nil, fmt.Errorf("tls.ch.decrypt: No EncryptedExtensions extension")
+	}
+
+	if ee.KeyID != keyID {
+		return nil, fmt.Errorf("tls.ch.decrypt: Unknown key ID")
+	}
+
+	// Generate shared secret
+	ss, err := keyAgreement(group, priv, ee.KeyShare)
+	if err != nil {
+		return nil, err
+	}
+
+	// XXX error if ss not long enough
+	key := ss[:params.KeyLen]
+	iv := ss[params.KeyLen : params.KeyLen+params.IvLen]
+
+	// Decrypt and unmarshal extensions
+	cipher, err := params.Cipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	// XXX Want some AD here?
+	pt, err := cipher.Open(nil, iv, ee.Extensions, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var extensions ExtensionList
+	_, err = syntax.Unmarshal(pt, extensions)
+	if err != nil {
+		return nil, err
+	}
+
+	// Form new CH
+	ch2 := &ClientHelloBody{
+		LegacyVersion:   ch.LegacyVersion,
+		Random:          ch.Random,
+		LegacySessionID: ch.LegacySessionID,
+		CipherSuites:    ch.CipherSuites,
+		Extensions:      extensions,
+	}
+	return ch2, nil
+}
+
 // struct {
 //     ProtocolVersion legacy_version = 0x0303;    /* TLS v1.2 */
 //     Random random;

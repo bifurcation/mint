@@ -624,3 +624,26 @@ func (c CookieExtension) Marshal() ([]byte, error) {
 func (c *CookieExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, c)
 }
+
+// struct {
+//		 uint32 key_id;
+//     opaque key_share<1..2^16-1>;
+//     opaque extensions<0..2^16-1>;
+// } EncryptedClientHelloExtensions;
+type EncryptedExtensionsExtension struct {
+	KeyID      uint32
+	KeyShare   []byte `tls:"head=2,min=1"`
+	Extensions []byte `tls:"head=2"`
+}
+
+func (ee EncryptedExtensionsExtension) Type() ExtensionType {
+	return ExtensionTypeEncryptedExtensions
+}
+
+func (ee EncryptedExtensionsExtension) Marshal() ([]byte, error) {
+	return syntax.Marshal(ee)
+}
+
+func (ee *EncryptedExtensionsExtension) Unmarshal(data []byte) (int, error) {
+	return syntax.Unmarshal(data, ee)
+}
