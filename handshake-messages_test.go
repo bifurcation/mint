@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/hex"
+	"fmt"
 	"testing"
 )
 
@@ -339,6 +340,21 @@ func TestClientHelloTruncate(t *testing.T) {
 	// Test failiure on last extension malformed PSK
 	_, err = chTruncBadPSK.Truncated()
 	assertError(t, err, "Truncated a ClientHello with a mal-formed PSK")
+}
+
+func TestClientHelloEncryptDecrypt(t *testing.T) {
+	group := X25519
+	suite := TLS_AES_128_GCM_SHA256
+	keyID := uint32(42)
+	pubS, privS, _ := newKeyShare(group)
+
+	encryptedCH, err := chValidIn.Encrypt(keyID, pubS, group, suite)
+	assertNotError(t, err, "Error encrypting ClientHello")
+
+	decryptedCH, err := encryptedCH.Decrypt(keyID, privS, group, suite)
+	assertNotError(t, err, "Error decrypting ClientHello")
+
+	assertDeepEquals(t, *decryptedCH, chValidIn)
 }
 
 func TestServerHelloMarshalUnmarshal(t *testing.T) {

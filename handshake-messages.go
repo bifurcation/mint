@@ -165,21 +165,25 @@ func (ch ClientHelloBody) Truncated() ([]byte, error) {
 	return chData[:chLen-binderLen], nil
 }
 
-func (ch ClientHelloBody) Encrypt(keyID uint32, pub []byte, group NamedGroup, suite CipherSuite) (*ClientHelloBody, []byte, error) {
+type extensionListContainer struct {
+	Extensions ExtensionList `tls:"head=2"`
+}
+
+func (ch ClientHelloBody) Encrypt(keyID uint32, pub []byte, group NamedGroup, suite CipherSuite) (*ClientHelloBody, error) {
 	params, ok := cipherSuiteMap[suite]
 	if !ok {
-		return nil, nil, fmt.Errorf("tls.ch.encrypt: Unknown ciphersuite")
+		return nil, fmt.Errorf("tls.ch.encrypt: Unknown ciphersuite")
 	}
 
 	// Generate key pair and shared secret
 	pubE, privE, err := newKeyShare(group)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	ss, err := keyAgreement(group, pub, privE)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// XXX error if ss not long enough
@@ -187,14 +191,14 @@ func (ch ClientHelloBody) Encrypt(keyID uint32, pub []byte, group NamedGroup, su
 	iv := ss[params.KeyLen : params.KeyLen+params.IvLen]
 
 	// Marshal and encrypt extensions
-	pt, err := syntax.Marshal(ch.Extensions)
+	pt, err := syntax.Marshal(extensionListContainer{ch.Extensions})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	cipher, err := params.Cipher(key)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// XXX Want some AD here?
@@ -216,10 +220,10 @@ func (ch ClientHelloBody) Encrypt(keyID uint32, pub []byte, group NamedGroup, su
 
 	err = ch2.Extensions.Add(ee)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return ch2, privE, nil
+	return ch2, nil
 }
 
 func (ch ClientHelloBody) Decrypt(keyID uint32, priv []byte, group NamedGroup, suite CipherSuite) (*ClientHelloBody, error) {
@@ -229,7 +233,7 @@ func (ch ClientHelloBody) Decrypt(keyID uint32, priv []byte, group NamedGroup, s
 	}
 
 	// Find, parse, and validate EncryptedExtensions extension
-	var ee *EncryptedExtensionsExtension
+	ee := new(EncryptedExtensionsExtension)
 	found, err := ch.Extensions.Find(ee)
 	if err != nil {
 		return nil, err
@@ -244,7 +248,7 @@ func (ch ClientHelloBody) Decrypt(keyID uint32, priv []byte, group NamedGroup, s
 	}
 
 	// Generate shared secret
-	ss, err := keyAgreement(group, priv, ee.KeyShare)
+	ss, err := keyAgreement(group, ee.KeyShare, priv)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +269,9 @@ func (ch ClientHelloBody) Decrypt(keyID uint32, priv []byte, group NamedGroup, s
 		return nil, err
 	}
 
-	var extensions ExtensionList
+	extensions := &extensionListContainer{
+		Extensions: ExtensionList{},
+	}
 	_, err = syntax.Unmarshal(pt, extensions)
 	if err != nil {
 		return nil, err
@@ -277,7 +283,7 @@ func (ch ClientHelloBody) Decrypt(keyID uint32, priv []byte, group NamedGroup, s
 		Random:          ch.Random,
 		LegacySessionID: ch.LegacySessionID,
 		CipherSuites:    ch.CipherSuites,
-		Extensions:      extensions,
+		Extensions:      extensions.Extensions,
 	}
 	return ch2, nil
 }

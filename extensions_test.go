@@ -223,6 +223,17 @@ var validExtensionTestCases = map[ExtensionType]struct {
 		},
 		marshaledHex: "01020304",
 	},
+
+	// EncryptedExtensions
+	ExtensionTypeEncryptedExtensions: {
+		blank: &EncryptedExtensionsExtension{},
+		unmarshaled: &EncryptedExtensionsExtension{
+			KeyID:      0x01020304,
+			KeyShare:   unhex("05060708"),
+			Extensions: unhex("090a0b0c"),
+		},
+		marshaledHex: "010203040004050607080004090a0b0c",
+	},
 }
 
 func TestExtensionBodyMarshalUnmarshal(t *testing.T) {
