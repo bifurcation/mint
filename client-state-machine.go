@@ -67,6 +67,15 @@ func (state clientStateStart) State() State {
 	return StateClientStart
 }
 
+func (state clientStateStart) MaybeEncryptClientHello(ch *ClientHelloBody) (*ClientHelloBody, error) {
+	ik := state.Config.InitKey
+	if ik == nil {
+		return ch, nil
+	}
+
+	return ch.Encrypt(ik.KeyID, ik.PublicKey, ik.Group, ik.CipherSuite)
+}
+
 func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
 	// key_shares
 	offeredDH := map[NamedGroup][]byte{}
@@ -245,6 +254,12 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		psk.Binders[0].Binder = binder
 		ch.Extensions.Add(psk)
 
+		ch, err = state.MaybeEncryptClientHello(ch)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error encrypting ClientHello [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+
 		// If we got here, the earlier marshal succeeded (in ch.Truncated()), so
 		// this one should too.
 		clientHello, _ = state.hsCtx.hOut.HandshakeMessageFromBody(ch)
@@ -258,6 +273,12 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		logf(logTypeCrypto, "early traffic secret: [%d] %x", len(earlyTrafficSecret), earlyTrafficSecret)
 		clientEarlyTrafficKeys = makeTrafficKeys(params, earlyTrafficSecret)
 	} else {
+		ch, err = state.MaybeEncryptClientHello(ch)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error encrypting ClientHello [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+
 		clientHello, err = state.hsCtx.hOut.HandshakeMessageFromBody(ch)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateStart] Error marshaling ClientHello [%v]", err)

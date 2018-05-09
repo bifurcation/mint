@@ -177,10 +177,12 @@ var (
 	certificates, clientCertificates []*Certificate
 	clientName, serverName           string
 
+	initKey *InitKey
+
 	psk  PreSharedKey
 	psks *PSKMapCache
 
-	basicConfig, dtlsConfig, nbConfig, nbDTLSConfig, hrrConfig, alpnConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
+	basicConfig, dtlsConfig, nbConfig, nbDTLSConfig, hrrConfig, alpnConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, pskInitKeyConfig, resumptionConfig, ffdhConfig, x25519Config *Config
 )
 
 func init() {
@@ -196,6 +198,14 @@ func init() {
 	clientKey, clientCert, err = MakeNewSelfSignedCert(clientName, ECDSA_P256_SHA256)
 	if err != nil {
 		panic(err)
+	}
+
+	initKey = &InitKey{
+		KeyID:       42,
+		CipherSuite: TLS_AES_128_GCM_SHA256,
+		Group:       X25519,
+		PrivateKey:  unhex("fefa871ebd96d23f92d160b171db1f8761921c69556c5ec1e3a85aa0842c0b6c"),
+		PublicKey:   unhex("a1c7d66c1f948e347824d0deed462edf09099202263e28a509ee147c2f6e3e3f"),
 	}
 
 	psk = PreSharedKey{
@@ -298,6 +308,15 @@ func init() {
 		InsecureSkipVerify: true,
 	}
 
+	pskInitKeyConfig = &Config{
+		ServerName:         serverName,
+		CipherSuites:       []CipherSuite{TLS_AES_128_GCM_SHA256},
+		Certificates:       certificates,
+		InitKey:            initKey,
+		PSKs:               psks,
+		InsecureSkipVerify: true,
+	}
+
 	resumptionConfig = &Config{
 		ServerName:         serverName,
 		Certificates:       certificates,
@@ -355,11 +374,12 @@ func checkConsistency(t *testing.T, client *Conn, server *Conn) {
 
 func testConnInner(t *testing.T, name string, p testInstanceState) {
 	// Configs array:
-	configs := map[string]*Config{"basic config": basicConfig,
-		"HRR":    hrrConfig,
-		"ALPN":   alpnConfig,
-		"FFDH":   ffdhConfig,
-		"x25519": x25519Config,
+	configs := map[string]*Config{
+		"basic config": basicConfig,
+		"HRR":          hrrConfig,
+		"ALPN":         alpnConfig,
+		"FFDH":         ffdhConfig,
+		"x25519":       x25519Config,
 	}
 
 	c := configs[p["config"]]
@@ -368,6 +388,10 @@ func testConnInner(t *testing.T, name string, p testInstanceState) {
 	// Set up the test parameters.
 	if p["nonblocking"] == "true" {
 		conf.NonBlocking = true
+	}
+
+	if p["encryptedClientHello"] == "true" {
+		conf.InitKey = initKey
 	}
 
 	cConn, sConn := pipe()
@@ -401,7 +425,8 @@ func TestBasicFlows(t *testing.T) {
 			"FFDH",
 			"x25519",
 		},
-		"blocking": {"true", "false"},
+		"blocking":             {"true", "false"},
+		"encryptedClientHello": {"true", "false"},
 	}
 
 	runParametrizedTest(t, params, testConnInner)
@@ -739,7 +764,7 @@ func TestClientAuthVerifyPeerRejected(t *testing.T) {
 }
 
 func TestPSKFlows(t *testing.T) {
-	for _, conf := range []*Config{pskConfig, pskECDHEConfig, pskDHEConfig} {
+	for _, conf := range []*Config{pskConfig, pskECDHEConfig, pskDHEConfig, pskInitKeyConfig} {
 		cConn, sConn := pipe()
 
 		client := Client(cConn, conf)
@@ -858,6 +883,10 @@ func test0xRTT(t *testing.T, name string, p testInstanceState) {
 		conf.UseDTLS = true
 	}
 
+	if p["initKey"] == "true" {
+		conf.InitKey = initKey
+	}
+
 	cConn, sConn := pipe()
 	cbConn := newBufferedConn(cConn)
 	cbConn.SetAutoflush()
@@ -888,7 +917,8 @@ func test0xRTT(t *testing.T, name string, p testInstanceState) {
 
 func Test0xRTT(t *testing.T) {
 	params := map[string][]string{
-		"dtls": {"true", "false"},
+		"dtls":    {"true", "false"},
+		"initKey": {"true", "false"},
 	}
 	runParametrizedTest(t, params, test0xRTT)
 }

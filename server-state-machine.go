@@ -109,6 +109,28 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		return nil, nil, AlertDecodeError
 	}
 
+	clientEE := new(EncryptedExtensionsExtension)
+	foundEE, err := ch.Extensions.Find(clientEE)
+	if err != nil {
+		logf(logTypeHandshake, "[ServerStateStart] Invalid encrypted extensions: %v", err)
+		return nil, nil, AlertDecodeError
+	}
+
+	if foundEE && (state.Config.InitKey == nil || state.Config.InitKey == nil) {
+		logf(logTypeHandshake, "[ServerStateStart] Encrypted extensions with no init private key")
+		return nil, nil, AlertDecodeError
+	}
+
+	if foundEE && state.Config.InitKey != nil {
+		ik := state.Config.InitKey
+		ch, err = ch.Decrypt(ik.KeyID, ik.PrivateKey, ik.Group, ik.CipherSuite)
+		if err != nil {
+			logf(logTypeHandshake, "[ServerStateStart] Error decrypting encrypted extensions: %v", err)
+			return nil, nil, AlertDecodeError
+		}
+	}
+
+	// Parse the remainder of the ClientHello
 	clientHello := hm
 	connParams := ConnectionParameters{}
 

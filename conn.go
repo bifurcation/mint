@@ -35,6 +35,14 @@ type PreSharedKeyCache interface {
 	Size() int
 }
 
+type InitKey struct {
+	KeyID       uint32
+	CipherSuite CipherSuite
+	Group       NamedGroup
+	PrivateKey  []byte
+	PublicKey   []byte
+}
+
 // A CookieHandler can be used to give the application more fine-grained control over Cookies.
 // Generate receives the Conn as an argument, so the CookieHandler can decide when to send the cookie based on that, and offload state to the client by encoding that into the Cookie.
 // When the client echoes the Cookie, Validate is called. The application can then recover the state from the cookie.
@@ -128,6 +136,8 @@ type Config struct {
 	PSKModes         []PSKKeyExchangeMode
 	NonBlocking      bool
 	UseDTLS          bool
+
+	InitKey *InitKey
 
 	// The same config object can be shared among different connections, so it
 	// needs its own mutex

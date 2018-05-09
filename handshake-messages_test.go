@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/hex"
-	"fmt"
 	"testing"
 )
 
@@ -346,12 +345,13 @@ func TestClientHelloEncryptDecrypt(t *testing.T) {
 	group := X25519
 	suite := TLS_AES_128_GCM_SHA256
 	keyID := uint32(42)
-	pubS, privS, _ := newKeyShare(group)
+	priv := unhex("fefa871ebd96d23f92d160b171db1f8761921c69556c5ec1e3a85aa0842c0b6c")
+	pub := unhex("a1c7d66c1f948e347824d0deed462edf09099202263e28a509ee147c2f6e3e3f")
 
-	encryptedCH, err := chValidIn.Encrypt(keyID, pubS, group, suite)
+	encryptedCH, err := chValidIn.Encrypt(keyID, pub, group, suite)
 	assertNotError(t, err, "Error encrypting ClientHello")
 
-	decryptedCH, err := encryptedCH.Decrypt(keyID, privS, group, suite)
+	decryptedCH, err := encryptedCH.Decrypt(keyID, priv, group, suite)
 	assertNotError(t, err, "Error decrypting ClientHello")
 
 	assertDeepEquals(t, *decryptedCH, chValidIn)
