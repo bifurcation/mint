@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	supportedVersion  uint16 = 0x7f17 // draft-23
+	supportedVersion  uint16 = 0x7f1c // draft-28
 	tls12Version      uint16 = 0x0303
 	tls10Version      uint16 = 0x0301
 	dtls12WireVersion uint16 = 0xfefd
