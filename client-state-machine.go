@@ -416,6 +416,7 @@ func (state clientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 		// mode. In DTLS, we also need to bump the sequence number.
 		// This is a pre-existing defect in Mint. Issue #175.
 		logf(logTypeHandshake, "[ClientStateWaitSH] -> [ClientStateStart]")
+		state.hsCtx.SetVersion(tls12Version) // Everything after this should be 1.2.
 		return clientStateStart{
 			Config:            state.Config,
 			Opts:              state.Opts,
