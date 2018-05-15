@@ -379,9 +379,9 @@ func testConnInner(t *testing.T, name string, p testInstanceState) {
 
 	done := make(chan bool)
 	go func(t *testing.T) {
+		defer close(done)
 		serverAlert = server.Handshake()
 		assertEquals(t, serverAlert, AlertNoAlert)
-		done <- true
 	}(t)
 
 	clientAlert = client.Handshake()

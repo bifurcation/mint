@@ -16,9 +16,9 @@ const (
 	ivHex          = "2b7fbbf689f240e3e7aa44a6"
 	paddingLength  = 4
 	sequenceChange = 17
-	ciphertext0Hex = "1703010016621a75932c037ff74d2a9ec7776790e09dcd4811db97"
-	ciphertext1Hex = "170301001a621a75932c03076e386b3cebbb8dbf2f37e49ad3e82a70a17833"
-	ciphertext2Hex = "170301001a1da650d5da822b7f4eba67f954767fcbbbd4c4bc7f1c61daf701"
+	ciphertext0Hex = "1703010016621a75932c03e2bd29daedb50c27a2c70fc55934e6f3"
+	ciphertext1Hex = "170301001a621a75932c03076e386be13a583ce0d6789c6b6306ffadc377fc"
+	ciphertext2Hex = "170301001a1da650d5da822b7f4ebaba28b7c72032f4ac350c91c9bcb8f8ce"
 )
 
 func newRecordLayerFromBytes(b []byte) *RecordLayer {
