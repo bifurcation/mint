@@ -74,7 +74,7 @@ func assertNotByteEquals(t *testing.T, a, b []byte) {
 func assertCipherSuiteParamsEquals(t *testing.T, a, b CipherSuiteParams) {
 	t.Helper()
 	assertEquals(t, a.Suite, b.Suite)
-	// Can't compare aeadFactory values
+	// Can't compare AeadFactory values
 	assertEquals(t, a.Hash, b.Hash)
 	assertEquals(t, a.KeyLen, b.KeyLen)
 	assertEquals(t, a.IvLen, b.IvLen)

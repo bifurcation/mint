@@ -27,11 +27,11 @@ import (
 
 var prng = rand.Reader
 
-type aeadFactory func(key []byte) (cipher.AEAD, error)
+type AeadFactory func(key []byte) (cipher.AEAD, error)
 
 type CipherSuiteParams struct {
 	Suite  CipherSuite
-	Cipher aeadFactory // Cipher factory
+	Cipher AeadFactory // Cipher factory
 	Hash   crypto.Hash // Hash function
 	KeyLen int         // Key length in octets
 	IvLen  int         // IV length in octets
@@ -546,8 +546,10 @@ const (
 //    opaque label<9..255>;
 //    opaque hash_value<0..255>;
 // };
+var HkdfLabelPrefix = "tls13 "
+
 func hkdfEncodeLabel(labelIn string, hashValue []byte, outLen int) []byte {
-	label := "tls13 " + labelIn
+	label := HkdfLabelPrefix + labelIn
 
 	labelLen := len(label)
 	hashLen := len(hashValue)
@@ -605,7 +607,7 @@ func computeFinishedData(params CipherSuiteParams, baseKey []byte, input []byte)
 }
 
 type keySet struct {
-	cipher aeadFactory
+	cipher AeadFactory
 	key    []byte
 	iv     []byte
 }

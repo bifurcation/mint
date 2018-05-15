@@ -21,15 +21,15 @@ const (
 	ciphertext2Hex = "170301001a1da650d5da822b7f4ebaba28b7c72032f4ac350c91c9bcb8f8ce"
 )
 
-func newRecordLayerFromBytes(b []byte) *RecordLayer {
-	return NewRecordLayerTLS(bytes.NewBuffer(b), directionRead)
+func newRecordLayerFromBytes(b []byte) *RecordLayerImpl {
+	return NewRecordLayerTLS(bytes.NewBuffer(b), DirectionRead)
 }
 
 func TestRekey(t *testing.T) {
 	key := unhex(keyHex)
 	iv := unhex(ivHex)
 
-	r := NewRecordLayerTLS(bytes.NewBuffer(nil), directionWrite)
+	r := NewRecordLayerTLS(bytes.NewBuffer(nil), DirectionWrite)
 	err := r.Rekey(EpochApplicationData, newAESGCM, key, iv)
 	assertNotError(t, err, "Failed to rekey")
 }
@@ -103,7 +103,7 @@ func TestWriteRecord(t *testing.T) {
 		fragment:    plaintext[5:],
 	}
 	b := bytes.NewBuffer(nil)
-	r := NewRecordLayerTLS(b, directionWrite)
+	r := NewRecordLayerTLS(b, DirectionWrite)
 	err := r.WriteRecord(pt)
 	assertNotError(t, err, "Failed to write valid record")
 	assertByteEquals(t, b.Bytes(), plaintext)
@@ -170,7 +170,7 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test successful encrypt
 	b := bytes.NewBuffer(nil)
-	r := NewRecordLayerTLS(b, directionWrite)
+	r := NewRecordLayerTLS(b, DirectionWrite)
 	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
 	pt := &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
@@ -182,7 +182,7 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test successful encrypt with padding
 	b.Truncate(0)
-	r = NewRecordLayerTLS(b, directionWrite)
+	r = NewRecordLayerTLS(b, DirectionWrite)
 	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
 	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
@@ -194,7 +194,7 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test successful enc after sequence number change
 	b.Truncate(0)
-	r = NewRecordLayerTLS(b, directionWrite)
+	r = NewRecordLayerTLS(b, DirectionWrite)
 	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
 	for i := 0; i < sequenceChange; i++ {
 		r.cipher.incrementSequenceNumber()
@@ -209,7 +209,7 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test failure on size too big after encrypt
 	b.Truncate(0)
-	r = NewRecordLayerTLS(b, directionWrite)
+	r = NewRecordLayerTLS(b, DirectionWrite)
 	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
 	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
@@ -225,8 +225,8 @@ func TestReadWriteTLS(t *testing.T) {
 	plaintext := unhex(plaintextHex)
 
 	b := bytes.NewBuffer(nil)
-	out := NewRecordLayerTLS(b, directionWrite)
-	in := NewRecordLayerTLS(b, directionRead)
+	out := NewRecordLayerTLS(b, DirectionWrite)
+	in := NewRecordLayerTLS(b, DirectionRead)
 
 	// Unencrypted
 	ptIn := &TLSPlaintext{
@@ -257,9 +257,9 @@ func TestReadWriteDTLS(t *testing.T) {
 	plaintext := unhex(plaintextHex)
 
 	b := bytes.NewBuffer(nil)
-	out := NewRecordLayerDTLS(b, directionWrite)
+	out := NewRecordLayerDTLS(b, DirectionWrite)
 	out.SetVersion(tls12Version)
-	in := NewRecordLayerDTLS(b, directionRead)
+	in := NewRecordLayerDTLS(b, DirectionRead)
 	in.SetVersion(tls12Version)
 
 	// Unencrypted
@@ -309,7 +309,7 @@ func TestOverSocket(t *testing.T) {
 		assertNotError(t, err, "Unable to accept")
 		defer conn.Close()
 
-		in := NewRecordLayerTLS(conn, directionRead)
+		in := NewRecordLayerTLS(conn, DirectionRead)
 		in.Rekey(EpochApplicationData, newAESGCM, key, iv)
 		pt, err := in.ReadRecord()
 		assertNotError(t, err, "Unable to read record")
@@ -321,7 +321,7 @@ func TestOverSocket(t *testing.T) {
 	conn, err := net.Dial("tcp", port)
 	assertNotError(t, err, "Unable to dial")
 
-	out := NewRecordLayerTLS(conn, directionWrite)
+	out := NewRecordLayerTLS(conn, DirectionWrite)
 	out.Rekey(EpochApplicationData, newAESGCM, key, iv)
 	err = out.WriteRecord(&ptIn)
 	assertNotError(t, err, "Unable to write record")
@@ -357,7 +357,7 @@ func TestNonblockingRecord(t *testing.T) {
 
 	// Add the prefix, which should cause blocking.
 	b := bytes.NewBuffer(ciphertext1[:1])
-	r := NewRecordLayerTLS(&NoEofReader{b}, directionRead)
+	r := NewRecordLayerTLS(&NoEofReader{b}, DirectionRead)
 	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
 	pt, err := r.ReadRecord()
 	assertEquals(t, err, AlertWouldBlock)
