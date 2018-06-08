@@ -610,6 +610,7 @@ type keySet struct {
 	cipher AeadFactory
 	key    []byte
 	iv     []byte
+	pn     []byte
 }
 
 func makeTrafficKeys(params CipherSuiteParams, secret []byte) keySet {
@@ -618,6 +619,7 @@ func makeTrafficKeys(params CipherSuiteParams, secret []byte) keySet {
 		cipher: params.Cipher,
 		key:    HkdfExpandLabel(params.Hash, secret, "key", []byte{}, params.KeyLen),
 		iv:     HkdfExpandLabel(params.Hash, secret, "iv", []byte{}, params.IvLen),
+		pn:     HkdfExpandLabel(params.Hash, secret, "pn", []byte{}, params.IvLen),
 	}
 }
 
