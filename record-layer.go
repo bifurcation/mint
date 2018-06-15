@@ -71,7 +71,7 @@ type RecordLayer interface {
 	Unlock()
 	SetVersion(v uint16)
 	SetLabel(s string)
-	Rekey(epoch Epoch, factory AeadFactory, keys *keySet) error
+	Rekey(epoch Epoch, factory AeadFactory, keys *KeySet) error
 	ResetClear(seq uint64)
 	DiscardReadKey(epoch Epoch)
 	PeekRecordType(block bool) (RecordType, error)
@@ -174,8 +174,8 @@ func (r *RecordLayerImpl) SetLabel(s string) {
 	r.label = s
 }
 
-func (r *RecordLayerImpl) Rekey(epoch Epoch, factory AeadFactory, keys *keySet) error {
-	cipher, err := newCipherStateAead(epoch, factory, keys.key, keys.iv)
+func (r *RecordLayerImpl) Rekey(epoch Epoch, factory AeadFactory, keys *KeySet) error {
+	cipher, err := newCipherStateAead(epoch, factory, keys.Key, keys.Iv)
 	if err != nil {
 		return err
 	}

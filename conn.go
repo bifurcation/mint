@@ -605,7 +605,7 @@ func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 			logf(logTypeHandshake, "%s Rekey with data still in handshake buffers", label)
 			return AlertDecodeError
 		}
-		err := c.in.Rekey(action.epoch, action.KeySet.cipher, &action.KeySet)
+		err := c.in.Rekey(action.epoch, action.KeySet.Cipher, &action.KeySet)
 		if err != nil {
 			logf(logTypeHandshake, "%s Unable to rekey inbound: %v", label, err)
 			return AlertInternalError
@@ -613,7 +613,7 @@ func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 
 	case RekeyOut:
 		logf(logTypeHandshake, "%s Rekeying out to %s: %+v", label, action.epoch.label(), action.KeySet)
-		err := c.out.Rekey(action.epoch, action.KeySet.cipher, &action.KeySet)
+		err := c.out.Rekey(action.epoch, action.KeySet.Cipher, &action.KeySet)
 		if err != nil {
 			logf(logTypeHandshake, "%s Unable to rekey outbound: %v", label, err)
 			return AlertInternalError
