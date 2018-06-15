@@ -606,20 +606,20 @@ func computeFinishedData(params CipherSuiteParams, baseKey []byte, input []byte)
 	return mac.Sum(nil)
 }
 
-type keySet struct {
-	cipher AeadFactory
-	key    []byte
-	iv     []byte
-	pn     []byte
+type KeySet struct {
+	Cipher AeadFactory
+	Key    []byte
+	Iv     []byte
+	Pn     []byte
 }
 
-func makeTrafficKeys(params CipherSuiteParams, secret []byte) keySet {
+func makeTrafficKeys(params CipherSuiteParams, secret []byte) KeySet {
 	logf(logTypeCrypto, "making traffic keys: secret=%x", secret)
-	return keySet{
-		cipher: params.Cipher,
-		key:    HkdfExpandLabel(params.Hash, secret, "key", []byte{}, params.KeyLen),
-		iv:     HkdfExpandLabel(params.Hash, secret, "iv", []byte{}, params.IvLen),
-		pn:     HkdfExpandLabel(params.Hash, secret, "pn", []byte{}, params.IvLen),
+	return KeySet{
+		Cipher: params.Cipher,
+		Key:    HkdfExpandLabel(params.Hash, secret, "key", []byte{}, params.KeyLen),
+		Iv:     HkdfExpandLabel(params.Hash, secret, "iv", []byte{}, params.IvLen),
+		Pn:     HkdfExpandLabel(params.Hash, secret, "pn", []byte{}, params.IvLen),
 	}
 }
 
