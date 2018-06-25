@@ -619,7 +619,7 @@ func makeTrafficKeys(params CipherSuiteParams, secret []byte) KeySet {
 		Cipher: params.Cipher,
 		Key:    HkdfExpandLabel(params.Hash, secret, "key", []byte{}, params.KeyLen),
 		Iv:     HkdfExpandLabel(params.Hash, secret, "iv", []byte{}, params.IvLen),
-		Pn:     HkdfExpandLabel(params.Hash, secret, "pn", []byte{}, params.IvLen),
+		Pn:     HkdfExpandLabel(params.Hash, secret, "pn", []byte{}, params.KeyLen),
 	}
 }
 
