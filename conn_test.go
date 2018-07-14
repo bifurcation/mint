@@ -1743,3 +1743,59 @@ func TestEarlyDataNotWritableAfterHRR(t *testing.T) {
 	// Finish handshake
 	hsRunHandshakeOneThread(t, client, server)
 }
+
+func TestHandshakeMessageAcrossBoundary(t *testing.T) {
+	cConn, sConn := pipe()
+
+	// Wrap these in a buffer so we can simulate blocking
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+
+	client := Client(cbConn, nbConfig)
+	server := Server(sbConn, nbConfig)
+
+	var clientAlert, serverAlert Alert
+
+	// Send ClientHello
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+	assertEquals(t, client.GetHsState(), StateClientWaitSH)
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+	assertEquals(t, server.GetHsState(), StateServerStart)
+
+	// Release ClientHello
+	cbConn.Flush()
+
+	// Process ClientHello, send server first flight.
+	states := []State{StateServerNegotiated, StateServerWaitFlight2, StateServerWaitFinished}
+	for _, state := range states {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		assertEquals(t, server.GetHsState(), state)
+	}
+	serverAlert = server.Handshake()
+	assertEquals(t, serverAlert, AlertWouldBlock)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertWouldBlock)
+
+	// Rewrite the SH to include an extra byte.
+	sbConn.Flush()
+	buf := make([]byte, 1024)
+	n, err := cbConn.Read(buf)
+	assertNotError(t, err, "Error reading SH")
+	assertTrue(t, n < len(buf), "SH is too long")
+	buf = buf[:n]
+
+	l, _ := decodeUint(buf[3:], 2)
+	l++
+	encodeUint(l, 2, buf[3:])
+	buf = append(buf, byte(HandshakeTypeEncryptedExtensions))
+
+	sbConn.Write(buf)
+	sbConn.Flush()
+
+	err = client.Handshake()
+	assertEquals(t, AlertDecodeError, err)
+}
