@@ -593,6 +593,11 @@ func (c *Conn) takeAction(actionGeneric HandshakeAction) Alert {
 		}
 	case RekeyIn:
 		logf(logTypeHandshake, "%s Rekeying in to %s: %+v", label, action.epoch.label(), action.KeySet)
+		// Check that we don't have an input data in the handshake frame parser.
+		if len(c.hsCtx.hIn.frame.remainder) > 0 {
+			logf(logTypeHandshake, "%s Rekey with data still in handshake buffers", label)
+			return AlertDecodeError
+		}
 		err := c.in.Rekey(action.epoch, action.KeySet.cipher, action.KeySet.key, action.KeySet.iv)
 		if err != nil {
 			logf(logTypeHandshake, "%s Unable to rekey inbound: %v", label, err)
