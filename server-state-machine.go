@@ -202,8 +202,9 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	}
 
 	if len(ch.LegacySessionID) != 0 && len(ch.LegacySessionID) != 32 {
-		logf(logTypeHandshake, "[ServerStateStart] invalid session ID")
-		return nil, nil, AlertIllegalParameter
+		logf(logTypeHandshake, "[ServerStateStart] invalid session ID len=%v", len(ch.LegacySessionID))
+		// TODO(ekr@rtfm.com): Hack to make quicly work
+		//		return nil, nil, AlertIllegalParameter
 	}
 
 	// Figure out if we can do DH
