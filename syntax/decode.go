@@ -102,6 +102,13 @@ func newTypeDecoder(t reflect.Type) decoderFunc {
 
 ///// Specific decoders below
 
+func omitDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
+	// This space intentionally left blank
+	return 0
+}
+
+//////////
+
 func unmarshalerDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
 	um, ok := v.Interface().(Unmarshaler)
 	if !ok {
@@ -312,6 +319,11 @@ func newStructDecoder(t reflect.Type) decoderFunc {
 
 		tag := f.Tag.Get("tls")
 		tagOpts := parseTag(tag)
+
+		if tagOpts[omitOption] > 0 {
+			sd.fieldDecs[i] = omitDecoder
+			continue
+		}
 
 		sd.fieldOpts[i] = decOpts{
 			head:   tagOpts["head"],

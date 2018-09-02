@@ -174,6 +174,18 @@ func TestSuccessCases(t *testing.T) {
 			value:    struct{ V *uint16 }{V: &dummyUint16},
 			encoding: unhex("B0A0"),
 		},
+		"struct-omit": {
+			value: struct {
+				A uint16
+				B uint16 `tls:"omit"`
+				C uint16
+			}{
+				A: 0xA0A0,
+				B: 0x0000, // Can be anything on marshal, but will be zero on unmarshal
+				C: 0xC0C0,
+			},
+			encoding: unhex("A0A0C0C0"),
+		},
 
 		// Marshaler
 		"marshaler": {
