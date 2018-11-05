@@ -89,7 +89,7 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	logf(logTypeHandshake, "opts: %+v", state.Opts)
 
 	// supported_versions, supported_groups, signature_algorithms, server_name
-	sv := SupportedVersionsExtension{HandshakeType: HandshakeTypeClientHello, Versions: []uint16{supportedVersion}}
+	sv := SupportedVersionsExtension{HandshakeType: HandshakeTypeClientHello, Versions: []uint16{tls13Version}}
 	sni := ServerNameExtension(state.Opts.ServerName)
 	sg := SupportedGroupsExtension{Groups: state.Config.Groups}
 	sa := SignatureAlgorithmsExtension{Algorithms: state.Config.SignatureSchemes}
@@ -357,7 +357,7 @@ func (state clientStateWaitSH) Next(hr handshakeMessageReader) (HandshakeState, 
 		logf(logTypeHandshake, "[ClientStateWaitSH] no supported_versions extension")
 		return nil, nil, AlertMissingExtension
 	}
-	if supportedVersions.Versions[0] != supportedVersion {
+	if supportedVersions.Versions[0] != tls13Version {
 		logf(logTypeHandshake, "[ClientStateWaitSH] unsupported version [%x]", supportedVersions.Versions[0])
 		return nil, nil, AlertProtocolVersion
 	}
