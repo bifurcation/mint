@@ -379,9 +379,9 @@ func testConnInner(t *testing.T, name string, p testInstanceState) {
 
 	done := make(chan bool)
 	go func(t *testing.T) {
+		defer close(done)
 		serverAlert = server.Handshake()
 		assertEquals(t, serverAlert, AlertNoAlert)
-		done <- true
 	}(t)
 
 	clientAlert = client.Handshake()
@@ -1689,6 +1689,38 @@ func TestDTLSOutOfEpochPostHSDiscard(t *testing.T) {
 	tmp := make([]byte, 10)
 	_, err := server.Read(tmp)
 	assertEquals(t, err, AlertWouldBlock)
+}
+
+func TestHRRRecordVersion(t *testing.T) {
+	cConn, sConn := pipe()
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+
+	cconf := *pskConfig
+	cconf.NonBlocking = true
+	client := Client(cbConn, &cconf)
+	sconf := *hrrConfig
+	sconf.NonBlocking = true
+	cp, err := NewDefaultCookieProtector()
+	assertNotError(t, err, "Couldn't make default cookie protector")
+	sconf.CookieProtector = cp
+	server := Server(sbConn, &sconf)
+
+	hsUntilBlocked(t, client, cbConn) // CH1
+	cbConn.Flush()
+	hsUntilBlocked(t, server, sbConn) // HRR
+	sbConn.Flush()
+	hsUntilBlocked(t, client, cbConn) // CH2
+
+	p := make([]byte, 3)
+	_, err = io.ReadFull(&cbConn.buffer, p)
+	assertNotError(t, err, "should have records available")
+	expectedRecord := []byte{
+		byte(RecordTypeHandshake),
+		byte(tls12Version >> 8),
+		byte(tls12Version & 0xff),
+	}
+	assertByteEquals(t, p, expectedRecord)
 }
 
 // Test for issue #175.
