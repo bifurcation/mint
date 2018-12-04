@@ -179,7 +179,7 @@ func (h *HandshakeLayer) readRecord() error {
 
 	if h.datagram {
 		logf(logTypeVerbose, "Trying to read record")
-		pt, err = h.conn.(*RecordLayerImpl).ReadRecordAnyEpoch()
+		pt, err = h.conn.(*DefaultRecordLayer).ReadRecordAnyEpoch()
 	} else {
 		pt, err = h.conn.ReadRecord()
 	}
@@ -402,7 +402,7 @@ func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 
 func (h *HandshakeLayer) QueueMessage(hm *HandshakeMessage) error {
 	if h.datagram {
-		hm.cipher = h.conn.(*RecordLayerImpl).cipher
+		hm.cipher = h.conn.(*DefaultRecordLayer).cipher
 		h.queued = append(h.queued, hm)
 		return nil
 	}
@@ -474,10 +474,10 @@ func (h *HandshakeLayer) writeFragment(hm *HandshakeMessage, start int, room int
 			hm.seq,
 			start,
 			len(body),
-			h.conn.(*RecordLayerImpl).cipher.combineSeq(true),
+			h.conn.(*DefaultRecordLayer).cipher.combineSeq(true),
 			false,
 		})
-		err = h.conn.(*RecordLayerImpl).writeRecordWithPadding(
+		err = h.conn.(*DefaultRecordLayer).writeRecordWithPadding(
 			&TLSPlaintext{
 				contentType: RecordTypeHandshake,
 				fragment:    buf,

@@ -73,7 +73,7 @@ type RecordLayer interface {
 	Unlock()
 	SetVersion(v uint16)
 	SetLabel(s string)
-	Rekey(epoch Epoch, factory AeadFactory, keys *KeySet) error
+	Rekey(epoch Epoch, factory AEADFactory, keys *KeySet) error
 	ResetClear(seq uint64)
 	DiscardReadKey(epoch Epoch)
 	PeekRecordType(block bool) (RecordType, error)
@@ -82,7 +82,7 @@ type RecordLayer interface {
 	Epoch() Epoch
 }
 
-type RecordLayerImpl struct {
+type DefaultRecordLayer struct {
 	sync.Mutex
 	label        string
 	direction    Direction
@@ -99,7 +99,7 @@ type RecordLayerImpl struct {
 	datagram bool
 }
 
-func (r *RecordLayerImpl) Impl() *RecordLayerImpl {
+func (r *DefaultRecordLayer) Impl() *DefaultRecordLayer {
 	return r
 }
 
@@ -126,7 +126,7 @@ func newCipherStateNull() *cipherState {
 	return &cipherState{EpochClear, 0, 0, nil, nil}
 }
 
-func newCipherStateAead(epoch Epoch, factory AeadFactory, key []byte, iv []byte) (*cipherState, error) {
+func newCipherStateAead(epoch Epoch, factory AEADFactory, key []byte, iv []byte) (*cipherState, error) {
 	cipher, err := factory(key)
 	if err != nil {
 		return nil, err
@@ -135,8 +135,8 @@ func newCipherStateAead(epoch Epoch, factory AeadFactory, key []byte, iv []byte)
 	return &cipherState{epoch, len(iv), 0, iv, cipher}, nil
 }
 
-func NewRecordLayerTLS(conn io.ReadWriter, dir Direction) *RecordLayerImpl {
-	r := RecordLayerImpl{}
+func NewRecordLayerTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
+	r := DefaultRecordLayer{}
 	r.label = ""
 	r.direction = dir
 	r.conn = conn
@@ -146,8 +146,8 @@ func NewRecordLayerTLS(conn io.ReadWriter, dir Direction) *RecordLayerImpl {
 	return &r
 }
 
-func NewRecordLayerDTLS(conn io.ReadWriter, dir Direction) *RecordLayerImpl {
-	r := RecordLayerImpl{}
+func NewRecordLayerDTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
+	r := DefaultRecordLayer{}
 	r.label = ""
 	r.direction = dir
 	r.conn = conn
@@ -159,24 +159,24 @@ func NewRecordLayerDTLS(conn io.ReadWriter, dir Direction) *RecordLayerImpl {
 	return &r
 }
 
-func (r *RecordLayerImpl) SetVersion(v uint16) {
+func (r *DefaultRecordLayer) SetVersion(v uint16) {
 	r.version = v
 }
 
-func (r *RecordLayerImpl) ResetClear(seq uint64) {
+func (r *DefaultRecordLayer) ResetClear(seq uint64) {
 	r.cipher = newCipherStateNull()
 	r.cipher.seq = seq
 }
 
-func (r *RecordLayerImpl) Epoch() Epoch {
+func (r *DefaultRecordLayer) Epoch() Epoch {
 	return r.cipher.epoch
 }
 
-func (r *RecordLayerImpl) SetLabel(s string) {
+func (r *DefaultRecordLayer) SetLabel(s string) {
 	r.label = s
 }
 
-func (r *RecordLayerImpl) Rekey(epoch Epoch, factory AeadFactory, keys *KeySet) error {
+func (r *DefaultRecordLayer) Rekey(epoch Epoch, factory AEADFactory, keys *KeySet) error {
 	cipher, err := newCipherStateAead(epoch, factory, keys.Keys[labelForKey], keys.Keys[labelForIV])
 	if err != nil {
 		return err
@@ -189,7 +189,7 @@ func (r *RecordLayerImpl) Rekey(epoch Epoch, factory AeadFactory, keys *KeySet) 
 }
 
 // TODO(ekr@rtfm.com): This is never used, which is a bug.
-func (r *RecordLayerImpl) DiscardReadKey(epoch Epoch) {
+func (r *DefaultRecordLayer) DiscardReadKey(epoch Epoch) {
 	if !r.datagram {
 		return
 	}
@@ -241,7 +241,7 @@ func (c *cipherState) overhead() int {
 	return c.cipher.Overhead()
 }
 
-func (r *RecordLayerImpl) encrypt(cipher *cipherState, seq uint64, header []byte, pt *TLSPlaintext, padLen int) []byte {
+func (r *DefaultRecordLayer) encrypt(cipher *cipherState, seq uint64, header []byte, pt *TLSPlaintext, padLen int) []byte {
 	assert(r.direction == DirectionWrite)
 	logf(logTypeIO, "%s Encrypt seq=[%x]", r.label, seq)
 	// Expand the fragment to hold contentType, padding, and overhead
@@ -262,7 +262,7 @@ func (r *RecordLayerImpl) encrypt(cipher *cipherState, seq uint64, header []byte
 	return ciphertext
 }
 
-func (r *RecordLayerImpl) decrypt(seq uint64, header []byte, pt *TLSPlaintext) (*TLSPlaintext, int, error) {
+func (r *DefaultRecordLayer) decrypt(seq uint64, header []byte, pt *TLSPlaintext) (*TLSPlaintext, int, error) {
 	assert(r.direction == DirectionRead)
 	logf(logTypeIO, "%s Decrypt seq=[%x]", r.label, seq)
 	if len(pt.fragment) < r.cipher.overhead() {
@@ -298,7 +298,7 @@ func (r *RecordLayerImpl) decrypt(seq uint64, header []byte, pt *TLSPlaintext) (
 	return out, padLen, nil
 }
 
-func (r *RecordLayerImpl) PeekRecordType(block bool) (RecordType, error) {
+func (r *DefaultRecordLayer) PeekRecordType(block bool) (RecordType, error) {
 	var pt *TLSPlaintext
 	var err error
 
@@ -314,7 +314,7 @@ func (r *RecordLayerImpl) PeekRecordType(block bool) (RecordType, error) {
 	return pt.contentType, nil
 }
 
-func (r *RecordLayerImpl) ReadRecord() (*TLSPlaintext, error) {
+func (r *DefaultRecordLayer) ReadRecord() (*TLSPlaintext, error) {
 	pt, err := r.nextRecord(false)
 
 	// Consume the cached record if there was one
@@ -324,7 +324,7 @@ func (r *RecordLayerImpl) ReadRecord() (*TLSPlaintext, error) {
 	return pt, err
 }
 
-func (r *RecordLayerImpl) ReadRecordAnyEpoch() (*TLSPlaintext, error) {
+func (r *DefaultRecordLayer) ReadRecordAnyEpoch() (*TLSPlaintext, error) {
 	pt, err := r.nextRecord(true)
 
 	// Consume the cached record if there was one
@@ -334,7 +334,7 @@ func (r *RecordLayerImpl) ReadRecordAnyEpoch() (*TLSPlaintext, error) {
 	return pt, err
 }
 
-func (r *RecordLayerImpl) nextRecord(allowOldEpoch bool) (*TLSPlaintext, error) {
+func (r *DefaultRecordLayer) nextRecord(allowOldEpoch bool) (*TLSPlaintext, error) {
 	cipher := r.cipher
 	if r.cachedRecord != nil {
 		logf(logTypeIO, "%s Returning cached record", r.label)
@@ -450,15 +450,15 @@ func (r *RecordLayerImpl) nextRecord(allowOldEpoch bool) (*TLSPlaintext, error) 
 	return pt, nil
 }
 
-func (r *RecordLayerImpl) WriteRecord(pt *TLSPlaintext) error {
+func (r *DefaultRecordLayer) WriteRecord(pt *TLSPlaintext) error {
 	return r.writeRecordWithPadding(pt, r.cipher, 0)
 }
 
-func (r *RecordLayerImpl) WriteRecordWithPadding(pt *TLSPlaintext, padLen int) error {
+func (r *DefaultRecordLayer) WriteRecordWithPadding(pt *TLSPlaintext, padLen int) error {
 	return r.writeRecordWithPadding(pt, r.cipher, padLen)
 }
 
-func (r *RecordLayerImpl) writeRecordWithPadding(pt *TLSPlaintext, cipher *cipherState, padLen int) error {
+func (r *DefaultRecordLayer) writeRecordWithPadding(pt *TLSPlaintext, cipher *cipherState, padLen int) error {
 	seq := cipher.combineSeq(r.datagram)
 	length := len(pt.fragment)
 	var contentType RecordType

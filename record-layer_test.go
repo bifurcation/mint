@@ -21,7 +21,7 @@ const (
 	ciphertext2Hex = "170301001a1da650d5da822b7f4ebaba28b7c72032f4ac350c91c9bcb8f8ce"
 )
 
-func newRecordLayerFromBytes(b []byte) *RecordLayerImpl {
+func newRecordLayerFromBytes(b []byte) *DefaultRecordLayer {
 	return NewRecordLayerTLS(bytes.NewBuffer(b), DirectionRead)
 }
 

@@ -224,7 +224,7 @@ func TestReadHandshakeMessage(t *testing.T) {
 }
 
 func testWriteHandshakeMessage(h *HandshakeLayer, hm *HandshakeMessage) error {
-	hm.cipher = h.conn.(*RecordLayerImpl).cipher
+	hm.cipher = h.conn.(*DefaultRecordLayer).cipher
 	_, err := h.WriteMessage(hm)
 	return err
 }
@@ -265,7 +265,7 @@ type testReassembleFixture struct {
 	t     *testing.T
 	c     HandshakeContext
 	h     *HandshakeLayer
-	r     *RecordLayerImpl
+	r     *DefaultRecordLayer
 	rd    *pipeConn
 	wr    *pipeConn
 	m0    *HandshakeMessage
