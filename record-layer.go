@@ -12,6 +12,8 @@ const (
 	recordHeaderLenTLS  = 5       // record header length (TLS)
 	recordHeaderLenDTLS = 13      // record header length (DTLS)
 	maxFragmentLen      = 1 << 14 // max number of bytes in a record
+	labelForKey         = "key"
+	labelForIV          = "iv"
 )
 
 type DecryptError string
@@ -175,7 +177,7 @@ func (r *RecordLayerImpl) SetLabel(s string) {
 }
 
 func (r *RecordLayerImpl) Rekey(epoch Epoch, factory AeadFactory, keys *KeySet) error {
-	cipher, err := newCipherStateAead(epoch, factory, keys.Key, keys.Iv)
+	cipher, err := newCipherStateAead(epoch, factory, keys.Keys[labelForKey], keys.Keys[labelForIV])
 	if err != nil {
 		return err
 	}

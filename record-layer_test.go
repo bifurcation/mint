@@ -26,10 +26,7 @@ func newRecordLayerFromBytes(b []byte) *RecordLayerImpl {
 }
 
 func testRekeyHelper(r RecordLayer, key []byte, iv []byte) error {
-	ks := &KeySet{
-		Key: key,
-		Iv:  iv,
-	}
+	ks := &KeySet{Keys: map[string][]byte{"key": key, "iv": iv}}
 	return r.Rekey(EpochApplicationData, newAESGCM, ks)
 }
 

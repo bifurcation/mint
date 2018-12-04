@@ -76,8 +76,10 @@ func assertCipherSuiteParamsEquals(t *testing.T, a, b CipherSuiteParams) {
 	assertEquals(t, a.Suite, b.Suite)
 	// Can't compare AeadFactory values
 	assertEquals(t, a.Hash, b.Hash)
-	assertEquals(t, a.KeyLen, b.KeyLen)
-	assertEquals(t, a.IvLen, b.IvLen)
+	assertEquals(t, len(a.KeyLengths), len(b.KeyLengths))
+	for k, v := range a.KeyLengths {
+		assertEquals(t, v, b.KeyLengths[k])
+	}
 }
 
 func assertDeepEquals(t *testing.T, a, b interface{}) {

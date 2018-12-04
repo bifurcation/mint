@@ -30,11 +30,10 @@ var prng = rand.Reader
 type AeadFactory func(key []byte) (cipher.AEAD, error)
 
 type CipherSuiteParams struct {
-	Suite  CipherSuite
-	Cipher AeadFactory // Cipher factory
-	Hash   crypto.Hash // Hash function
-	KeyLen int         // Key length in octets
-	IvLen  int         // IV length in octets
+	Suite      CipherSuite
+	Cipher     AeadFactory    // Cipher factory
+	Hash       crypto.Hash    // Hash function
+	KeyLengths map[string]int // This maps keys (the label used for HKDF-Expand-Label) to the length of the key needed.
 }
 
 type signatureAlgorithm uint8
@@ -91,18 +90,16 @@ var (
 
 	cipherSuiteMap = map[CipherSuite]CipherSuiteParams{
 		TLS_AES_128_GCM_SHA256: {
-			Suite:  TLS_AES_128_GCM_SHA256,
-			Cipher: newAESGCM,
-			Hash:   crypto.SHA256,
-			KeyLen: 16,
-			IvLen:  12,
+			Suite:      TLS_AES_128_GCM_SHA256,
+			Cipher:     newAESGCM,
+			Hash:       crypto.SHA256,
+			KeyLengths: map[string]int{labelForKey: 16, labelForIV: 12},
 		},
 		TLS_AES_256_GCM_SHA384: {
-			Suite:  TLS_AES_256_GCM_SHA384,
-			Cipher: newAESGCM,
-			Hash:   crypto.SHA384,
-			KeyLen: 32,
-			IvLen:  12,
+			Suite:      TLS_AES_256_GCM_SHA384,
+			Cipher:     newAESGCM,
+			Hash:       crypto.SHA384,
+			KeyLengths: map[string]int{labelForKey: 32, labelForIV: 12},
 		},
 	}
 
@@ -608,19 +605,16 @@ func computeFinishedData(params CipherSuiteParams, baseKey []byte, input []byte)
 
 type KeySet struct {
 	Cipher AeadFactory
-	Key    []byte
-	Iv     []byte
-	Pn     []byte
+	Keys   map[string][]byte
 }
 
 func makeTrafficKeys(params CipherSuiteParams, secret []byte) KeySet {
 	logf(logTypeCrypto, "making traffic keys: secret=%x", secret)
-	return KeySet{
-		Cipher: params.Cipher,
-		Key:    HkdfExpandLabel(params.Hash, secret, "key", []byte{}, params.KeyLen),
-		Iv:     HkdfExpandLabel(params.Hash, secret, "iv", []byte{}, params.IvLen),
-		Pn:     HkdfExpandLabel(params.Hash, secret, "pn", []byte{}, params.KeyLen),
+	ks := KeySet{Cipher: params.Cipher, Keys: make(map[string][]byte, len(params.KeyLengths))}
+	for label, length := range params.KeyLengths {
+		ks.Keys[label] = HkdfExpandLabel(params.Hash, secret, label, []byte{}, length)
 	}
+	return ks
 }
 
 func MakeNewSelfSignedCert(name string, alg SignatureScheme) (crypto.Signer, *x509.Certificate, error) {
