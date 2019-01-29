@@ -154,7 +154,7 @@ func TestMessageFromBody(t *testing.T) {
 	chValid := unhex(chValidHex)
 
 	b := bytes.NewBuffer(nil)
-	h := NewHandshakeLayerTLS(&HandshakeContext{}, NewRecordLayerTLS(b, directionRead))
+	h := NewHandshakeLayerTLS(&HandshakeContext{}, NewRecordLayerTLS(b, DirectionRead))
 
 	// Test successful conversion
 	hm, err := h.HandshakeMessageFromBody(&chValidIn)
@@ -172,7 +172,7 @@ func TestMessageFromBody(t *testing.T) {
 func newHandshakeLayerFromBytes(d []byte) *HandshakeLayer {
 	hc := &HandshakeContext{}
 	b := bytes.NewBuffer(d)
-	hc.hIn = NewHandshakeLayerTLS(hc, NewRecordLayerTLS(b, directionRead))
+	hc.hIn = NewHandshakeLayerTLS(hc, NewRecordLayerTLS(b, DirectionRead))
 	return hc.hIn
 }
 
@@ -224,7 +224,7 @@ func TestReadHandshakeMessage(t *testing.T) {
 }
 
 func testWriteHandshakeMessage(h *HandshakeLayer, hm *HandshakeMessage) error {
-	hm.cipher = h.conn.cipher
+	hm.cipher = h.conn.(*DefaultRecordLayer).cipher
 	_, err := h.WriteMessage(hm)
 	return err
 }
@@ -235,26 +235,26 @@ func TestWriteHandshakeMessage(t *testing.T) {
 
 	// Test successful write of single message
 	b := bytes.NewBuffer(nil)
-	h := NewHandshakeLayerTLS(&HandshakeContext{}, NewRecordLayerTLS(b, directionWrite))
+	h := NewHandshakeLayerTLS(&HandshakeContext{}, NewRecordLayerTLS(b, DirectionWrite))
 	err := testWriteHandshakeMessage(h, shortMessageIn)
 	assertNotError(t, err, "Failed to write valid short message")
 	assertByteEquals(t, b.Bytes(), short)
 
 	// Test successful write of single long message
 	b = bytes.NewBuffer(nil)
-	h = NewHandshakeLayerTLS(&HandshakeContext{}, NewRecordLayerTLS(b, directionWrite))
+	h = NewHandshakeLayerTLS(&HandshakeContext{}, NewRecordLayerTLS(b, DirectionWrite))
 	err = testWriteHandshakeMessage(h, longMessageIn)
 	assertNotError(t, err, "Failed to write valid long message")
 	assertByteEquals(t, b.Bytes(), long)
 
 	// Test write failure on message too large
 	b = bytes.NewBuffer(nil)
-	h = NewHandshakeLayerTLS(&HandshakeContext{}, NewRecordLayerTLS(b, directionWrite))
+	h = NewHandshakeLayerTLS(&HandshakeContext{}, NewRecordLayerTLS(b, DirectionWrite))
 	err = testWriteHandshakeMessage(h, tooLongMessageIn)
 	assertError(t, err, "Wrote a message exceeding the length bound")
 
 	// Test write failure on underlying write failure
-	h = NewHandshakeLayerTLS(&HandshakeContext{}, NewRecordLayerTLS(ErrorReadWriter{}, directionWrite))
+	h = NewHandshakeLayerTLS(&HandshakeContext{}, NewRecordLayerTLS(ErrorReadWriter{}, DirectionWrite))
 	err = testWriteHandshakeMessage(h, longMessageIn)
 	assertError(t, err, "Write succeeded despite error in full fragment send")
 	err = testWriteHandshakeMessage(h, shortMessageIn)
@@ -265,7 +265,7 @@ type testReassembleFixture struct {
 	t     *testing.T
 	c     HandshakeContext
 	h     *HandshakeLayer
-	r     *RecordLayer
+	r     *DefaultRecordLayer
 	rd    *pipeConn
 	wr    *pipeConn
 	m0    *HandshakeMessage
@@ -298,7 +298,7 @@ func newTestReassembleFixture(t *testing.T) *testReassembleFixture {
 	f.m1 = newHsFragment(m1, 1, 0, 2048)
 	f.rd, f.wr = pipe()
 
-	f.r = NewRecordLayerDTLS(f.rd, directionRead)
+	f.r = NewRecordLayerDTLS(f.rd, DirectionRead)
 	f.h = NewHandshakeLayerDTLS(&f.c, f.r)
 	f.c.hIn = f.h
 	f.c.timers = newTimerSet()

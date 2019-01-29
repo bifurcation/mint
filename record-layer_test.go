@@ -21,16 +21,21 @@ const (
 	ciphertext2Hex = "170301001a1da650d5da822b7f4ebaba28b7c72032f4ac350c91c9bcb8f8ce"
 )
 
-func newRecordLayerFromBytes(b []byte) *RecordLayer {
-	return NewRecordLayerTLS(bytes.NewBuffer(b), directionRead)
+func newRecordLayerFromBytes(b []byte) *DefaultRecordLayer {
+	return NewRecordLayerTLS(bytes.NewBuffer(b), DirectionRead)
+}
+
+func testRekeyHelper(r RecordLayer, key []byte, iv []byte) error {
+	ks := &KeySet{Keys: map[string][]byte{"key": key, "iv": iv}}
+	return r.Rekey(EpochApplicationData, newAESGCM, ks)
 }
 
 func TestRekey(t *testing.T) {
 	key := unhex(keyHex)
 	iv := unhex(ivHex)
 
-	r := NewRecordLayerTLS(bytes.NewBuffer(nil), directionWrite)
-	err := r.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	r := NewRecordLayerTLS(bytes.NewBuffer(nil), DirectionWrite)
+	err := testRekeyHelper(r, key, iv)
 	assertNotError(t, err, "Failed to rekey")
 }
 
@@ -103,7 +108,7 @@ func TestWriteRecord(t *testing.T) {
 		fragment:    plaintext[5:],
 	}
 	b := bytes.NewBuffer(nil)
-	r := NewRecordLayerTLS(b, directionWrite)
+	r := NewRecordLayerTLS(b, DirectionWrite)
 	err := r.WriteRecord(pt)
 	assertNotError(t, err, "Failed to write valid record")
 	assertByteEquals(t, b.Bytes(), plaintext)
@@ -134,7 +139,7 @@ func TestDecryptRecord(t *testing.T) {
 
 	// Test successful decrypt
 	r := newRecordLayerFromBytes(ciphertext1)
-	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	testRekeyHelper(r, key, iv)
 	pt, err := r.ReadRecord()
 	assertNotError(t, err, "Failed to decrypt valid record")
 	assertEquals(t, pt.contentType, RecordTypeAlert)
@@ -142,7 +147,7 @@ func TestDecryptRecord(t *testing.T) {
 
 	// Test successful decrypt after sequence number change
 	r = newRecordLayerFromBytes(ciphertext2)
-	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	testRekeyHelper(r, key, iv)
 	for i := 0; i < sequenceChange; i++ {
 		r.cipher.incrementSequenceNumber()
 	}
@@ -154,7 +159,7 @@ func TestDecryptRecord(t *testing.T) {
 	// Test failure on decrypt failure
 	ciphertext1[7] ^= 0xFF
 	r = newRecordLayerFromBytes(ciphertext1)
-	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	testRekeyHelper(r, key, iv)
 	pt, err = r.ReadRecord()
 	assertError(t, err, "Failed to reject invalid record")
 	ciphertext1[7] ^= 0xFF
@@ -170,8 +175,8 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test successful encrypt
 	b := bytes.NewBuffer(nil)
-	r := NewRecordLayerTLS(b, directionWrite)
-	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	r := NewRecordLayerTLS(b, DirectionWrite)
+	testRekeyHelper(r, key, iv)
 	pt := &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
@@ -182,8 +187,8 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test successful encrypt with padding
 	b.Truncate(0)
-	r = NewRecordLayerTLS(b, directionWrite)
-	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	r = NewRecordLayerTLS(b, DirectionWrite)
+	testRekeyHelper(r, key, iv)
 	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
@@ -194,8 +199,8 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test successful enc after sequence number change
 	b.Truncate(0)
-	r = NewRecordLayerTLS(b, directionWrite)
-	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	r = NewRecordLayerTLS(b, DirectionWrite)
+	testRekeyHelper(r, key, iv)
 	for i := 0; i < sequenceChange; i++ {
 		r.cipher.incrementSequenceNumber()
 	}
@@ -209,8 +214,8 @@ func TestEncryptRecord(t *testing.T) {
 
 	// Test failure on size too big after encrypt
 	b.Truncate(0)
-	r = NewRecordLayerTLS(b, directionWrite)
-	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	r = NewRecordLayerTLS(b, DirectionWrite)
+	testRekeyHelper(r, key, iv)
 	pt = &TLSPlaintext{
 		contentType: RecordType(plaintext[0]),
 		fragment:    bytes.Repeat([]byte{0}, maxFragmentLen-paddingLength),
@@ -225,8 +230,8 @@ func TestReadWriteTLS(t *testing.T) {
 	plaintext := unhex(plaintextHex)
 
 	b := bytes.NewBuffer(nil)
-	out := NewRecordLayerTLS(b, directionWrite)
-	in := NewRecordLayerTLS(b, directionRead)
+	out := NewRecordLayerTLS(b, DirectionWrite)
+	in := NewRecordLayerTLS(b, DirectionRead)
 
 	// Unencrypted
 	ptIn := &TLSPlaintext{
@@ -241,8 +246,8 @@ func TestReadWriteTLS(t *testing.T) {
 	assertByteEquals(t, ptIn.fragment, ptOut.fragment)
 
 	// Encrypted
-	in.Rekey(EpochApplicationData, newAESGCM, key, iv)
-	out.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	testRekeyHelper(in, key, iv)
+	testRekeyHelper(out, key, iv)
 	err = out.WriteRecord(ptIn)
 	assertNotError(t, err, "Failed to write record")
 	ptOut, err = in.ReadRecord()
@@ -257,9 +262,9 @@ func TestReadWriteDTLS(t *testing.T) {
 	plaintext := unhex(plaintextHex)
 
 	b := bytes.NewBuffer(nil)
-	out := NewRecordLayerDTLS(b, directionWrite)
+	out := NewRecordLayerDTLS(b, DirectionWrite)
 	out.SetVersion(tls12Version)
-	in := NewRecordLayerDTLS(b, directionRead)
+	in := NewRecordLayerDTLS(b, DirectionRead)
 	in.SetVersion(tls12Version)
 
 	// Unencrypted
@@ -276,8 +281,8 @@ func TestReadWriteDTLS(t *testing.T) {
 	assertByteEquals(t, ptIn.fragment, ptOut.fragment)
 
 	// Encrypted
-	in.Rekey(EpochApplicationData, newAESGCM, key, iv)
-	out.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	testRekeyHelper(in, key, iv)
+	testRekeyHelper(out, key, iv)
 	err = out.WriteRecord(ptIn)
 	assertNotError(t, err, "Failed to write record")
 	ptOut, err = in.ReadRecord()
@@ -309,8 +314,8 @@ func TestOverSocket(t *testing.T) {
 		assertNotError(t, err, "Unable to accept")
 		defer conn.Close()
 
-		in := NewRecordLayerTLS(conn, directionRead)
-		in.Rekey(EpochApplicationData, newAESGCM, key, iv)
+		in := NewRecordLayerTLS(conn, DirectionRead)
+		testRekeyHelper(in, key, iv)
 		pt, err := in.ReadRecord()
 		assertNotError(t, err, "Unable to read record")
 
@@ -321,8 +326,8 @@ func TestOverSocket(t *testing.T) {
 	conn, err := net.Dial("tcp", port)
 	assertNotError(t, err, "Unable to dial")
 
-	out := NewRecordLayerTLS(conn, directionWrite)
-	out.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	out := NewRecordLayerTLS(conn, DirectionWrite)
+	testRekeyHelper(out, key, iv)
 	err = out.WriteRecord(&ptIn)
 	assertNotError(t, err, "Unable to write record")
 
@@ -357,8 +362,8 @@ func TestNonblockingRecord(t *testing.T) {
 
 	// Add the prefix, which should cause blocking.
 	b := bytes.NewBuffer(ciphertext1[:1])
-	r := NewRecordLayerTLS(&NoEofReader{b}, directionRead)
-	r.Rekey(EpochApplicationData, newAESGCM, key, iv)
+	r := NewRecordLayerTLS(&NoEofReader{b}, DirectionRead)
+	testRekeyHelper(r, key, iv)
 	pt, err := r.ReadRecord()
 	assertEquals(t, err, AlertWouldBlock)
 

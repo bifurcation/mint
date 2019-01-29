@@ -322,11 +322,14 @@ func init() {
 	}
 }
 
-func assertKeySetEquals(t *testing.T, k1, k2 keySet) {
+func assertKeySetEquals(t *testing.T, k1, k2 KeySet) {
 	t.Helper()
 	// Assume cipher is the same
-	assertByteEquals(t, k1.iv, k2.iv)
-	assertByteEquals(t, k1.key, k2.key)
+	assertTrue(t, len(k1.Keys) > 0, "assert that there are some keys")
+	assertEquals(t, len(k1.Keys), len(k2.Keys))
+	for k, v := range k1.Keys {
+		assertByteEquals(t, v, k2.Keys[k])
+	}
 }
 
 func computeExporter(t *testing.T, c *Conn, label string, context []byte, length int) []byte {
