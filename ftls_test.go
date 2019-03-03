@@ -18,23 +18,27 @@ func TestFTLS(t *testing.T) {
 	assertNotError(t, err, "Failed to generate server signing key")
 
 	client := fClient{
-		group:        group,
-		scheme:       scheme,
-		params:       params,
-		sigPriv:      clientPriv,
-		serverSigPub: serverPriv.Public(),
-		clientKeyID:  clientKeyID,
-		serverKeyID:  serverKeyID,
+		fConfig: fConfig{
+			group:     group,
+			scheme:    scheme,
+			params:    params,
+			myPriv:    clientPriv,
+			peerPub:   serverPriv.Public(),
+			myKeyID:   clientKeyID,
+			peerKeyID: serverKeyID,
+		},
 	}
 
 	server := fServer{
-		group:        group,
-		scheme:       scheme,
-		params:       params,
-		sigPriv:      serverPriv,
-		clientSigPub: clientPriv.Public(),
-		clientKeyID:  clientKeyID,
-		serverKeyID:  serverKeyID,
+		fConfig: fConfig{
+			group:     group,
+			scheme:    scheme,
+			params:    params,
+			myPriv:    serverPriv,
+			peerPub:   clientPriv.Public(),
+			myKeyID:   serverKeyID,
+			peerKeyID: clientKeyID,
+		},
 	}
 
 	m1, err := client.NewMessage1()
