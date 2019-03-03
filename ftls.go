@@ -1,8 +1,6 @@
 package mint
 
-// TODO Test functionality
 // TODO Make an fTLS instance struct that spans Client/Server pairs
-// TODO Absorb ftls* variables into the instance struct
 // TODO factor out creation and verification of AuthInfo
 // TODO Add connection IDs to make it equivalent to EDHOC
 
@@ -50,6 +48,10 @@ type fClient struct {
 	dhPriv        []byte
 	handshakeHash hash.Hash
 	masterSecret  []byte
+
+	// Final state
+	clientAppSecret []byte
+	serverAppSecret []byte
 }
 
 func (c *fClient) NewMessage1() (*fMessage1, error) {
@@ -84,7 +86,7 @@ func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 		return nil, err
 	}
 
-	// Update hte handshake hahs
+	// Update the handshake hahs
 	c.handshakeHash.Write(m2.DH)
 
 	// Compute handshake secrets
@@ -144,8 +146,14 @@ func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 		return nil, fmt.Errorf("Incorrect finished MAC")
 	}
 
-	// Compute Signature
+	// Compute application traffic secrets
 	c.handshakeHash.Write(serverAuthInfo.MAC)
+	h4 := c.handshakeHash.Sum(nil)
+	c.clientAppSecret = deriveSecret(c.params, masterSecret, labelClientApplicationTrafficSecret, h4)
+	c.serverAppSecret = deriveSecret(c.params, masterSecret, labelServerApplicationTrafficSecret, h4)
+
+	// Compute Signature
+	c.handshakeHash.Write(c.clientKeyID)
 	hccv := c.handshakeHash.Sum(nil)
 	ccv := &CertificateVerifyBody{Algorithm: c.scheme}
 	ccv.Sign(c.sigPriv, hccv)
@@ -200,6 +208,10 @@ type fServer struct {
 	handshakeHash                hash.Hash
 	clientHandshakeTrafficSecret []byte
 	masterSecret                 []byte
+
+	// Final state
+	clientAppSecret []byte
+	serverAppSecret []byte
 }
 
 func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
@@ -250,6 +262,12 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
 	h3 := handshakeHash.Sum(nil)
 	serverFinishedData := computeFinishedData(s.params, serverHandshakeTrafficSecret, h3)
 
+	// Compute application traffic secrets
+	handshakeHash.Write(serverFinishedData)
+	h4 := handshakeHash.Sum(nil)
+	clientAppSecret := deriveSecret(s.params, masterSecret, labelClientApplicationTrafficSecret, h4)
+	serverAppSecret := deriveSecret(s.params, masterSecret, labelServerApplicationTrafficSecret, h4)
+
 	// Serialize AuthInfo
 	authInfo := fAuthInfo{
 		KeyID:     s.serverKeyID,
@@ -279,6 +297,8 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
 
 	s.masterSecret = masterSecret
 	s.clientHandshakeTrafficSecret = clientHandshakeTrafficSecret
+	s.clientAppSecret = clientAppSecret
+	s.serverAppSecret = serverAppSecret
 	s.handshakeHash = handshakeHash
 	return m2, nil
 }
