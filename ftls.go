@@ -1,7 +1,5 @@
 package mint
 
-// TODO Add connection IDs to make it equivalent to EDHOC
-
 import (
 	"bytes"
 	"crypto"
@@ -13,6 +11,7 @@ import (
 )
 
 type fMessage1 struct {
+	CU []byte `tls:"head=1"`
 	DH []byte `tls:"head=1"`
 }
 
@@ -23,11 +22,14 @@ type fAuthInfo struct {
 }
 
 type fMessage2 struct {
+	CU          []byte `tls:"head=1"`
+	CV          []byte `tls:"head=1"`
 	DH          []byte `tls:"head=1"`
 	Ciphertext2 []byte `tls:"head=1"`
 }
 
 type fMessage3 struct {
+	CV          []byte `tls:"head=1"`
 	Ciphertext3 []byte `tls:"head=1"`
 }
 
@@ -146,6 +148,8 @@ type fConfig struct {
 
 	myKeyID   []byte
 	peerKeyID []byte
+
+	connectionID []byte
 }
 
 type fClient struct {
@@ -169,6 +173,7 @@ func (c *fClient) NewMessage1() (*fMessage1, error) {
 
 	// Construct the first message
 	m1 := &fMessage1{
+		CU: c.connectionID,
 		DH: pub,
 	}
 
@@ -186,6 +191,11 @@ func (c *fClient) NewMessage1() (*fMessage1, error) {
 }
 
 func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
+	// Verify connection ID
+	if !bytes.Equal(m2.CU, c.connectionID) {
+		return nil, fmt.Errorf("Invalid connection ID in Message2")
+	}
+
 	// Complete DH exchange
 	dhSecret, err := keyAgreement(c.group, m2.DH, c.dhPriv)
 	if err != nil {
@@ -193,6 +203,8 @@ func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 	}
 
 	// Update the handshake hahs
+	c.handshakeHash.Write(m2.CU)
+	c.handshakeHash.Write(m2.CV)
 	c.handshakeHash.Write(m2.DH)
 
 	// Compute handshake secrets
@@ -210,6 +222,7 @@ func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 	encAuthInfo, err := computeAuthInfo(c.params, c.scheme, c.handshakeHash, masterSecret, clientHandshakeTrafficSecret, c.myKeyID, c.myPriv)
 
 	m3 := &fMessage3{
+		CV:          m2.CV,
 		Ciphertext3: encAuthInfo,
 	}
 	return m3, nil
@@ -250,6 +263,8 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
 
 	handshakeHash := s.params.Hash.New()
 	handshakeHash.Write(m1data)
+	handshakeHash.Write(m1.CU)
+	handshakeHash.Write(s.connectionID)
 	handshakeHash.Write(pub)
 
 	// Compute handshake secrets
@@ -268,6 +283,8 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
 
 	// Construct message
 	m2 := &fMessage2{
+		CU:          m1.CU,
+		CV:          s.connectionID,
 		DH:          pub,
 		Ciphertext2: encAuthInfo,
 	}
@@ -280,5 +297,10 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
 }
 
 func (s *fServer) HandleMessage3(m3 *fMessage3) error {
+	// Verify connection ID
+	if !bytes.Equal(m3.CV, s.connectionID) {
+		return fmt.Errorf("Invalid connection ID in Message3")
+	}
+
 	return verifyAuthInfo(s.params, s.scheme, s.handshakeHash, m3.Ciphertext3, s.clientHandshakeTrafficSecret, s.peerKeyID, s.peerPub)
 }

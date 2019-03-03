@@ -1,10 +1,12 @@
 package mint
 
 import (
+	"fmt"
+	"github.com/bifurcation/mint/syntax"
 	"testing"
 )
 
-func TestFTLS(t *testing.T) {
+func newInstance(t *testing.T) (*fClient, *fServer) {
 	group := X25519
 	scheme := Ed25519
 	params := cipherSuiteMap[TLS_AES_128_GCM_SHA256]
@@ -17,7 +19,7 @@ func TestFTLS(t *testing.T) {
 	serverPriv, err := newSigningKey(scheme)
 	assertNotError(t, err, "Failed to generate server signing key")
 
-	client := fClient{
+	client := &fClient{
 		fConfig: fConfig{
 			group:     group,
 			scheme:    scheme,
@@ -29,7 +31,7 @@ func TestFTLS(t *testing.T) {
 		},
 	}
 
-	server := fServer{
+	server := &fServer{
 		fConfig: fConfig{
 			group:     group,
 			scheme:    scheme,
@@ -40,6 +42,12 @@ func TestFTLS(t *testing.T) {
 			peerKeyID: clientKeyID,
 		},
 	}
+
+	return client, server
+}
+
+func TestFTLS(t *testing.T) {
+	client, server := newInstance(t)
 
 	m1, err := client.NewMessage1()
 	assertNotError(t, err, "Failed to generate Message1")
@@ -55,4 +63,19 @@ func TestFTLS(t *testing.T) {
 
 	assertByteEquals(t, client.clientAppSecret, server.clientAppSecret)
 	assertByteEquals(t, client.serverAppSecret, server.serverAppSecret)
+
+	/////
+
+	m1data, err := syntax.Marshal(m1)
+	assertNotError(t, err, "Failed to marshal Message1")
+
+	m2data, err := syntax.Marshal(m2)
+	assertNotError(t, err, "Failed to marshal Message2")
+
+	m3data, err := syntax.Marshal(m3)
+	assertNotError(t, err, "Failed to marshal Message3")
+
+	fmt.Printf("m1: %3d\n", len(m1data))
+	fmt.Printf("m2: %3d\n", len(m2data))
+	fmt.Printf("m3: %3d\n", len(m3data))
 }
