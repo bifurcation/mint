@@ -1,8 +1,10 @@
 package mint
 
+// TODO Test functionality
 // TODO Make an fTLS instance struct that spans Client/Server pairs
 // TODO Absorb ftls* variables into the instance struct
 // TODO factor out creation and verification of AuthInfo
+// TODO Add connection IDs to make it equivalent to EDHOC
 
 import (
 	"bytes"
@@ -34,33 +36,28 @@ type fMessage3 struct {
 
 //////////
 
-const (
-	// We assume these are negotiated in error messages / signaled via
-	// an int value in the first message, as in EDHOC
-	ftlsGroup  = X25519
-	ftlsScheme = Ed25519
-	ftlsSuite  = TLS_AES_128_GCM_SHA256
-)
-
-var (
-	ftlsClientKeyID = []byte{0, 1, 2, 3}
-	ftlsServerKeyID = []byte{4, 5, 6, 7}
-)
-
 type fClient struct {
-	params        CipherSuiteParams
+	// Config
+	group        NamedGroup
+	scheme       SignatureScheme
+	params       CipherSuiteParams
+	sigPriv      crypto.Signer
+	serverSigPub crypto.PublicKey
+	clientKeyID  []byte
+	serverKeyID  []byte
+
+	// Ephemeral state
 	dhPriv        []byte
-	sigPriv       crypto.Signer
 	handshakeHash hash.Hash
-	serverSigPub  []byte
 	masterSecret  []byte
 }
 
-func (c *fClient) NewMessage1() *fMessage1 {
-	c.params = cipherSuiteMap[ftlsSuite]
-
+func (c *fClient) NewMessage1() (*fMessage1, error) {
 	// Generate DH key pair
-	pub, priv, _ := newKeyShare(ftlsGroup)
+	pub, priv, err := newKeyShare(c.group)
+	if err != nil {
+		return nil, err
+	}
 
 	// Construct the first message
 	m1 := &fMessage1{
@@ -68,18 +65,24 @@ func (c *fClient) NewMessage1() *fMessage1 {
 	}
 
 	// Start up the handshake hash
-	m1data, _ := syntax.Marshal(m1)
+	m1data, err := syntax.Marshal(m1)
+	if err != nil {
+		return nil, err
+	}
 	handshakeHash := c.params.Hash.New()
 	handshakeHash.Write(m1data)
 
 	c.dhPriv = priv
 	c.handshakeHash = handshakeHash
-	return m1
+	return m1, nil
 }
 
 func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 	// Complete DH exchange
-	dhSecret, _ := keyAgreement(ftlsGroup, m2.DH, c.dhPriv)
+	dhSecret, err := keyAgreement(c.group, m2.DH, c.dhPriv)
+	if err != nil {
+		return nil, err
+	}
 
 	// Update hte handshake hahs
 	c.handshakeHash.Write(m2.DH)
@@ -99,7 +102,11 @@ func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 
 	// Decrypt and parse server's AuthInfo
 	serverKeys := makeTrafficKeys(c.params, serverHandshakeTrafficSecret)
-	serverAEAD, _ := serverKeys.Cipher(serverKeys.Keys[labelForKey])
+	serverAEAD, err := serverKeys.Cipher(serverKeys.Keys[labelForKey])
+	if err != nil {
+		return nil, err
+	}
+
 	serverAuthInfoData, err := serverAEAD.Open(nil, serverKeys.Keys[labelForIV], m2.Ciphertext2, nil)
 	if err != nil {
 		return nil, err
@@ -112,7 +119,7 @@ func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 	}
 
 	// Verify KeyID is known
-	if !bytes.Equal(serverAuthInfo.KeyID, ftlsServerKeyID) {
+	if !bytes.Equal(serverAuthInfo.KeyID, c.serverKeyID) {
 		return nil, fmt.Errorf("Incorrect key ID")
 	}
 
@@ -120,7 +127,7 @@ func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 	c.handshakeHash.Write(serverAuthInfo.KeyID)
 	hscv := c.handshakeHash.Sum(nil)
 	scv := &CertificateVerifyBody{
-		Algorithm: ftlsScheme,
+		Algorithm: c.scheme,
 		Signature: serverAuthInfo.Signature,
 	}
 	err = scv.Verify(c.serverSigPub, hscv)
@@ -140,7 +147,7 @@ func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 	// Compute Signature
 	c.handshakeHash.Write(serverAuthInfo.MAC)
 	hccv := c.handshakeHash.Sum(nil)
-	ccv := &CertificateVerifyBody{Algorithm: ftlsScheme}
+	ccv := &CertificateVerifyBody{Algorithm: c.scheme}
 	ccv.Sign(c.sigPriv, hccv)
 	sig := ccv.Signature
 
@@ -151,16 +158,23 @@ func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 
 	// Serialize and encrypt AuthInfo
 	clientAuthInfo := fAuthInfo{
-		KeyID:     ftlsClientKeyID,
+		KeyID:     c.clientKeyID,
 		Signature: ccv.Signature,
 		MAC:       clientFinishedData,
 	}
 
-	clientAuthInfoData, _ := syntax.Marshal(clientAuthInfo)
+	clientAuthInfoData, err := syntax.Marshal(clientAuthInfo)
+	if err != nil {
+		return nil, err
+	}
 
 	// Encrypt client's AuthInfo
 	clientKeys := makeTrafficKeys(c.params, clientHandshakeTrafficSecret)
-	clientAEAD, _ := clientKeys.Cipher(clientKeys.Keys[labelForKey])
+	clientAEAD, err := clientKeys.Cipher(clientKeys.Keys[labelForKey])
+	if err != nil {
+		return nil, err
+	}
+
 	ct := clientAEAD.Seal(nil, clientKeys.Keys[labelForIV], clientAuthInfoData, nil)
 
 	c.masterSecret = masterSecret
@@ -173,25 +187,40 @@ func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
 //////////
 
 type fServer struct {
-	params                       CipherSuiteParams
-	sigPriv                      crypto.Signer
-	clientSigPub                 []byte
+	// Config
+	group        NamedGroup
+	scheme       SignatureScheme
+	params       CipherSuiteParams
+	sigPriv      crypto.Signer
+	clientSigPub crypto.PublicKey
+	serverKeyID  []byte
+	clientKeyID  []byte
+
+	// Ephemeral state
 	handshakeHash                hash.Hash
-	masterSecret                 []byte
 	clientHandshakeTrafficSecret []byte
+	masterSecret                 []byte
 }
 
-func (s *fServer) HandleMessage1(m1 *fMessage1) *fMessage2 {
-	s.params = cipherSuiteMap[ftlsSuite]
-
+func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
 	// Generate DH key pair
-	pub, priv, _ := newKeyShare(ftlsGroup)
+	pub, priv, err := newKeyShare(s.group)
+	if err != nil {
+		return nil, err
+	}
 
 	// Complete DH exchange
-	dhSecret, _ := keyAgreement(ftlsGroup, m1.DH, priv)
+	dhSecret, err := keyAgreement(s.group, m1.DH, priv)
+	if err != nil {
+		return nil, err
+	}
 
 	// Start up the handshake hash
-	m1data, _ := syntax.Marshal(m1)
+	m1data, err := syntax.Marshal(m1)
+	if err != nil {
+		return nil, err
+	}
+
 	handshakeHash := s.params.Hash.New()
 	handshakeHash.Write(m1data)
 	handshakeHash.Write(pub)
@@ -210,9 +239,9 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) *fMessage2 {
 	masterSecret := HkdfExtract(s.params.Hash, preMasterSecret, zero)
 
 	// Compute signature
-	handshakeHash.Write(ftlsServerKeyID)
+	handshakeHash.Write(s.serverKeyID)
 	hcv := handshakeHash.Sum(nil)
-	cv := &CertificateVerifyBody{Algorithm: ftlsScheme}
+	cv := &CertificateVerifyBody{Algorithm: s.scheme}
 	cv.Sign(s.sigPriv, hcv)
 	sig := cv.Signature
 	handshakeHash.Write(sig)
@@ -223,16 +252,23 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) *fMessage2 {
 
 	// Serialize AuthInfo
 	authInfo := fAuthInfo{
-		KeyID:     ftlsServerKeyID,
+		KeyID:     s.serverKeyID,
 		Signature: cv.Signature,
 		MAC:       serverFinishedData,
 	}
 
-	authInfoData, _ := syntax.Marshal(authInfo)
+	authInfoData, err := syntax.Marshal(authInfo)
+	if err != nil {
+		return nil, err
+	}
 
 	// Encrypt AuthInfo
 	keys := makeTrafficKeys(s.params, serverHandshakeTrafficSecret)
-	aead, _ := keys.Cipher(keys.Keys[labelForKey])
+	aead, err := keys.Cipher(keys.Keys[labelForKey])
+	if err != nil {
+		return nil, err
+	}
+
 	ct := aead.Seal(nil, keys.Keys[labelForIV], authInfoData, nil)
 
 	// Construct message
@@ -244,13 +280,17 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) *fMessage2 {
 	s.masterSecret = masterSecret
 	s.clientHandshakeTrafficSecret = clientHandshakeTrafficSecret
 	s.handshakeHash = handshakeHash
-	return m2
+	return m2, nil
 }
 
 func (s *fServer) HandleMessage3(m3 *fMessage3) error {
 	// Decrypt
 	keys := makeTrafficKeys(s.params, s.clientHandshakeTrafficSecret)
-	aead, _ := keys.Cipher(keys.Keys[labelForKey])
+	aead, err := keys.Cipher(keys.Keys[labelForKey])
+	if err != nil {
+		return err
+	}
+
 	authInfoData, err := aead.Open(nil, keys.Keys[labelForIV], m3.Ciphertext3, nil)
 	if err != nil {
 		return err
@@ -263,7 +303,7 @@ func (s *fServer) HandleMessage3(m3 *fMessage3) error {
 	}
 
 	// Verify KeyID is known
-	if !bytes.Equal(authInfo.KeyID, ftlsClientKeyID) {
+	if !bytes.Equal(authInfo.KeyID, s.clientKeyID) {
 		return fmt.Errorf("Incorrect key ID")
 	}
 
@@ -271,7 +311,7 @@ func (s *fServer) HandleMessage3(m3 *fMessage3) error {
 	s.handshakeHash.Write(authInfo.KeyID)
 	hscv := s.handshakeHash.Sum(nil)
 	cv := &CertificateVerifyBody{
-		Algorithm: ftlsScheme,
+		Algorithm: s.scheme,
 		Signature: authInfo.Signature,
 	}
 	err = cv.Verify(s.clientSigPub, hscv)
