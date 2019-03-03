@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/curve25519"
+	"golang.org/x/crypto/ed25519"
 
 	// Blank includes to ensure hash support
 	_ "crypto/sha1"
@@ -43,6 +44,7 @@ const (
 	signatureAlgorithmRSA_PKCS1
 	signatureAlgorithmRSA_PSS
 	signatureAlgorithmECDSA
+	signatureAlgorithmEd25519
 )
 
 var (
@@ -70,6 +72,7 @@ var (
 		RSA_PSS_SHA256:    signatureAlgorithmRSA_PSS,
 		RSA_PSS_SHA384:    signatureAlgorithmRSA_PSS,
 		RSA_PSS_SHA512:    signatureAlgorithmRSA_PSS,
+		Ed25519:           signatureAlgorithmEd25519,
 	}
 
 	curveMap = map[SignatureScheme]NamedGroup{
@@ -323,6 +326,9 @@ func newSigningKey(sig SignatureScheme) (crypto.Signer, error) {
 		return ecdsa.GenerateKey(elliptic.P384(), prng)
 	case ECDSA_P521_SHA512:
 		return ecdsa.GenerateKey(elliptic.P521(), prng)
+	case Ed25519:
+		_, priv, err := ed25519.GenerateKey(prng)
+		return priv, err
 	default:
 		return nil, fmt.Errorf("tls.newsigningkey: Unsupported signature algorithm [%04x]", sig)
 	}
@@ -375,6 +381,13 @@ func sign(alg SignatureScheme, privateKey crypto.Signer, sigInput []byte) ([]byt
 		h := hash.New()
 		h.Write(sigInput)
 		realInput = h.Sum(nil)
+	case ed25519.PrivateKey:
+		if sigType != signatureAlgorithmEd25519 {
+			return nil, fmt.Errorf("tls.crypto.sign: Unsupported algorithm for Ed25519 key")
+		}
+
+		opts = crypto.Hash(0)
+		realInput = sigInput
 	default:
 		return nil, fmt.Errorf("tls.crypto.sign: Unsupported private key type")
 	}
@@ -441,6 +454,17 @@ func verify(alg SignatureScheme, publicKey crypto.PublicKey, sigInput []byte, si
 		if !ecdsa.Verify(pub, realInput, ecdsaSig.R, ecdsaSig.S) {
 			return fmt.Errorf("tls.verify: ECDSA verification failure")
 		}
+		return nil
+
+	case ed25519.PublicKey:
+		if sigType != signatureAlgorithmEd25519 {
+			return fmt.Errorf("tls.verify: Unsupported algorithm for ECDSA key")
+		}
+
+		if !ed25519.Verify(pub, sigInput, sig) {
+			return fmt.Errorf("tls.verify: EdDSA signature verification failure")
+		}
+
 		return nil
 	default:
 		return fmt.Errorf("tls.verify: Unsupported key type")
