@@ -10,9 +10,139 @@ import (
 	"github.com/bifurcation/mint/syntax"
 )
 
+type fCipherSuite uint8
+
+const (
+	fX25519_Ed25519_AES128GCM_SHA256 fCipherSuite = 0x01
+)
+
+type fSuiteInfo struct {
+	Group  NamedGroup
+	Scheme SignatureScheme
+	Suite  CipherSuite
+}
+
+var (
+	fSuiteMap = map[fCipherSuite]fSuiteInfo{
+		fX25519_Ed25519_AES128GCM_SHA256: {
+			Group:  X25519,
+			Scheme: Ed25519,
+			Suite:  TLS_AES_128_GCM_SHA256,
+		},
+	}
+)
+
+//////////
+
+// struct {
+//     HandshakeType type;
+//     uint16 length;
+//     select (type) { ... }
+// } Handshake;
+type fHandshake struct {
+	Type HandshakeType
+	Body []byte `tls:"head=2"`
+}
+
+// struct {
+//		 CipherSuite cipher_suites<0..255>;
+//		 CipherSuite dh_suite;
+//		 opaque dh[dh_suite.key_size];
+// } ClientHello;
+type fClientHello struct {
+	Suites  []fCipherSuite `tls:"head=1"`
+	DHSuite fCipherSuite
+	DH      []byte `tls:"head=none"`
+}
+
+// struct {
+//		 CipherSuite cipher_suite;
+//		 opaque dh[suite.key_size];
+// } ServerHello;
+type fServerHello struct {
+	Suite fCipherSuite
+	DH    []byte `tls:"head=none"`
+}
+
+// struct {
+//		 opaque key_id[Handshake.length];
+// }
+type fCertificate struct {
+	KeyID []byte `tls:"head=none"`
+}
+
+// struct {
+//		 opaque signature[Handshake.length];
+// }
+type fCertificateVerify struct {
+	Signature []byte `tls:"head=none"`
+}
+
+// struct {
+//		 opaque finishedData[Handshake.length];
+// }
+type fFinished struct {
+	FinishedData []byte `tls:"head=none"`
+}
+
+// struct {
+//		 Handshake certificate;
+//		 Handshake certificate_verify;
+//		 Handshake finished;
+// } AuthInfo;
+type fAuthInfo struct {
+	Certificate       fHandshake
+	CertificateVerify fHandshake
+	Finished          fHandshake
+}
+
+func (ai fAuthInfo) Valid() bool {
+	return ai.Certificate.Type == HandshakeTypeCertificate &&
+		ai.CertificateVerify.Type == HandshakeTypeCertificateVerify &&
+		ai.Finished.Type == HandshakeTypeFinished
+}
+
 type fMessage1 struct {
-	CU []byte `tls:"head=1"`
-	DH []byte `tls:"head=1"`
+	ClientHello fHandshake
+}
+
+type fMessage2 struct {
+	ServerHello       fHandshake
+	EncryptedAuthInfo []byte `tls:"head=2"`
+}
+
+type fMessage3 struct {
+	EncryptedAuthInfo []byte `tls:"head=2"`
+}
+
+type fHandshakeHash hash.Hash
+
+func writeHandshake(h fHandshakeHash, hs fHandshake) {
+	data, err := syntax.Marshal(hs)
+	if err != nil {
+		panic(err)
+	}
+
+	h.Write(data)
+}
+
+func writeBody(h fHandshakeHash, hsType HandshakeType, body interface{}) {
+	bodyData, err := syntax.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+
+	writeHandshake(h, fHandshake{hsType, bodyData})
+}
+
+//////////
+
+/*
+type fMessage1 struct {
+	CU      []byte   `tls:"head=1"`
+	Suites  []fSuite `tls:"head=1"`
+	DHSuite fSuite
+	DH      []byte `tls:"head=1"`
 }
 
 type fAuthInfo struct {
@@ -24,6 +154,7 @@ type fAuthInfo struct {
 type fMessage2 struct {
 	CU          []byte `tls:"head=1"`
 	CV          []byte `tls:"head=1"`
+	Suite       fSuite
 	DH          []byte `tls:"head=1"`
 	Ciphertext2 []byte `tls:"head=1"`
 }
@@ -32,6 +163,7 @@ type fMessage3 struct {
 	CV          []byte `tls:"head=1"`
 	Ciphertext3 []byte `tls:"head=1"`
 }
+*/
 
 //////////
 
@@ -52,24 +184,28 @@ func computeHandshakeSecrets(params CipherSuiteParams, h hash.Hash, dhSecret []b
 	return clientHandshakeTrafficSecret, serverHandshakeTrafficSecret, masterSecret
 }
 
-func computeAuthInfo(params CipherSuiteParams, scheme SignatureScheme, handshakeHash hash.Hash, masterSecret, handshakeTrafficSecret, keyID []byte, sigPriv crypto.Signer) ([]byte, error) {
-	handshakeHash.Write(keyID)
-	hcv := handshakeHash.Sum(nil)
+func computeAuthInfo(params CipherSuiteParams, scheme SignatureScheme, h fHandshakeHash, masterSecret, handshakeTrafficSecret, keyID []byte, sigPriv crypto.Signer) ([]byte, error) {
+	certificate := fHandshake{HandshakeTypeCertificate, keyID}
+	writeHandshake(h, certificate)
+	hcv := h.Sum(nil)
 	cv := &CertificateVerifyBody{Algorithm: scheme}
 	cv.Sign(sigPriv, hcv)
-	sig := cv.Signature
-	handshakeHash.Write(sig)
+
+	certificateVerify := fHandshake{HandshakeTypeCertificate, keyID}
+	writeHandshake(h, certificateVerify)
 
 	// Compute MAC
-	h3 := handshakeHash.Sum(nil)
+	h3 := h.Sum(nil)
 	finishedData := computeFinishedData(params, handshakeTrafficSecret, h3)
-	handshakeHash.Write(finishedData)
+
+	finished := fHandshake{HandshakeTypeFinished, finishedData}
+	writeHandshake(h, finished)
 
 	// Serialize AuthInfo
 	authInfo := fAuthInfo{
-		KeyID:     keyID,
-		Signature: cv.Signature,
-		MAC:       finishedData,
+		Certificate:       certificate,
+		CertificateVerify: certificateVerify,
+		Finished:          finished,
 	}
 
 	authInfoData, err := syntax.Marshal(authInfo)
@@ -88,7 +224,7 @@ func computeAuthInfo(params CipherSuiteParams, scheme SignatureScheme, handshake
 	return encAuthInfo, nil
 }
 
-func verifyAuthInfo(params CipherSuiteParams, scheme SignatureScheme, handshakeHash hash.Hash, ct, handshakeTrafficSecret, keyID []byte, sigPub crypto.PublicKey) error {
+func verifyAuthInfo(params CipherSuiteParams, scheme SignatureScheme, h fHandshakeHash, ct, handshakeTrafficSecret, keyID []byte, sigPub crypto.PublicKey) error {
 	// Decrypt authInfo
 	keys := makeTrafficKeys(params, handshakeTrafficSecret)
 	aead, err := keys.Cipher(keys.Keys[labelForKey])
@@ -106,18 +242,21 @@ func verifyAuthInfo(params CipherSuiteParams, scheme SignatureScheme, handshakeH
 	if err != nil {
 		return err
 	}
+	if !authInfo.Valid() {
+		return fmt.Errorf("Incorrect handshake message types")
+	}
 
 	// Verify KeyID is known
-	if !bytes.Equal(authInfo.KeyID, keyID) {
+	if !bytes.Equal(authInfo.Certificate.Body, keyID) {
 		return fmt.Errorf("Incorrect key ID")
 	}
 
 	// Verify Signature
-	handshakeHash.Write(keyID)
-	hscv := handshakeHash.Sum(nil)
+	writeHandshake(h, authInfo.Certificate)
+	hscv := h.Sum(nil)
 	cv := &CertificateVerifyBody{
 		Algorithm: scheme,
-		Signature: authInfo.Signature,
+		Signature: authInfo.CertificateVerify.Body,
 	}
 	err = cv.Verify(sigPub, hscv)
 	if err != nil {
@@ -125,20 +264,22 @@ func verifyAuthInfo(params CipherSuiteParams, scheme SignatureScheme, handshakeH
 	}
 
 	// Verify MAC
-	handshakeHash.Write(authInfo.Signature)
-	h3 := handshakeHash.Sum(nil)
-	clientFinishedData := computeFinishedData(params, handshakeTrafficSecret, h3)
-	if !hmac.Equal(authInfo.MAC, clientFinishedData) {
+	writeHandshake(h, authInfo.CertificateVerify)
+	h3 := h.Sum(nil)
+	finishedData := computeFinishedData(params, handshakeTrafficSecret, h3)
+	if !hmac.Equal(authInfo.Finished.Body, finishedData) {
 		return fmt.Errorf("Incorrect finished MAC")
 	}
 
-	handshakeHash.Write(authInfo.MAC)
+	writeHandshake(h, authInfo.Finished)
 	return nil
 }
 
 //////////
 
 type fConfig struct {
+	Suites []fCipherSuite
+
 	group  NamedGroup
 	scheme SignatureScheme
 	params CipherSuiteParams
@@ -156,6 +297,9 @@ type fClient struct {
 	fConfig
 
 	// Ephemeral state
+	group         NamedGroup
+	scheme        SignatureScheme
+	params        CipherSuiteParams
 	dhPriv        []byte
 	handshakeHash hash.Hash
 
@@ -173,7 +317,6 @@ func (c *fClient) NewMessage1() (*fMessage1, error) {
 
 	// Construct the first message
 	m1 := &fMessage1{
-		CU: c.connectionID,
 		DH: pub,
 	}
 
@@ -191,11 +334,6 @@ func (c *fClient) NewMessage1() (*fMessage1, error) {
 }
 
 func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
-	// Verify connection ID
-	if !bytes.Equal(m2.CU, c.connectionID) {
-		return nil, fmt.Errorf("Invalid connection ID in Message2")
-	}
-
 	// Complete DH exchange
 	dhSecret, err := keyAgreement(c.group, m2.DH, c.dhPriv)
 	if err != nil {
@@ -234,6 +372,9 @@ type fServer struct {
 	fConfig
 
 	// Ephemeral state
+	group                        NamedGroup
+	scheme                       SignatureScheme
+	params                       CipherSuiteParams
 	handshakeHash                hash.Hash
 	clientHandshakeTrafficSecret []byte
 
