@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/hmac"
+	"crypto/rand"
 	"fmt"
 	"hash"
 
 	"github.com/bifurcation/mint/syntax"
 )
+
+type fRandom [16]byte
 
 // struct {
 //     HandshakeType type;
@@ -35,6 +38,7 @@ func newHandshake(hsType HandshakeType, body interface{}) fHandshake {
 //		 opaque dh[dh_suite.key_size];
 // } ClientHello;
 type fClientHello struct {
+	Random fRandom
 	Suites []CipherSuite `tls:"head=1"`
 	Group  NamedGroup
 	DH     []byte `tls:"head=none"`
@@ -45,8 +49,9 @@ type fClientHello struct {
 //		 opaque dh[suite.key_size];
 // } ServerHello;
 type fServerHello struct {
-	Suite CipherSuite
-	DH    []byte `tls:"head=none"`
+	Random fRandom
+	Suite  CipherSuite
+	DH     []byte `tls:"head=none"`
 }
 
 // struct {
@@ -262,6 +267,7 @@ func (c *fClient) NewMessage1() (*fMessage1, error) {
 		Group:  c.group,
 		DH:     pub,
 	}
+	rand.Read(ch.Random[:])
 	chm := newHandshake(HandshakeTypeClientHello, ch)
 	m1 := &fMessage1{
 		ClientHello: chm,
@@ -382,7 +388,7 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
 		Suite: suite,
 		DH:    pub,
 	}
-
+	rand.Read(ch.Random[:])
 	shm := newHandshake(HandshakeTypeServerHello, sh)
 
 	// Start up the handshake hash
