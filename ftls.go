@@ -84,11 +84,11 @@ type fMessage1 struct {
 
 type fMessage2 struct {
 	ServerHello       fHandshake
-	EncryptedAuthInfo []byte `tls:"head=2"`
+	EncryptedAuthInfo []byte `tls:"head=none"`
 }
 
 type fMessage3 struct {
-	EncryptedAuthInfo []byte `tls:"head=2"`
+	EncryptedAuthInfo []byte `tls:"head=none"`
 }
 
 type fHandshakeHash hash.Hash

@@ -75,6 +75,6 @@ func TestFTLS(t *testing.T) {
 	assertNotError(t, err, "Failed to marshal Message3")
 
 	fmt.Printf("m1: %3d\n", len(m1data))
-	fmt.Printf("m2: %3d\n", len(m2data))
-	fmt.Printf("m3: %3d\n", len(m3data))
+	fmt.Printf("m2: %3d\n", len(m2data)-len(server.myKeyID))
+	fmt.Printf("m3: %3d\n", len(m3data)-len(client.myKeyID))
 }
