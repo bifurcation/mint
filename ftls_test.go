@@ -7,9 +7,9 @@ import (
 )
 
 func newInstance(t *testing.T) (*fClient, *fServer) {
-	group := X25519
+	suites := []CipherSuite{TLS_AES_128_GCM_SHA256}
+	groups := []NamedGroup{X25519}
 	scheme := Ed25519
-	params := cipherSuiteMap[TLS_AES_128_GCM_SHA256]
 	clientKeyID := []byte("client")
 	serverKeyID := []byte("server")
 
@@ -21,9 +21,9 @@ func newInstance(t *testing.T) (*fClient, *fServer) {
 
 	client := &fClient{
 		fConfig: fConfig{
-			group:     group,
+			suites:    suites,
+			groups:    groups,
 			scheme:    scheme,
-			params:    params,
 			myPriv:    clientPriv,
 			peerPub:   serverPriv.Public(),
 			myKeyID:   clientKeyID,
@@ -33,9 +33,9 @@ func newInstance(t *testing.T) (*fClient, *fServer) {
 
 	server := &fServer{
 		fConfig: fConfig{
-			group:     group,
+			suites:    suites,
+			groups:    groups,
 			scheme:    scheme,
-			params:    params,
 			myPriv:    serverPriv,
 			peerPub:   clientPriv.Public(),
 			myKeyID:   serverKeyID,
@@ -64,8 +64,7 @@ func TestFTLS(t *testing.T) {
 	assertByteEquals(t, client.clientAppSecret, server.clientAppSecret)
 	assertByteEquals(t, client.serverAppSecret, server.serverAppSecret)
 
-	/////
-
+	// While we've got the messages, print their sizes
 	m1data, err := syntax.Marshal(m1)
 	assertNotError(t, err, "Failed to marshal Message1")
 

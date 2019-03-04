@@ -10,30 +10,6 @@ import (
 	"github.com/bifurcation/mint/syntax"
 )
 
-type fCipherSuite uint8
-
-const (
-	fX25519_Ed25519_AES128GCM_SHA256 fCipherSuite = 0x01
-)
-
-type fSuiteInfo struct {
-	Group  NamedGroup
-	Scheme SignatureScheme
-	Suite  CipherSuite
-}
-
-var (
-	fSuiteMap = map[fCipherSuite]fSuiteInfo{
-		fX25519_Ed25519_AES128GCM_SHA256: {
-			Group:  X25519,
-			Scheme: Ed25519,
-			Suite:  TLS_AES_128_GCM_SHA256,
-		},
-	}
-)
-
-//////////
-
 // struct {
 //     HandshakeType type;
 //     uint16 length;
@@ -44,15 +20,24 @@ type fHandshake struct {
 	Body []byte `tls:"head=2"`
 }
 
+func newHandshake(hsType HandshakeType, body interface{}) fHandshake {
+	data, err := syntax.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+
+	return fHandshake{hsType, data}
+}
+
 // struct {
 //		 CipherSuite cipher_suites<0..255>;
-//		 CipherSuite dh_suite;
+//		 NamedGroup dh_suite;
 //		 opaque dh[dh_suite.key_size];
 // } ClientHello;
 type fClientHello struct {
-	Suites  []fCipherSuite `tls:"head=1"`
-	DHSuite fCipherSuite
-	DH      []byte `tls:"head=none"`
+	Suites []CipherSuite `tls:"head=1"`
+	Group  NamedGroup
+	DH     []byte `tls:"head=none"`
 }
 
 // struct {
@@ -60,7 +45,7 @@ type fClientHello struct {
 //		 opaque dh[suite.key_size];
 // } ServerHello;
 type fServerHello struct {
-	Suite fCipherSuite
+	Suite CipherSuite
 	DH    []byte `tls:"head=none"`
 }
 
@@ -69,20 +54,6 @@ type fServerHello struct {
 // }
 type fCertificate struct {
 	KeyID []byte `tls:"head=none"`
-}
-
-// struct {
-//		 opaque signature[Handshake.length];
-// }
-type fCertificateVerify struct {
-	Signature []byte `tls:"head=none"`
-}
-
-// struct {
-//		 opaque finishedData[Handshake.length];
-// }
-type fFinished struct {
-	FinishedData []byte `tls:"head=none"`
 }
 
 // struct {
@@ -126,45 +97,6 @@ func writeHandshake(h fHandshakeHash, hs fHandshake) {
 	h.Write(data)
 }
 
-func writeBody(h fHandshakeHash, hsType HandshakeType, body interface{}) {
-	bodyData, err := syntax.Marshal(body)
-	if err != nil {
-		panic(err)
-	}
-
-	writeHandshake(h, fHandshake{hsType, bodyData})
-}
-
-//////////
-
-/*
-type fMessage1 struct {
-	CU      []byte   `tls:"head=1"`
-	Suites  []fSuite `tls:"head=1"`
-	DHSuite fSuite
-	DH      []byte `tls:"head=1"`
-}
-
-type fAuthInfo struct {
-	KeyID     []byte `tls:"head=1"`
-	Signature []byte `tls:"head=1"`
-	MAC       []byte `tls:"head=1"`
-}
-
-type fMessage2 struct {
-	CU          []byte `tls:"head=1"`
-	CV          []byte `tls:"head=1"`
-	Suite       fSuite
-	DH          []byte `tls:"head=1"`
-	Ciphertext2 []byte `tls:"head=1"`
-}
-
-type fMessage3 struct {
-	CV          []byte `tls:"head=1"`
-	Ciphertext3 []byte `tls:"head=1"`
-}
-*/
-
 //////////
 
 func computeHandshakeSecrets(params CipherSuiteParams, h hash.Hash, dhSecret []byte) (chts, shts, ms []byte) {
@@ -185,13 +117,22 @@ func computeHandshakeSecrets(params CipherSuiteParams, h hash.Hash, dhSecret []b
 }
 
 func computeAuthInfo(params CipherSuiteParams, scheme SignatureScheme, h fHandshakeHash, masterSecret, handshakeTrafficSecret, keyID []byte, sigPriv crypto.Signer) ([]byte, error) {
+	// Compute signature
 	certificate := fHandshake{HandshakeTypeCertificate, keyID}
 	writeHandshake(h, certificate)
 	hcv := h.Sum(nil)
 	cv := &CertificateVerifyBody{Algorithm: scheme}
-	cv.Sign(sigPriv, hcv)
+	err := cv.Sign(sigPriv, hcv)
+	if err != nil {
+		return nil, err
+	}
 
-	certificateVerify := fHandshake{HandshakeTypeCertificate, keyID}
+	cvData, err := cv.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	certificateVerify := fHandshake{HandshakeTypeCertificateVerify, cvData}
 	writeHandshake(h, certificateVerify)
 
 	// Compute MAC
@@ -253,12 +194,14 @@ func verifyAuthInfo(params CipherSuiteParams, scheme SignatureScheme, h fHandsha
 
 	// Verify Signature
 	writeHandshake(h, authInfo.Certificate)
-	hscv := h.Sum(nil)
-	cv := &CertificateVerifyBody{
-		Algorithm: scheme,
-		Signature: authInfo.CertificateVerify.Body,
+	hcv := h.Sum(nil)
+
+	var cv CertificateVerifyBody
+	_, err = cv.Unmarshal(authInfo.CertificateVerify.Body)
+	if err != nil {
+		return err
 	}
-	err = cv.Verify(sigPub, hscv)
+	err = cv.Verify(sigPub, hcv)
 	if err != nil {
 		return err
 	}
@@ -278,12 +221,10 @@ func verifyAuthInfo(params CipherSuiteParams, scheme SignatureScheme, h fHandsha
 //////////
 
 type fConfig struct {
-	Suites []fCipherSuite
+	suites []CipherSuite
+	groups []NamedGroup
 
-	group  NamedGroup
-	scheme SignatureScheme
-	params CipherSuiteParams
-
+	scheme  SignatureScheme
 	myPriv  crypto.Signer
 	peerPub crypto.PublicKey
 
@@ -297,11 +238,10 @@ type fClient struct {
 	fConfig
 
 	// Ephemeral state
-	group         NamedGroup
-	scheme        SignatureScheme
-	params        CipherSuiteParams
-	dhPriv        []byte
-	handshakeHash hash.Hash
+	group       NamedGroup
+	params      CipherSuiteParams
+	dhPriv      []byte
+	clientHello fHandshake
 
 	// Final state
 	clientAppSecret []byte
@@ -310,58 +250,75 @@ type fClient struct {
 
 func (c *fClient) NewMessage1() (*fMessage1, error) {
 	// Generate DH key pair
+	c.group = c.groups[0]
 	pub, priv, err := newKeyShare(c.group)
 	if err != nil {
 		return nil, err
 	}
 
 	// Construct the first message
+	ch := fClientHello{
+		Suites: c.suites,
+		Group:  c.group,
+		DH:     pub,
+	}
+	chm := newHandshake(HandshakeTypeClientHello, ch)
 	m1 := &fMessage1{
-		DH: pub,
+		ClientHello: chm,
 	}
-
-	// Start up the handshake hash
-	m1data, err := syntax.Marshal(m1)
-	if err != nil {
-		return nil, err
-	}
-	handshakeHash := c.params.Hash.New()
-	handshakeHash.Write(m1data)
 
 	c.dhPriv = priv
-	c.handshakeHash = handshakeHash
+	c.clientHello = chm
 	return m1, nil
 }
 
 func (c *fClient) HandleMessage2(m2 *fMessage2) (*fMessage3, error) {
-	// Complete DH exchange
-	dhSecret, err := keyAgreement(c.group, m2.DH, c.dhPriv)
+	if m2.ServerHello.Type != HandshakeTypeServerHello {
+		return nil, fmt.Errorf("Incorrect handshake type for ServerHello")
+	}
+
+	var sh fServerHello
+	_, err := syntax.Unmarshal(m2.ServerHello.Body, &sh)
 	if err != nil {
 		return nil, err
 	}
 
-	// Update the handshake hahs
-	c.handshakeHash.Write(m2.CU)
-	c.handshakeHash.Write(m2.CV)
-	c.handshakeHash.Write(m2.DH)
+	// Configure based on the ciphersuite
+	c.params = cipherSuiteMap[sh.Suite]
+
+	// Complete DH exchange
+	dhSecret, err := keyAgreement(c.group, sh.DH, c.dhPriv)
+	if err != nil {
+		return nil, err
+	}
+
+	// Start up the handshake hash
+	handshakeHash := fHandshakeHash(c.params.Hash.New())
+	writeHandshake(handshakeHash, c.clientHello)
+	writeHandshake(handshakeHash, m2.ServerHello)
 
 	// Compute handshake secrets
-	clientHandshakeTrafficSecret, serverHandshakeTrafficSecret, masterSecret := computeHandshakeSecrets(c.params, c.handshakeHash, dhSecret)
+	clientHandshakeTrafficSecret, serverHandshakeTrafficSecret, masterSecret := computeHandshakeSecrets(c.params, handshakeHash, dhSecret)
 
 	// Verify server authentication
-	err = verifyAuthInfo(c.params, c.scheme, c.handshakeHash, m2.Ciphertext2, serverHandshakeTrafficSecret, c.peerKeyID, c.peerPub)
+	err = verifyAuthInfo(c.params, c.scheme, handshakeHash, m2.EncryptedAuthInfo, serverHandshakeTrafficSecret, c.peerKeyID, c.peerPub)
+	if err != nil {
+		return nil, err
+	}
 
 	// Compute application traffic secrets
-	h4 := c.handshakeHash.Sum(nil)
+	h4 := handshakeHash.Sum(nil)
 	c.clientAppSecret = deriveSecret(c.params, masterSecret, labelClientApplicationTrafficSecret, h4)
 	c.serverAppSecret = deriveSecret(c.params, masterSecret, labelServerApplicationTrafficSecret, h4)
 
 	// Compute encrypted authInfo
-	encAuthInfo, err := computeAuthInfo(c.params, c.scheme, c.handshakeHash, masterSecret, clientHandshakeTrafficSecret, c.myKeyID, c.myPriv)
+	encAuthInfo, err := computeAuthInfo(c.params, c.scheme, handshakeHash, masterSecret, clientHandshakeTrafficSecret, c.myKeyID, c.myPriv)
+	if err != nil {
+		return nil, err
+	}
 
 	m3 := &fMessage3{
-		CV:          m2.CV,
-		Ciphertext3: encAuthInfo,
+		EncryptedAuthInfo: encAuthInfo,
 	}
 	return m3, nil
 }
@@ -372,8 +329,6 @@ type fServer struct {
 	fConfig
 
 	// Ephemeral state
-	group                        NamedGroup
-	scheme                       SignatureScheme
 	params                       CipherSuiteParams
 	handshakeHash                hash.Hash
 	clientHandshakeTrafficSecret []byte
@@ -384,29 +339,56 @@ type fServer struct {
 }
 
 func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
+	if m1.ClientHello.Type != HandshakeTypeClientHello {
+		return nil, fmt.Errorf("Incorrect handshake type for ClientHello")
+	}
+
+	var ch fClientHello
+	_, err := syntax.Unmarshal(m1.ClientHello.Body, &ch)
+	if err != nil {
+		return nil, err
+	}
+
+	// Negotiate a ciphersuite
+	suite, err := CipherSuiteNegotiation(nil, ch.Suites, s.suites)
+	if err != nil {
+		return nil, fmt.Errorf("No supported ciphersuite")
+	}
+
+	s.params = cipherSuiteMap[suite]
+
 	// Generate DH key pair
-	pub, priv, err := newKeyShare(s.group)
+	dhGroupSupported := false
+	for _, group := range s.groups {
+		dhGroupSupported = dhGroupSupported || (group == ch.Group)
+	}
+	if !dhGroupSupported {
+		return nil, fmt.Errorf("Unsupported DH group")
+	}
+
+	pub, priv, err := newKeyShare(ch.Group)
 	if err != nil {
 		return nil, err
 	}
 
 	// Complete DH exchange
-	dhSecret, err := keyAgreement(s.group, m1.DH, priv)
+	dhSecret, err := keyAgreement(ch.Group, ch.DH, priv)
 	if err != nil {
 		return nil, err
 	}
+
+	// Create the ServerHello
+	sh := fServerHello{
+		Suite: suite,
+		DH:    pub,
+	}
+
+	shm := newHandshake(HandshakeTypeServerHello, sh)
 
 	// Start up the handshake hash
-	m1data, err := syntax.Marshal(m1)
-	if err != nil {
-		return nil, err
-	}
-
-	handshakeHash := s.params.Hash.New()
-	handshakeHash.Write(m1data)
-	handshakeHash.Write(m1.CU)
-	handshakeHash.Write(s.connectionID)
-	handshakeHash.Write(pub)
+	handshakeHash := fHandshakeHash(s.params.Hash.New())
+	writeHandshake(handshakeHash, m1.ClientHello)
+	writeHandshake(handshakeHash, shm)
 
 	// Compute handshake secrets
 	clientHandshakeTrafficSecret, serverHandshakeTrafficSecret, masterSecret := computeHandshakeSecrets(s.params, handshakeHash, dhSecret)
@@ -424,10 +406,8 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
 
 	// Construct message
 	m2 := &fMessage2{
-		CU:          m1.CU,
-		CV:          s.connectionID,
-		DH:          pub,
-		Ciphertext2: encAuthInfo,
+		ServerHello:       shm,
+		EncryptedAuthInfo: encAuthInfo,
 	}
 
 	s.clientHandshakeTrafficSecret = clientHandshakeTrafficSecret
@@ -438,10 +418,5 @@ func (s *fServer) HandleMessage1(m1 *fMessage1) (*fMessage2, error) {
 }
 
 func (s *fServer) HandleMessage3(m3 *fMessage3) error {
-	// Verify connection ID
-	if !bytes.Equal(m3.CV, s.connectionID) {
-		return fmt.Errorf("Invalid connection ID in Message3")
-	}
-
-	return verifyAuthInfo(s.params, s.scheme, s.handshakeHash, m3.Ciphertext3, s.clientHandshakeTrafficSecret, s.peerKeyID, s.peerPub)
+	return verifyAuthInfo(s.params, s.scheme, s.handshakeHash, m3.EncryptedAuthInfo, s.clientHandshakeTrafficSecret, s.peerKeyID, s.peerPub)
 }
