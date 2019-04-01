@@ -532,12 +532,11 @@ func (h *HandshakeLayer) writeFragment(hm *HandshakeMessage, start int, room int
 			},
 			hm.cipher, 0)
 	} else {
-		err = h.conn.(*DefaultRecordLayer).writeRecordWithPadding(
+		err = h.conn.WriteRecord(
 			&TLSPlaintext{
 				contentType: RecordTypeHandshake,
 				fragment:    buf,
-			},
-			hm.cipher, 0)
+			})
 	}
 	return true, start + bodylen, err
 }
