@@ -19,6 +19,7 @@ const (
 	logTypeIO          = "io"
 	logTypeFrameReader = "frame"
 	logTypePipe        = "pipe"
+	logTypeCompression = "compression"
 	logTypeVerbose     = "verbose"
 )
 

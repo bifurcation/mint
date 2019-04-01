@@ -117,16 +117,32 @@ func (h *HandshakeLayer) HandshakeMessageFromBody(body HandshakeMessageBody) (*H
 	return m, nil
 }
 
+type HandshakeCompression interface {
+	Compress(hm *HandshakeMessage) (*HandshakeMessage, error)
+	Decompress(hm *HandshakeMessage) (*HandshakeMessage, error)
+}
+
+type NoHandshakeCompression struct{}
+
+func (hc NoHandshakeCompression) Compress(hm *HandshakeMessage) (*HandshakeMessage, error) {
+	return hm, nil
+}
+
+func (hc NoHandshakeCompression) Decompress(hm *HandshakeMessage) (*HandshakeMessage, error) {
+	return hm, nil
+}
+
 type HandshakeLayer struct {
-	ctx            *HandshakeContext   // The handshake we are attached to
-	nonblocking    bool                // Should we operate in nonblocking mode
-	conn           RecordLayer         // Used for reading/writing records
-	frame          *frameReader        // The buffered frame reader
-	datagram       bool                // Is this DTLS?
-	msgSeq         uint32              // The DTLS message sequence number
-	queued         []*HandshakeMessage // In/out queue
-	sent           []*HandshakeMessage // Sent messages for DTLS
-	recvdRecords   []uint64            // Records we have received.
+	ctx            *HandshakeContext    // The handshake we are attached to
+	nonblocking    bool                 // Should we operate in nonblocking mode
+	conn           RecordLayer          // Used for reading/writing records
+	compression    HandshakeCompression // Used for marshaling/unmarshaling messages
+	frame          *frameReader         // The buffered frame reader
+	datagram       bool                 // Is this DTLS?
+	msgSeq         uint32               // The DTLS message sequence number
+	queued         []*HandshakeMessage  // In/out queue
+	sent           []*HandshakeMessage  // Sent messages for DTLS
+	recvdRecords   []uint64             // Records we have received.
 	maxFragmentLen int
 }
 
@@ -157,6 +173,7 @@ func NewHandshakeLayerTLS(c *HandshakeContext, r RecordLayer) *HandshakeLayer {
 	h := HandshakeLayer{}
 	h.ctx = c
 	h.conn = r
+	h.compression = NoHandshakeCompression{}
 	h.datagram = false
 	h.frame = newFrameReader(&handshakeLayerFrameDetails{false})
 	h.maxFragmentLen = maxFragmentLen
@@ -167,6 +184,7 @@ func NewHandshakeLayerDTLS(c *HandshakeContext, r RecordLayer) *HandshakeLayer {
 	h := HandshakeLayer{}
 	h.ctx = c
 	h.conn = r
+	h.compression = NoHandshakeCompression{}
 	h.datagram = true
 	h.frame = newFrameReader(&handshakeLayerFrameDetails{true})
 	h.maxFragmentLen = initialMtu // Not quite right
@@ -397,12 +415,18 @@ func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 	}
 
 	hm.length = uint32(len(body))
-	return hm, nil
+
+	return h.compression.Decompress(hm)
 }
 
 func (h *HandshakeLayer) QueueMessage(hm *HandshakeMessage) error {
-	hm.cipher = h.conn.(*DefaultRecordLayer).cipher
-	h.queued = append(h.queued, hm)
+	cm, err := h.compression.Compress(hm)
+	if err != nil {
+		return err
+	}
+
+	cm.cipher = h.conn.(*DefaultRecordLayer).cipher
+	h.queued = append(h.queued, cm)
 	return nil
 }
 

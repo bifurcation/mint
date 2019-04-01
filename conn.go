@@ -129,7 +129,8 @@ type Config struct {
 	NonBlocking      bool
 	UseDTLS          bool
 
-	RecordLayer RecordLayerFactory
+	RecordLayer          RecordLayerFactory
+	HandshakeCompression HandshakeCompression
 
 	// The same config object can be shared among different connections, so it
 	// needs its own mutex
@@ -297,6 +298,12 @@ func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
 		c.hsCtx.timers = newTimerSet()
 		c.hsCtx.waitingNextFlight = true
 	}
+
+	if config.HandshakeCompression != nil {
+		c.hsCtx.hIn.compression = config.HandshakeCompression
+		c.hsCtx.hOut.compression = config.HandshakeCompression
+	}
+
 	c.in.SetLabel(c.label())
 	c.out.SetLabel(c.label())
 	c.hsCtx.hIn.nonblocking = c.config.NonBlocking
