@@ -401,22 +401,70 @@ func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 }
 
 func (h *HandshakeLayer) QueueMessage(hm *HandshakeMessage) error {
-	if h.datagram {
-		hm.cipher = h.conn.(*DefaultRecordLayer).cipher
-		h.queued = append(h.queued, hm)
-		return nil
+	hm.cipher = h.conn.(*DefaultRecordLayer).cipher
+	h.queued = append(h.queued, hm)
+	return nil
+}
+
+func (h *HandshakeLayer) packAndWrite(hms []*HandshakeMessage) (int, error) {
+	buffer := []byte{}
+	for _, hm := range hms {
+		buffer = append(buffer, hm.Marshal()...)
 	}
-	_, err := h.WriteMessages([]*HandshakeMessage{hm})
-	return err
+
+	record := &TLSPlaintext{
+		contentType: RecordTypeHandshake,
+		fragment:    buffer,
+	}
+	cipher := hms[0].cipher
+	err := h.conn.(*DefaultRecordLayer).writeRecordWithPadding(record, cipher, 0)
+	if err != nil {
+		return 0, err
+	}
+
+	return len(hms), nil
+}
+
+func (h *HandshakeLayer) packAndWriteQueue() (int, error) {
+	if len(h.queued) == 0 {
+		return 0, nil
+	}
+
+	buffer := []*HandshakeMessage{}
+	written := 0
+	for i, hm := range h.queued {
+		buffer = append(buffer, hm)
+
+		if i < len(h.queued)-1 && h.queued[i+1].cipher == hm.cipher {
+			continue
+		}
+
+		count, err := h.packAndWrite(buffer)
+		if err != nil {
+			return 0, err
+		}
+
+		written += count
+		buffer = []*HandshakeMessage{}
+	}
+
+	return written, nil
 }
 
 func (h *HandshakeLayer) SendQueuedMessages() (int, error) {
 	logf(logTypeHandshake, "Sending outgoing messages")
-	count, err := h.WriteMessages(h.queued)
+
 	if !h.datagram {
+		count, err := h.packAndWriteQueue()
+		if err != nil {
+			return count, err
+		}
+
 		h.ClearQueuedMessages()
+		return count, nil
 	}
-	return count, err
+
+	return h.WriteMessages(h.queued)
 }
 
 func (h *HandshakeLayer) ClearQueuedMessages() {
@@ -484,11 +532,12 @@ func (h *HandshakeLayer) writeFragment(hm *HandshakeMessage, start int, room int
 			},
 			hm.cipher, 0)
 	} else {
-		err = h.conn.WriteRecord(
+		err = h.conn.(*DefaultRecordLayer).writeRecordWithPadding(
 			&TLSPlaintext{
 				contentType: RecordTypeHandshake,
 				fragment:    buf,
-			})
+			},
+			hm.cipher, 0)
 	}
 	return true, start + bodylen, err
 }

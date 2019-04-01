@@ -19,6 +19,7 @@ import (
 )
 
 type pipeConn struct {
+	label  string
 	closed bool
 	r      *bytes.Buffer
 	w      *bytes.Buffer
@@ -29,6 +30,9 @@ type pipeConn struct {
 func pipe() (client *pipeConn, server *pipeConn) {
 	client = new(pipeConn)
 	server = new(pipeConn)
+
+	client.label = "client"
+	server.label = "server"
 
 	c2s := bytes.NewBuffer(nil)
 	server.r = c2s
@@ -64,6 +68,8 @@ func (p *pipeConn) Read(data []byte) (n int, err error) {
 }
 
 func (p *pipeConn) Write(data []byte) (n int, err error) {
+	logf(logTypePipe, "[%s] write: %d %x\n", p.label, len(data), data)
+
 	p.wLock.Lock()
 	defer p.wLock.Unlock()
 	if p.closed {

@@ -18,6 +18,7 @@ const (
 	logTypeNegotiation = "negotiation"
 	logTypeIO          = "io"
 	logTypeFrameReader = "frame"
+	logTypePipe        = "pipe"
 	logTypeVerbose     = "verbose"
 )
 
