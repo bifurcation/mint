@@ -15,7 +15,8 @@ import (
 // client's second flight, respectively.
 //
 //   M1 = ClientHello
-//   M2 = ServerHello, [EncryptedExtensions, CertificateRequest, Certificate, CertificateVerify, Finished]
+//   M2 = ServerHello, [EncryptedExtensions, CertificateRequest,
+//											Certificate, CertificateVerify, Finished]
 //   M3 = [Certificate, CertificateVerify, Finished]
 //
 // Base case (no compression)
@@ -33,19 +34,34 @@ import (
 //		M1: 149
 //		M2: 614
 //		M3: 498
+//
+// Certificate compression as uint32 index into a list
+// (Prenegotiate certificates, signature algorithms)
+//    M1: 139 (b/c fewer signature algorithms)
+//    M2: 240
+//    M3: 143
 
 func TestCTLSBaseSession(t *testing.T) {
+	schemes := []SignatureScheme{ECDSA_P256_SHA256}
+
+	compression := ctlsCompression{
+		SignatureSchemes: schemes,
+		Certificates:     allCertificates,
+	}
+
 	configServer := &Config{
 		RequireClientAuth:    true,
 		Certificates:         certificates,
-		HandshakeCompression: ctlsCompression{},
+		SignatureSchemes:     schemes,
+		HandshakeCompression: compression,
 	}
 	configClient := &Config{
 		ServerName:           serverName,
 		Certificates:         clientCertificates,
 		InsecureSkipVerify:   true,
 		Groups:               []NamedGroup{X25519},
-		HandshakeCompression: ctlsCompression{},
+		SignatureSchemes:     schemes,
+		HandshakeCompression: compression,
 	}
 
 	cConn, sConn := pipe()

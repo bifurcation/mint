@@ -181,6 +181,7 @@ var (
 	serverKey, clientKey             crypto.Signer
 	serverCert, clientCert           *x509.Certificate
 	certificates, clientCertificates []*Certificate
+	allCertificates                  []*Certificate
 	clientName, serverName           string
 
 	psk  PreSharedKey
@@ -217,6 +218,16 @@ func init() {
 		},
 	}
 	clientCertificates = []*Certificate{
+		{
+			Chain:      []*x509.Certificate{clientCert},
+			PrivateKey: clientKey,
+		},
+	}
+	allCertificates = []*Certificate{
+		{
+			Chain:      []*x509.Certificate{serverCert},
+			PrivateKey: serverKey,
+		},
 		{
 			Chain:      []*x509.Certificate{clientCert},
 			PrivateKey: clientKey,

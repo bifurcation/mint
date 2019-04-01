@@ -1,23 +1,23 @@
 package mint
 
 import (
+	"bytes"
+	"fmt"
+
 	"github.com/bifurcation/mint/syntax"
 )
 
-type ctlsCompression struct{}
-
-// Lossless compression
-// * ClientHello						7		Legacy fields; extension length
-// * ServerHello						6		Legacy fields; extension length
-// * EncryptedExtensions		2		Unnecessary length
-// * CertificateRequest			2		Unnecessary length
-// * Certificate						3		Unnecessary length
-// * CertificateVerify			2		Unnecessary length
-// * Finished								0
+// Assumptions:
 //
-// M1:  7
-// M2: 15 = 6 + 2 + 2 + 3 + 2 + 0
-// M3:  5 = 3 + 2 + 0
+//  * Certificate request context is never provided
+//
+//	* The only extension in CertificateRequest is signature_algorithms, which has the contents specified
+//
+//	* Only one certificate, selected from the provided array
+type ctlsCompression struct {
+	SignatureSchemes []SignatureScheme
+	Certificates     []*Certificate
+}
 
 func replaceBody(hm *HandshakeMessage, body []byte) *HandshakeMessage {
 	return &HandshakeMessage{
@@ -107,30 +107,39 @@ func (c ctlsCompression) Compress(hmIn *HandshakeMessage) (*HandshakeMessage, er
 		copy(bodyOut[0:], hmIn.body[2:])
 
 	case HandshakeTypeCertificateRequest:
-		context := struct {
-			Value []byte `tls:"head=1"`
-		}{}
-		read, err := syntax.Unmarshal(hmIn.body, &context)
-		if err != nil {
-			return nil, err
-		}
-
-		bodyOut = make([]byte, read)
-		copy(bodyOut, hmIn.body[:read])
-		bodyOut = append(bodyOut, hmIn.body[read+2:]...)
+		// TODO(rlb@ipv.sx) Verify that message is compressible
+		// * Context is empty
+		// * Signature algorithms extension matches
+		// * No other extensions
+		bodyOut = []byte{}
 
 	case HandshakeTypeCertificate:
-		context := struct {
-			Value []byte `tls:"head=1"`
-		}{}
-		read, err := syntax.Unmarshal(hmIn.body, &context)
+		body, err := hmIn.ToBody()
 		if err != nil {
 			return nil, err
 		}
+		cert := body.(*CertificateBody)
 
-		bodyOut = make([]byte, read)
-		copy(bodyOut, hmIn.body[:read])
-		bodyOut = append(bodyOut, hmIn.body[read+3:]...)
+		if len(cert.CertificateRequestContext) != 0 {
+			return nil, fmt.Errorf("Certificate message with context cannot be compressed")
+		}
+
+		index := -1
+		certData := cert.CertificateList[0].CertData.Raw
+		for i, cert := range c.Certificates {
+			if bytes.Equal(certData, cert.Chain[0].Raw) {
+				index = i
+				break
+			}
+		}
+		if index == -1 {
+			return nil, fmt.Errorf("Unrecognized certificate")
+		}
+
+		bodyOut, err = syntax.Marshal(uint32(index))
+		if err != nil {
+			return nil, err
+		}
 
 	case HandshakeTypeCertificateVerify:
 		// Omit the two length octets
@@ -161,6 +170,8 @@ func (c ctlsCompression) Decompress(hmIn *HandshakeMessage) (*HandshakeMessage, 
 	var bodyOut []byte
 	switch hmIn.msgType {
 	case HandshakeTypeClientHello:
+		logf(logTypeCompression, "ch: %x", hmIn.body)
+
 		header := struct {
 			Random       [32]byte
 			CipherSuites []CipherSuite `tls:"head=2,min=2"`
@@ -234,38 +245,42 @@ func (c ctlsCompression) Decompress(hmIn *HandshakeMessage) (*HandshakeMessage, 
 		bodyOut = append(bodyOut, hmIn.body...)
 
 	case HandshakeTypeCertificateRequest:
-		context := struct {
-			Value []byte `tls:"head=1"`
-		}{}
-		read, err := syntax.Unmarshal(hmIn.body, &context)
+		cr := CertificateRequestBody{}
+		schemes := &SignatureAlgorithmsExtension{Algorithms: c.SignatureSchemes}
+		err := cr.Extensions.Add(schemes)
 		if err != nil {
 			return nil, err
 		}
 
-		extLen := len(hmIn.body) - read
-		extBytes := []byte{byte(extLen >> 8), byte(extLen)}
-
-		bodyOut = make([]byte, read)
-		copy(bodyOut, hmIn.body[:read])
-		bodyOut = append(bodyOut, extBytes...)
-		bodyOut = append(bodyOut, hmIn.body[read:]...)
+		bodyOut, err = syntax.Marshal(cr)
+		if err != nil {
+			return nil, err
+		}
 
 	case HandshakeTypeCertificate:
-		context := struct {
-			Value []byte `tls:"head=1"`
-		}{}
-		read, err := syntax.Unmarshal(hmIn.body, &context)
+		var index32 uint32
+		_, err := syntax.Unmarshal(hmIn.body, &index32)
 		if err != nil {
 			return nil, err
 		}
+		index := int(index32)
 
-		extLen := len(hmIn.body) - read
-		extBytes := []byte{byte(extLen >> 16), byte(extLen >> 8), byte(extLen)}
+		if index > len(c.Certificates) {
+			return nil, fmt.Errorf("Certificate index out of bounds")
+		}
 
-		bodyOut = make([]byte, read)
-		copy(bodyOut, hmIn.body[:read])
-		bodyOut = append(bodyOut, extBytes...)
-		bodyOut = append(bodyOut, hmIn.body[read:]...)
+		chain := c.Certificates[index].Chain
+		cert := CertificateBody{
+			CertificateList: make([]CertificateEntry, len(chain)),
+		}
+		for i, entry := range chain {
+			cert.CertificateList[i] = CertificateEntry{CertData: entry}
+		}
+
+		bodyOut, err = cert.Marshal()
+		if err != nil {
+			return nil, err
+		}
 
 	case HandshakeTypeCertificateVerify:
 		// Re-add the two length octets
