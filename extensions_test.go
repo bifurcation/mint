@@ -40,16 +40,27 @@ var (
 	extListOverflowInnerHex = "0012000a0005f0f1f2f3f4000a0010f0f1f2f3f4"
 
 	// Add/Find test cases
-	keyShareServerRaw  = unhex(keyShareServerHex)
-	keyShareClientRaw  = unhex(keyShareClientHex)
-	keyShareInvalidRaw = unhex(keyShareInvalidHex)
-	extListKeyShareIn  = ExtensionList{
+	keyShareServerRaw   = unhex(keyShareServerHex)
+	keyShareClientRaw   = unhex(keyShareClientHex)
+	keyShareInvalidRaw  = unhex(keyShareInvalidHex)
+	supprtedVersionsRaw = unhex(supportedVersionsClientHex)
+	extListKeyShareIn   = ExtensionList{
 		Extension{
 			ExtensionType: ExtensionTypeKeyShare,
 			ExtensionData: keyShareServerRaw,
 		},
 	}
 	extListKeyShareClientIn = ExtensionList{
+		Extension{
+			ExtensionType: ExtensionTypeKeyShare,
+			ExtensionData: keyShareClientRaw,
+		},
+	}
+	extListInOrderIn = ExtensionList{
+		Extension{
+			ExtensionType: ExtensionTypeSupportedVersions,
+			ExtensionData: supprtedVersionsRaw,
+		},
 		Extension{
 			ExtensionType: ExtensionTypeKeyShare,
 			ExtensionData: keyShareClientRaw,
@@ -348,6 +359,11 @@ func TestExtensionAdd(t *testing.T) {
 	err = el.Add(keyShareClientIn)
 	assertNotError(t, err, "Failed to replace extension")
 	assertDeepEquals(t, el, extListKeyShareClientIn)
+
+	// Test that add is done in order
+	err = el.Add(supportedVersionsClientIn)
+	assertNotError(t, err, "Failed to add second extension in order")
+	assertDeepEquals(t, el, extListInOrderIn)
 
 	// Test add failure on marshal failure
 	el = ExtensionList{}
