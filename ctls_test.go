@@ -40,12 +40,30 @@ import (
 //    M1: 139 (b/c fewer signature algorithms)
 //    M2: 240
 //    M3: 143
+//
+// Prenegotiate groups, signature algorithms, versions
+// (And strip the relevant extensions)
+//    M1: 116
+//    M2: 234
+//    M3: 144
+//
+// Theoretical optimum:
+//    M1:  64 = 32(rand) + 32(DH)
+//		M2:	160	= 32(rand) + 32(DH)  + 64(sig) + 32(MAC)
+//		M3:  96 = 64(sig)  + 32(MAC)
+//
+// EDHOC claimed:
+//    M1:  39
+//    M2: 120
+//    M3:  85
 
 func TestCTLSBaseSession(t *testing.T) {
 	schemes := []SignatureScheme{ECDSA_P256_SHA256}
 
 	compression := ctlsCompression{
-		SignatureSchemes: schemes,
+		SupportedVersion: tls13Version,
+		SignatureScheme:  ECDSA_P256_SHA256,
+		SupportedGroup:   X25519,
 		Certificates:     allCertificates,
 	}
 

@@ -14,8 +14,17 @@ import (
 //	* The only extension in CertificateRequest is signature_algorithms, which has the contents specified
 //
 //	* Only one certificate, selected from the provided array
+//
+//	* The following extensions are pre-negotiated:
+//		* supported_versions
+//		* supported_groups
+//		* signature_algorithms
+//
+//	* Extensions are serialized in order by extension type
 type ctlsCompression struct {
-	SignatureSchemes []SignatureScheme
+	SupportedVersion uint16
+	SupportedGroup   NamedGroup
+	SignatureScheme  SignatureScheme
 	Certificates     []*Certificate
 }
 
@@ -55,6 +64,19 @@ func (c ctlsCompression) Compress(hmIn *HandshakeMessage) (*HandshakeMessage, er
 			return nil, err
 		}
 
+		// Strip unnecessary extensions
+		extStrip := []ExtensionType{
+			ExtensionTypeSignatureAlgorithms,
+			ExtensionTypeSupportedGroups,
+			ExtensionTypeSupportedVersions,
+		}
+		for _, extType := range extStrip {
+			err = ch.Extensions.Remove(extType)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		// Marshal the extensions without their length octets
 		extStr := struct {
 			Extensions []Extension `tls:"head=none"`
@@ -86,6 +108,17 @@ func (c ctlsCompression) Compress(hmIn *HandshakeMessage) (*HandshakeMessage, er
 		headerBytes, err := syntax.Marshal(header)
 		if err != nil {
 			return nil, err
+		}
+
+		// Strip any unnecessary extensions
+		extStrip := []ExtensionType{
+			ExtensionTypeSupportedVersions,
+		}
+		for _, extType := range extStrip {
+			err = sh.Extensions.Remove(extType)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		// Marshal the extensions without their length octets
@@ -160,7 +193,7 @@ func (c ctlsCompression) Compress(hmIn *HandshakeMessage) (*HandshakeMessage, er
 	diff := lenIn - lenOut
 	logf(logTypeCompression, "[+%02x] %d = %d - %d", hmIn.msgType, diff, lenIn, lenOut)
 	if diff != 0 {
-		//logf(logTypeCompression, "[%x] ->> [%x]", hmIn.body, hmOut.body)
+		logf(logTypeCompression, "[%x] ->> [%x]", hmIn.body, hmOut.body)
 	}
 
 	return hmOut, nil
@@ -185,13 +218,25 @@ func (c ctlsCompression) Decompress(hmIn *HandshakeMessage) (*HandshakeMessage, 
 		extBytes := []byte{byte(extLen >> 8), byte(extLen)}
 		extBytes = append(extBytes, hmIn.body[read:]...)
 		extList := struct {
-			Extensions []Extension `tls:"head=2"`
+			Extensions ExtensionList `tls:"head=2"`
 		}{}
 		_, err = syntax.Unmarshal(extBytes, &extList)
 		if err != nil {
 			return nil, err
 		}
 
+		// Re-populate any stripped extensions
+		sv := &SupportedVersionsExtension{HandshakeType: HandshakeTypeClientHello, Versions: []uint16{tls13Version}}
+		sg := &SupportedGroupsExtension{Groups: []NamedGroup{c.SupportedGroup}}
+		sa := &SignatureAlgorithmsExtension{Algorithms: []SignatureScheme{c.SignatureScheme}}
+		for _, ext := range []ExtensionBody{sv, sg, sa} {
+			err = extList.Extensions.Add(ext)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Re-form the ClientHello body
 		chOut := ClientHelloBody{
 			LegacyVersion: tls12Version,
 			Random:        header.Random,
@@ -217,11 +262,20 @@ func (c ctlsCompression) Decompress(hmIn *HandshakeMessage) (*HandshakeMessage, 
 		extBytes := []byte{byte(extLen >> 8), byte(extLen)}
 		extBytes = append(extBytes, hmIn.body[read:]...)
 		extList := struct {
-			Extensions []Extension `tls:"head=2"`
+			Extensions ExtensionList `tls:"head=2"`
 		}{}
 		_, err = syntax.Unmarshal(extBytes, &extList)
 		if err != nil {
 			return nil, err
+		}
+
+		// Re-populate any stripped extensions
+		sv := &SupportedVersionsExtension{HandshakeType: HandshakeTypeServerHello, Versions: []uint16{tls13Version}}
+		for _, ext := range []ExtensionBody{sv} {
+			err = extList.Extensions.Add(ext)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		shOut := ServerHelloBody{
@@ -246,7 +300,9 @@ func (c ctlsCompression) Decompress(hmIn *HandshakeMessage) (*HandshakeMessage, 
 
 	case HandshakeTypeCertificateRequest:
 		cr := CertificateRequestBody{}
-		schemes := &SignatureAlgorithmsExtension{Algorithms: c.SignatureSchemes}
+		schemes := &SignatureAlgorithmsExtension{
+			Algorithms: []SignatureScheme{c.SignatureScheme},
+		}
 		err := cr.Extensions.Add(schemes)
 		if err != nil {
 			return nil, err

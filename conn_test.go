@@ -68,7 +68,7 @@ func (p *pipeConn) Read(data []byte) (n int, err error) {
 }
 
 func (p *pipeConn) Write(data []byte) (n int, err error) {
-	logf(logTypePipe, "[%s] write: %d\n", p.label, len(data))
+	logf(logTypePipe, "[%s] write: [%d] [%x]\n", p.label, len(data), data)
 
 	p.wLock.Lock()
 	defer p.wLock.Unlock()

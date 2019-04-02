@@ -110,7 +110,7 @@ func (el *ExtensionList) Remove(extType ExtensionType) error {
 
 	newEL := make(ExtensionList, len(*el)-1)
 	copy(newEL, (*el)[:cut])
-	copy(newEL, (*el)[cut+1:])
+	copy(newEL[cut:], (*el)[cut+1:])
 	*el = newEL
 	return nil
 }
