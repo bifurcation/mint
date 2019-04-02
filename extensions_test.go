@@ -371,6 +371,23 @@ func TestExtensionAdd(t *testing.T) {
 	assertError(t, err, "Added an invalid extension")
 }
 
+func TestExtensionRemove(t *testing.T) {
+	el := ExtensionList{}
+	err := el.Add(keyShareClientIn)
+	assertNotError(t, err, "Failed to add valid extension")
+	err = el.Add(supportedVersionsClientIn)
+	assertNotError(t, err, "Failed to add second extension in order")
+
+	// Test that extension is successfully removed
+	err = el.Remove(ExtensionTypeSupportedVersions)
+	assertNotError(t, err, "Failed to remove an extension")
+	assertDeepEquals(t, el, extListKeyShareClientIn)
+
+	// Test that a non-present extension results in an error
+	err = el.Remove(ExtensionTypeSupportedVersions)
+	assertError(t, err, "Allowed a double-remove")
+}
+
 func TestExtensionFind(t *testing.T) {
 	// Test successful find
 	ks := KeyShareExtension{HandshakeType: HandshakeTypeServerHello}

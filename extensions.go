@@ -95,6 +95,26 @@ func (el *ExtensionList) Add(src ExtensionBody) error {
 	return nil
 }
 
+func (el *ExtensionList) Remove(extType ExtensionType) error {
+	cut := -1
+	for i, ext := range *el {
+		if ext.ExtensionType == extType {
+			cut = i
+			break
+		}
+	}
+
+	if cut == -1 {
+		return fmt.Errorf("Extension of type [%v] not found", extType)
+	}
+
+	newEL := make(ExtensionList, len(*el)-1)
+	copy(newEL, (*el)[:cut])
+	copy(newEL, (*el)[cut+1:])
+	*el = newEL
+	return nil
+}
+
 func (el ExtensionList) Parse(dsts []ExtensionBody) (map[ExtensionType]bool, error) {
 	found := make(map[ExtensionType]bool)
 
