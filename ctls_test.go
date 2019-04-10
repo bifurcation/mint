@@ -4,6 +4,64 @@ import (
 	"testing"
 )
 
+func TestCTLSRecordLayer(t *testing.T) {
+	suites := []CipherSuite{TLS_AES_128_GCM_SHA256}
+	groups := []NamedGroup{X25519}
+	schemes := []SignatureScheme{ECDSA_P256_SHA256}
+
+	compression := &CTLSHandshakeCompression{
+		ServerName:       serverName,
+		CipherSuite:      TLS_AES_128_GCM_SHA256,
+		SupportedVersion: tls13Version,
+		SignatureScheme:  ECDSA_P256_SHA256,
+		SupportedGroup:   X25519,
+	}
+
+	configServer := &Config{
+		RequireClientAuth: true,
+		Certificates:      certificates,
+		CipherSuites:      suites,
+		SignatureSchemes:  schemes,
+		Groups:            groups,
+		RecordLayer: CTLSRecordLayerFactory{
+			IsServer:    true,
+			Compression: compression,
+		},
+	}
+	configClient := &Config{
+		ServerName:         serverName,
+		Certificates:       clientCertificates,
+		InsecureSkipVerify: true,
+		CipherSuites:       suites,
+		SignatureSchemes:   schemes,
+		Groups:             groups,
+		RecordLayer: CTLSRecordLayerFactory{
+			IsServer:    false,
+			Compression: compression,
+		},
+	}
+
+	cConn, sConn := pipe()
+	client := Client(cConn, configClient)
+	server := Server(sConn, configServer)
+
+	var clientAlert, serverAlert Alert
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+
+	<-done
+
+	checkConsistency(t, client, server)
+	assertTrue(t, client.state.Params.UsingClientAuth, "Session did not negotiate client auth")
+}
+
 // This test lets us see the impact of various compression schemes
 // on the size of the flights in a TLS handshake.  To get the
 // lengths, run:
@@ -57,6 +115,7 @@ import (
 //    M2: 120
 //    M3:  85
 
+/*
 func TestCTLSBaseSession(t *testing.T) {
 	schemes := []SignatureScheme{ECDSA_P256_SHA256}
 
@@ -102,3 +161,4 @@ func TestCTLSBaseSession(t *testing.T) {
 	checkConsistency(t, client, server)
 	assertTrue(t, client.state.Params.UsingClientAuth, "Session did not negotiate client auth")
 }
+*/

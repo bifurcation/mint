@@ -126,7 +126,7 @@ func TestWriteRecord(t *testing.T) {
 		contentType: RecordType(plaintext[0]),
 		fragment:    bytes.Repeat([]byte{0}, 5),
 	}
-	err = r.WriteRecordWithPadding(pt, 5)
+	err = r.WriteRecordWithPadding(pt, r.cipher, 5)
 	assertError(t, err, "Allowed padding without encryption")
 }
 
@@ -193,7 +193,7 @@ func TestEncryptRecord(t *testing.T) {
 		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
-	err = r.WriteRecordWithPadding(pt, paddingLength)
+	err = r.WriteRecordWithPadding(pt, r.cipher, paddingLength)
 	assertNotError(t, err, "Failed to encrypt valid record")
 	assertByteEquals(t, b.Bytes(), ciphertext1)
 
@@ -208,7 +208,7 @@ func TestEncryptRecord(t *testing.T) {
 		contentType: RecordType(plaintext[0]),
 		fragment:    plaintext[5:],
 	}
-	err = r.WriteRecordWithPadding(pt, paddingLength)
+	err = r.WriteRecordWithPadding(pt, r.cipher, paddingLength)
 	assertNotError(t, err, "Failed to properly handle sequence number change")
 	assertByteEquals(t, b.Bytes(), ciphertext2)
 
@@ -220,7 +220,7 @@ func TestEncryptRecord(t *testing.T) {
 		contentType: RecordType(plaintext[0]),
 		fragment:    bytes.Repeat([]byte{0}, maxFragmentLen-paddingLength),
 	}
-	err = r.WriteRecordWithPadding(pt, paddingLength)
+	err = r.WriteRecordWithPadding(pt, r.cipher, paddingLength)
 	assertError(t, err, "Allowed a too-large record")
 }
 

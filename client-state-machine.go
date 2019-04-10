@@ -136,15 +136,6 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		}
 	}
 
-	if len(state.Config.PSKModes) != 0 {
-		kem := &PSKKeyExchangeModesExtension{KEModes: state.Config.PSKModes}
-		err = ch.Extensions.Add(kem)
-		if err != nil {
-			logf(logTypeHandshake, "Error adding PSKKeyExchangeModes extension: %v", err)
-			return nil, nil, AlertInternalError
-		}
-	}
-
 	// Run the external extension handler.
 	if state.Config.ExtensionHandler != nil {
 		err := state.Config.ExtensionHandler.Send(HandshakeTypeClientHello, &ch.Extensions)
@@ -165,6 +156,16 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	var clientHello *HandshakeMessage
 	if key, ok := state.Config.PSKs.Get(state.Opts.ServerName); ok {
 		offeredPSK = key
+
+		// Add PSKKeyExchangeModes extension
+		if len(state.Config.PSKModes) != 0 {
+			kem := &PSKKeyExchangeModesExtension{KEModes: state.Config.PSKModes}
+			err = ch.Extensions.Add(kem)
+			if err != nil {
+				logf(logTypeHandshake, "Error adding PSKKeyExchangeModes extension: %v", err)
+				return nil, nil, AlertInternalError
+			}
+		}
 
 		// Narrow ciphersuites to ones that match PSK hash
 		params, ok := cipherSuiteMap[key.CipherSuite]

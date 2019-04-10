@@ -7,6 +7,186 @@ import (
 	"github.com/bifurcation/mint/syntax"
 )
 
+type CTLSHandshakeCompression struct {
+	ServerName       string
+	CipherSuite      CipherSuite
+	SupportedVersion uint16
+	SupportedGroup   NamedGroup
+	SignatureScheme  SignatureScheme
+	Certificates     []*Certificate
+}
+
+func (c CTLSHandshakeCompression) unmarshalOne(msgType HandshakeType, data []byte) (HandshakeMessageBody, error) {
+	hms, err := c.unmarshalMessages(data)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(hms) != 1 || hms[0].msgType != msgType {
+		return nil, AlertUnexpectedMessage
+	}
+
+	return hms[0].ToBody()
+}
+
+func (c CTLSHandshakeCompression) marshalOne(body HandshakeMessageBody) ([]byte, error) {
+	data, err := body.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	hm := HandshakeMessage{
+		msgType: body.Type(),
+		body:    data,
+		length:  uint32(len(data)),
+	}
+	return hm.Marshal(), nil
+}
+
+func (c CTLSHandshakeCompression) unmarshalMessages(data []byte) ([]*HandshakeMessage, error) {
+	hms := []*HandshakeMessage{}
+	for len(data) > 0 {
+		newhm := new(HandshakeMessage)
+		n, err := newhm.Unmarshal(data)
+		if err != nil {
+			return nil, err
+		}
+		newhm.length = uint32(len(newhm.body))
+
+		hms = append(hms, newhm)
+		data = data[n:]
+	}
+
+	return hms, nil
+}
+
+func (c CTLSHandshakeCompression) marshalMessages(hms []*HandshakeMessage) []byte {
+	data := []byte{}
+	for _, hm := range hms {
+		data = append(data, hm.Marshal()...)
+	}
+	return data
+}
+
+type rpkClientHello struct {
+	Random   [32]byte
+	KeyShare []byte `tls:"head=1"`
+}
+
+func (c CTLSHandshakeCompression) CompressClientHello(chm []byte) ([]byte, error) {
+	logf(logTypeCompression, "Compression.ClientHello.In: [%d] [%x]", len(chm), chm)
+	body, err := c.unmarshalOne(HandshakeTypeClientHello, chm)
+	if err != nil {
+		return nil, err
+	}
+	ch := body.(*ClientHelloBody)
+
+	// TODO verify that the ClientHello is compressible
+
+	ks := &KeyShareExtension{HandshakeType: HandshakeTypeClientHello}
+	found, err := ch.Extensions.Find(ks)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("No KeyShares extension")
+	}
+
+	cch := rpkClientHello{
+		Random:   ch.Random,
+		KeyShare: ks.Shares[0].KeyExchange,
+	}
+
+	cchData, err := syntax.Marshal(cch)
+	if err != nil {
+		return nil, err
+	}
+
+	logf(logTypeCompression, "Compression.ClientHello.Out: [%d] [%x]", len(cchData), cchData)
+	return syntax.Marshal(cch)
+}
+
+func (c CTLSHandshakeCompression) ReadClientHello(cchData []byte) ([]byte, int, error) {
+	logf(logTypeCompression, "Decompression.ClientHello.In: [%d] [%x]", len(cchData), cchData)
+	cch := rpkClientHello{}
+	n, err := syntax.Unmarshal(cchData, &cch)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	ch := &ClientHelloBody{
+		LegacyVersion: tls12Version,
+		Random:        cch.Random,
+		CipherSuites:  []CipherSuite{c.CipherSuite},
+	}
+
+	sni := ServerNameExtension(c.ServerName)
+	sv := SupportedVersionsExtension{HandshakeType: HandshakeTypeClientHello, Versions: []uint16{tls13Version}}
+	sg := SupportedGroupsExtension{Groups: []NamedGroup{c.SupportedGroup}}
+	sa := SignatureAlgorithmsExtension{Algorithms: []SignatureScheme{c.SignatureScheme}}
+	ks := KeyShareExtension{
+		HandshakeType: HandshakeTypeClientHello,
+		Shares: []KeyShareEntry{
+			{c.SupportedGroup, cch.KeyShare},
+		},
+	}
+	for _, ext := range []ExtensionBody{&sni, &sv, &sg, &sa, &ks} {
+		err = ch.Extensions.Add(ext)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	chm, err := c.marshalOne(ch)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	logf(logTypeCompression, "Decompression.ClientHello.Out: [%d] [%x]", len(chm), chm)
+	return chm, n, nil
+}
+
+//////////
+
+func (c CTLSHandshakeCompression) CompressServerHello(sh []byte) ([]byte, error) {
+	return sh, nil
+}
+
+func (c CTLSHandshakeCompression) CompressServerFlight(hmData []byte) ([]byte, error) {
+	return hmData, nil
+}
+
+func (c CTLSHandshakeCompression) CompressClientFlight(hmData []byte) ([]byte, error) {
+	return hmData, nil
+}
+
+func (c CTLSHandshakeCompression) readGenericHandshake(data []byte) ([]byte, int, error) {
+	var hs struct {
+		Type HandshakeType
+		Body []byte `tls:"head=3"`
+	}
+	n, err := syntax.Unmarshal(data, &hs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	out := make([]byte, n)
+	copy(out, data[:n])
+	return out, n, nil
+}
+
+func (c CTLSHandshakeCompression) ReadServerHello(data []byte) ([]byte, int, error) {
+	return c.readGenericHandshake(data)
+}
+
+func (c CTLSHandshakeCompression) DecompressServerFlight(hmData []byte) ([]byte, error) {
+	return hmData, nil
+}
+
+func (c CTLSHandshakeCompression) DecompressClientFlight(hmData []byte) ([]byte, error) {
+	return hmData, nil
+}
+
 // Assumptions:
 //
 //  * Certificate request context is never provided

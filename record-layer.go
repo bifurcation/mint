@@ -56,7 +56,7 @@ func (t TLSPlaintext) Fragment() []byte {
 	return t.fragment
 }
 
-type cipherState struct {
+type CipherState struct {
 	epoch    Epoch       // DTLS epoch
 	ivLength int         // Length of the seq and nonce fields
 	seq      uint64      // Zero-padded sequence number
@@ -78,8 +78,11 @@ type RecordLayer interface {
 	DiscardReadKey(epoch Epoch)
 	PeekRecordType(block bool) (RecordType, error)
 	ReadRecord() (*TLSPlaintext, error)
+	ReadRecordAnyEpoch() (*TLSPlaintext, error)
 	WriteRecord(pt *TLSPlaintext) error
+	WriteRecordWithPadding(pt *TLSPlaintext, cipher *CipherState, padLen int) error
 	Epoch() Epoch
+	Cipher() *CipherState
 }
 
 type DefaultRecordLayer struct {
@@ -93,8 +96,8 @@ type DefaultRecordLayer struct {
 	cachedRecord *TLSPlaintext // Last record read, cached to enable "peek"
 	cachedError  error         // Error on the last record read
 
-	cipher      *cipherState
-	readCiphers map[Epoch]*cipherState
+	cipher      *CipherState
+	readCiphers map[Epoch]*CipherState
 
 	datagram bool
 }
@@ -122,17 +125,17 @@ func (d recordLayerFrameDetails) frameLen(hdr []byte) (int, error) {
 	return (int(hdr[d.headerLen()-2]) << 8) | int(hdr[d.headerLen()-1]), nil
 }
 
-func newCipherStateNull() *cipherState {
-	return &cipherState{EpochClear, 0, 0, nil, nil}
+func newCipherStateNull() *CipherState {
+	return &CipherState{EpochClear, 0, 0, nil, nil}
 }
 
-func newCipherStateAead(epoch Epoch, factory AEADFactory, key []byte, iv []byte) (*cipherState, error) {
+func newCipherStateAead(epoch Epoch, factory AEADFactory, key []byte, iv []byte) (*CipherState, error) {
 	cipher, err := factory(key)
 	if err != nil {
 		return nil, err
 	}
 
-	return &cipherState{epoch, len(iv), 0, iv, cipher}, nil
+	return &CipherState{epoch, len(iv), 0, iv, cipher}, nil
 }
 
 func NewRecordLayerTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
@@ -153,7 +156,7 @@ func NewRecordLayerDTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
 	r.conn = conn
 	r.frame = newFrameReader(recordLayerFrameDetails{true})
 	r.cipher = newCipherStateNull()
-	r.readCiphers = make(map[Epoch]*cipherState, 0)
+	r.readCiphers = make(map[Epoch]*CipherState, 0)
 	r.readCiphers[0] = r.cipher
 	r.datagram = true
 	return &r
@@ -170,6 +173,10 @@ func (r *DefaultRecordLayer) ResetClear(seq uint64) {
 
 func (r *DefaultRecordLayer) Epoch() Epoch {
 	return r.cipher.epoch
+}
+
+func (r *DefaultRecordLayer) Cipher() *CipherState {
+	return r.cipher
 }
 
 func (r *DefaultRecordLayer) SetLabel(s string) {
@@ -199,7 +206,7 @@ func (r *DefaultRecordLayer) DiscardReadKey(epoch Epoch) {
 	delete(r.readCiphers, epoch)
 }
 
-func (c *cipherState) combineSeq(datagram bool) uint64 {
+func (c *CipherState) combineSeq(datagram bool) uint64 {
 	seq := c.seq
 	if datagram {
 		seq |= uint64(c.epoch) << 48
@@ -207,7 +214,7 @@ func (c *cipherState) combineSeq(datagram bool) uint64 {
 	return seq
 }
 
-func (c *cipherState) computeNonce(seq uint64) []byte {
+func (c *CipherState) computeNonce(seq uint64) []byte {
 	nonce := make([]byte, len(c.iv))
 	copy(nonce, c.iv)
 
@@ -215,6 +222,7 @@ func (c *cipherState) computeNonce(seq uint64) []byte {
 
 	offset := len(c.iv)
 	for i := 0; i < 8; i++ {
+		logf(logTypeIO, "computeNonce: [%x] [%d] [%08x]", nonce, offset, seq)
 		nonce[(offset-i)-1] ^= byte(s & 0xff)
 		s >>= 8
 	}
@@ -223,7 +231,7 @@ func (c *cipherState) computeNonce(seq uint64) []byte {
 	return nonce
 }
 
-func (c *cipherState) incrementSequenceNumber() {
+func (c *CipherState) incrementSequenceNumber() {
 	if c.seq >= (1<<48 - 1) {
 		// Not allowed to let sequence number wrap.
 		// Instead, must renegotiate before it does.
@@ -234,14 +242,14 @@ func (c *cipherState) incrementSequenceNumber() {
 	c.seq++
 }
 
-func (c *cipherState) overhead() int {
+func (c *CipherState) overhead() int {
 	if c.cipher == nil {
 		return 0
 	}
 	return c.cipher.Overhead()
 }
 
-func (r *DefaultRecordLayer) encrypt(cipher *cipherState, seq uint64, header []byte, pt *TLSPlaintext, padLen int) []byte {
+func (r *DefaultRecordLayer) encrypt(cipher *CipherState, seq uint64, header []byte, pt *TLSPlaintext, padLen int) []byte {
 	assert(r.direction == DirectionWrite)
 	logf(logTypeIO, "%s Encrypt seq=[%x]", r.label, seq)
 	// Expand the fragment to hold contentType, padding, and overhead
@@ -451,14 +459,10 @@ func (r *DefaultRecordLayer) nextRecord(allowOldEpoch bool) (*TLSPlaintext, erro
 }
 
 func (r *DefaultRecordLayer) WriteRecord(pt *TLSPlaintext) error {
-	return r.writeRecordWithPadding(pt, r.cipher, 0)
+	return r.WriteRecordWithPadding(pt, r.cipher, 0)
 }
 
-func (r *DefaultRecordLayer) WriteRecordWithPadding(pt *TLSPlaintext, padLen int) error {
-	return r.writeRecordWithPadding(pt, r.cipher, padLen)
-}
-
-func (r *DefaultRecordLayer) writeRecordWithPadding(pt *TLSPlaintext, cipher *cipherState, padLen int) error {
+func (r *DefaultRecordLayer) WriteRecordWithPadding(pt *TLSPlaintext, cipher *CipherState, padLen int) error {
 	seq := cipher.combineSeq(r.datagram)
 	length := len(pt.fragment)
 	var contentType RecordType

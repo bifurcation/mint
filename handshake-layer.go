@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 const (
@@ -35,7 +37,23 @@ type HandshakeMessage struct {
 	datagram bool
 	offset   uint32 // Used for DTLS
 	length   uint32
-	cipher   *cipherState
+	cipher   *CipherState
+}
+
+func (hm *HandshakeMessage) Unmarshal(data []byte) (int, error) {
+	var raw struct {
+		Type HandshakeType
+		Body []byte `tls:"head=3"`
+	}
+
+	n, err := syntax.Unmarshal(data, &raw)
+	if err != nil {
+		return 0, err
+	}
+
+	hm.msgType = raw.Type
+	hm.body = raw.Body
+	return n, nil
 }
 
 // Note: This could be done with the `syntax` module, using the simplified
@@ -117,32 +135,16 @@ func (h *HandshakeLayer) HandshakeMessageFromBody(body HandshakeMessageBody) (*H
 	return m, nil
 }
 
-type HandshakeCompression interface {
-	Compress(hm *HandshakeMessage) (*HandshakeMessage, error)
-	Decompress(hm *HandshakeMessage) (*HandshakeMessage, error)
-}
-
-type NoHandshakeCompression struct{}
-
-func (hc NoHandshakeCompression) Compress(hm *HandshakeMessage) (*HandshakeMessage, error) {
-	return hm, nil
-}
-
-func (hc NoHandshakeCompression) Decompress(hm *HandshakeMessage) (*HandshakeMessage, error) {
-	return hm, nil
-}
-
 type HandshakeLayer struct {
-	ctx            *HandshakeContext    // The handshake we are attached to
-	nonblocking    bool                 // Should we operate in nonblocking mode
-	conn           RecordLayer          // Used for reading/writing records
-	compression    HandshakeCompression // Used for marshaling/unmarshaling messages
-	frame          *frameReader         // The buffered frame reader
-	datagram       bool                 // Is this DTLS?
-	msgSeq         uint32               // The DTLS message sequence number
-	queued         []*HandshakeMessage  // In/out queue
-	sent           []*HandshakeMessage  // Sent messages for DTLS
-	recvdRecords   []uint64             // Records we have received.
+	ctx            *HandshakeContext   // The handshake we are attached to
+	nonblocking    bool                // Should we operate in nonblocking mode
+	conn           RecordLayer         // Used for reading/writing records
+	frame          *frameReader        // The buffered frame reader
+	datagram       bool                // Is this DTLS?
+	msgSeq         uint32              // The DTLS message sequence number
+	queued         []*HandshakeMessage // In/out queue
+	sent           []*HandshakeMessage // Sent messages for DTLS
+	recvdRecords   []uint64            // Records we have received.
 	maxFragmentLen int
 }
 
@@ -173,7 +175,6 @@ func NewHandshakeLayerTLS(c *HandshakeContext, r RecordLayer) *HandshakeLayer {
 	h := HandshakeLayer{}
 	h.ctx = c
 	h.conn = r
-	h.compression = NoHandshakeCompression{}
 	h.datagram = false
 	h.frame = newFrameReader(&handshakeLayerFrameDetails{false})
 	h.maxFragmentLen = maxFragmentLen
@@ -184,7 +185,6 @@ func NewHandshakeLayerDTLS(c *HandshakeContext, r RecordLayer) *HandshakeLayer {
 	h := HandshakeLayer{}
 	h.ctx = c
 	h.conn = r
-	h.compression = NoHandshakeCompression{}
 	h.datagram = true
 	h.frame = newFrameReader(&handshakeLayerFrameDetails{true})
 	h.maxFragmentLen = initialMtu // Not quite right
@@ -197,7 +197,7 @@ func (h *HandshakeLayer) readRecord() error {
 
 	if h.datagram {
 		logf(logTypeVerbose, "Trying to read record")
-		pt, err = h.conn.(*DefaultRecordLayer).ReadRecordAnyEpoch()
+		pt, err = h.conn.ReadRecordAnyEpoch()
 	} else {
 		pt, err = h.conn.ReadRecord()
 	}
@@ -416,17 +416,12 @@ func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 
 	hm.length = uint32(len(body))
 
-	return h.compression.Decompress(hm)
+	return hm, nil
 }
 
 func (h *HandshakeLayer) QueueMessage(hm *HandshakeMessage) error {
-	cm, err := h.compression.Compress(hm)
-	if err != nil {
-		return err
-	}
-
-	cm.cipher = h.conn.(*DefaultRecordLayer).cipher
-	h.queued = append(h.queued, cm)
+	hm.cipher = h.conn.Cipher()
+	h.queued = append(h.queued, hm)
 	return nil
 }
 
@@ -441,7 +436,7 @@ func (h *HandshakeLayer) packAndWrite(hms []*HandshakeMessage) (int, error) {
 		fragment:    buffer,
 	}
 	cipher := hms[0].cipher
-	err := h.conn.(*DefaultRecordLayer).writeRecordWithPadding(record, cipher, 0)
+	err := h.conn.WriteRecordWithPadding(record, cipher, 0)
 	if err != nil {
 		return 0, err
 	}
@@ -546,10 +541,10 @@ func (h *HandshakeLayer) writeFragment(hm *HandshakeMessage, start int, room int
 			hm.seq,
 			start,
 			len(body),
-			h.conn.(*DefaultRecordLayer).cipher.combineSeq(true),
+			h.conn.Cipher().combineSeq(true),
 			false,
 		})
-		err = h.conn.(*DefaultRecordLayer).writeRecordWithPadding(
+		err = h.conn.WriteRecordWithPadding(
 			&TLSPlaintext{
 				contentType: RecordTypeHandshake,
 				fragment:    buf,
