@@ -68,7 +68,7 @@ func (c CTLSHandshakeCompression) marshalMessages(hms []*HandshakeMessage) []byt
 	return data
 }
 
-type rpkClientHello struct {
+type rpkHello struct {
 	Random   [32]byte
 	KeyShare []byte `tls:"head=1"`
 }
@@ -92,7 +92,7 @@ func (c CTLSHandshakeCompression) CompressClientHello(chm []byte) ([]byte, error
 		return nil, fmt.Errorf("No KeyShares extension")
 	}
 
-	cch := rpkClientHello{
+	cch := rpkHello{
 		Random:   ch.Random,
 		KeyShare: ks.Shares[0].KeyExchange,
 	}
@@ -103,12 +103,12 @@ func (c CTLSHandshakeCompression) CompressClientHello(chm []byte) ([]byte, error
 	}
 
 	logf(logTypeCompression, "Compression.ClientHello.Out: [%d] [%x]", len(cchData), cchData)
-	return syntax.Marshal(cch)
+	return cchData, nil
 }
 
 func (c CTLSHandshakeCompression) ReadClientHello(cchData []byte) ([]byte, int, error) {
 	logf(logTypeCompression, "Decompression.ClientHello.In: [%d] [%x]", len(cchData), cchData)
-	cch := rpkClientHello{}
+	cch := rpkHello{}
 	n, err := syntax.Unmarshal(cchData, &cch)
 	if err != nil {
 		return nil, 0, err
@@ -146,11 +146,77 @@ func (c CTLSHandshakeCompression) ReadClientHello(cchData []byte) ([]byte, int, 
 	return chm, n, nil
 }
 
-//////////
+func (c CTLSHandshakeCompression) CompressServerHello(shm []byte) ([]byte, error) {
+	logf(logTypeCompression, "Compression.ServerHello.In: [%d] [%x]", len(shm), shm)
+	body, err := c.unmarshalOne(HandshakeTypeServerHello, shm)
+	if err != nil {
+		return nil, err
+	}
+	ch := body.(*ServerHelloBody)
 
-func (c CTLSHandshakeCompression) CompressServerHello(sh []byte) ([]byte, error) {
-	return sh, nil
+	// TODO verify that the ClientHello is compressible
+
+	ks := &KeyShareExtension{HandshakeType: HandshakeTypeServerHello}
+	found, err := ch.Extensions.Find(ks)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("No KeyShares extension")
+	}
+
+	csh := rpkHello{
+		Random:   ch.Random,
+		KeyShare: ks.Shares[0].KeyExchange,
+	}
+
+	cshData, err := syntax.Marshal(csh)
+	if err != nil {
+		return nil, err
+	}
+
+	logf(logTypeCompression, "Compression.ServerHello.Out: [%d] [%x]", len(cshData), cshData)
+	return cshData, nil
 }
+
+func (c CTLSHandshakeCompression) ReadServerHello(cshData []byte) ([]byte, int, error) {
+	logf(logTypeCompression, "Decompression.ServerHello.In: [%d] [%x]", len(cshData), cshData)
+	csh := rpkHello{}
+	n, err := syntax.Unmarshal(cshData, &csh)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	sh := &ServerHelloBody{
+		Version:     tls12Version,
+		Random:      csh.Random,
+		CipherSuite: c.CipherSuite,
+	}
+
+	sv := SupportedVersionsExtension{HandshakeType: HandshakeTypeServerHello, Versions: []uint16{tls13Version}}
+	ks := KeyShareExtension{
+		HandshakeType: HandshakeTypeServerHello,
+		Shares: []KeyShareEntry{
+			{c.SupportedGroup, csh.KeyShare},
+		},
+	}
+	for _, ext := range []ExtensionBody{&sv, &ks} {
+		err = sh.Extensions.Add(ext)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	shm, err := c.marshalOne(sh)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	logf(logTypeCompression, "Decompression.ServerHello.Out: [%d] [%x]", len(shm), shm)
+	return shm, n, nil
+}
+
+//////////
 
 func (c CTLSHandshakeCompression) CompressServerFlight(hmData []byte) ([]byte, error) {
 	return hmData, nil
@@ -158,25 +224,6 @@ func (c CTLSHandshakeCompression) CompressServerFlight(hmData []byte) ([]byte, e
 
 func (c CTLSHandshakeCompression) CompressClientFlight(hmData []byte) ([]byte, error) {
 	return hmData, nil
-}
-
-func (c CTLSHandshakeCompression) readGenericHandshake(data []byte) ([]byte, int, error) {
-	var hs struct {
-		Type HandshakeType
-		Body []byte `tls:"head=3"`
-	}
-	n, err := syntax.Unmarshal(data, &hs)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	out := make([]byte, n)
-	copy(out, data[:n])
-	return out, n, nil
-}
-
-func (c CTLSHandshakeCompression) ReadServerHello(data []byte) ([]byte, int, error) {
-	return c.readGenericHandshake(data)
 }
 
 func (c CTLSHandshakeCompression) DecompressServerFlight(hmData []byte) ([]byte, error) {
