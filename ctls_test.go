@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"crypto/x509"
 	"testing"
 )
 
@@ -9,12 +10,24 @@ func TestCTLSRecordLayer(t *testing.T) {
 	groups := []NamedGroup{X25519}
 	schemes := []SignatureScheme{ECDSA_P256_SHA256}
 
+	allCertificates := map[string]*Certificate{
+		"a": {
+			Chain:      []*x509.Certificate{serverCert},
+			PrivateKey: serverKey,
+		},
+		"b": {
+			Chain:      []*x509.Certificate{clientCert},
+			PrivateKey: clientKey,
+		},
+	}
+
 	compression := &CTLSHandshakeCompression{
 		ServerName:       serverName,
 		CipherSuite:      TLS_AES_128_GCM_SHA256,
 		SupportedVersion: tls13Version,
 		SignatureScheme:  ECDSA_P256_SHA256,
 		SupportedGroup:   X25519,
+		Certificates:     allCertificates,
 	}
 
 	configServer := &Config{

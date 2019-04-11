@@ -13,7 +13,7 @@ type CTLSHandshakeCompression struct {
 	SupportedVersion uint16
 	SupportedGroup   NamedGroup
 	SignatureScheme  SignatureScheme
-	Certificates     []*Certificate
+	Certificates     map[string]*Certificate
 }
 
 func (c CTLSHandshakeCompression) unmarshalOne(msgType HandshakeType, data []byte) (HandshakeMessageBody, error) {
@@ -60,17 +60,22 @@ func (c CTLSHandshakeCompression) unmarshalMessages(data []byte) ([]*HandshakeMe
 	return hms, nil
 }
 
-func (c CTLSHandshakeCompression) marshalMessages(hms []*HandshakeMessage) []byte {
+func (c CTLSHandshakeCompression) marshalMessages(hms []HandshakeMessageBody) ([]byte, error) {
 	data := []byte{}
 	for _, hm := range hms {
-		data = append(data, hm.Marshal()...)
+		hmData, err := c.marshalOne(hm)
+		if err != nil {
+			return nil, err
+		}
+
+		data = append(data, hmData...)
 	}
-	return data
+	return data, nil
 }
 
 type rpkHello struct {
 	Random   [32]byte
-	KeyShare []byte `tls:"head=1"`
+	KeyShare []byte `tls:"head=none"`
 }
 
 func (c CTLSHandshakeCompression) CompressClientHello(chm []byte) ([]byte, error) {
@@ -154,7 +159,7 @@ func (c CTLSHandshakeCompression) CompressServerHello(shm []byte) ([]byte, error
 	}
 	ch := body.(*ServerHelloBody)
 
-	// TODO verify that the ClientHello is compressible
+	// TODO verify that the ServerHello is compressible
 
 	ks := &KeyShareExtension{HandshakeType: HandshakeTypeServerHello}
 	found, err := ch.Extensions.Find(ks)
@@ -216,10 +221,160 @@ func (c CTLSHandshakeCompression) ReadServerHello(cshData []byte) ([]byte, int, 
 	return shm, n, nil
 }
 
+// Server: EE, CR, Cert, CV, Fin
+// Client: Cert, CV, Fin
+const (
+	rpkServerFlightLength = 5
+	rpkClientFlightLength = 3
+)
+
+type rpkFlight struct {
+	CertID    []byte `tls:"head=1"`
+	Signature []byte `tls:"head=1"`
+	MAC       []byte `tls:"head=none"`
+}
+
+func (c CTLSHandshakeCompression) compressFlight(hmData []byte, server bool) ([]byte, error) {
+	logf(logTypeCompression, "Compression.Flight.In: [%v] [%d] [%x]", server, len(hmData), hmData)
+	hms, err := c.unmarshalMessages(hmData)
+	if err != nil {
+		return nil, err
+	}
+
+	if server {
+		if len(hms) != rpkServerFlightLength {
+			logf(logTypeCompression, "Compression.Flight: error 0")
+			return nil, fmt.Errorf("Incorrect server flight length")
+		}
+
+		if hms[0].msgType != HandshakeTypeEncryptedExtensions ||
+			hms[1].msgType != HandshakeTypeCertificateRequest {
+			logf(logTypeCompression, "Compression.Flight: error 1")
+			return nil, fmt.Errorf("Malformed server flight (EE, CR)")
+		}
+
+		hms = hms[2:]
+	} else if len(hms) != rpkClientFlightLength {
+		logf(logTypeCompression, "Compression.Flight: error 2")
+		return nil, fmt.Errorf("Incorrect server flight length")
+	}
+
+	// TODO verify that the flight is compressible
+
+	body, err := hms[0].ToBody()
+	cert, ok := body.(*CertificateBody)
+	if err != nil || !ok {
+		logf(logTypeCompression, "Compression.Flight: error 3 [%v] [%v]", err, body.Type())
+		return nil, err
+	}
+
+	body, err = hms[1].ToBody()
+	cv, ok := body.(*CertificateVerifyBody)
+	if err != nil || !ok {
+		logf(logTypeCompression, "Compression.Flight: error 4")
+		return nil, err
+	}
+
+	body, err = hms[2].ToBody()
+	fin, ok := body.(*FinishedBody)
+	if err != nil || !ok {
+		logf(logTypeCompression, "Compression.Flight: error 5")
+		return nil, err
+	}
+
+	var certID []byte
+	certData := cert.CertificateList[0].CertData.Raw
+	for name, cert := range c.Certificates {
+		if bytes.Equal(certData, cert.Chain[0].Raw) {
+			certID = []byte(name)
+			break
+		}
+	}
+	if certID == nil {
+		logf(logTypeCompression, "Compression.Flight: error 7")
+		return nil, fmt.Errorf("Unkonwn certificate")
+	}
+
+	cf := rpkFlight{
+		CertID:    certID,
+		Signature: cv.Signature,
+		MAC:       fin.VerifyData,
+	}
+
+	cfData, err := syntax.Marshal(cf)
+	if err != nil {
+		logf(logTypeCompression, "Compression.Flight: error 6")
+		return nil, err
+	}
+
+	logf(logTypeCompression, "Compression.Flight.Out: [%d] [%x]", len(cfData), cfData)
+	return cfData, nil
+}
+
+func (c CTLSHandshakeCompression) decompressFlight(cfData []byte, server bool) ([]byte, error) {
+	logf(logTypeCompression, "Deompression.Flight.In: [%v] [%d] [%x]", server, len(cfData), cfData)
+
+	cf := rpkFlight{}
+	_, err := syntax.Unmarshal(cfData, &cf)
+	if err != nil {
+		return nil, err
+	}
+
+	hms := []HandshakeMessageBody{}
+
+	if server {
+		ee := &EncryptedExtensionsBody{}
+
+		cr := &CertificateRequestBody{}
+		schemes := &SignatureAlgorithmsExtension{Algorithms: []SignatureScheme{c.SignatureScheme}}
+		err := cr.Extensions.Add(schemes)
+		if err != nil {
+			return nil, err
+		}
+
+		hms = []HandshakeMessageBody{ee, cr}
+	}
+
+	certID := string(cf.CertID)
+	certChain, found := c.Certificates[certID]
+	if !found {
+		return nil, fmt.Errorf("Unknown certificate for ID [%s] [%x]", certID, cf.CertID)
+	}
+
+	chain := certChain.Chain
+	cert := &CertificateBody{
+		CertificateList: make([]CertificateEntry, len(chain)),
+	}
+	for i, entry := range chain {
+		cert.CertificateList[i] = CertificateEntry{CertData: entry}
+	}
+	hms = append(hms, cert)
+
+	cv := &CertificateVerifyBody{
+		Algorithm: c.SignatureScheme,
+		Signature: cf.Signature,
+	}
+	hms = append(hms, cv)
+
+	fin := &FinishedBody{
+		VerifyDataLen: len(cf.MAC),
+		VerifyData:    cf.MAC,
+	}
+	hms = append(hms, fin)
+
+	hmData, err := c.marshalMessages(hms)
+	if err != nil {
+		return nil, err
+	}
+
+	logf(logTypeCompression, "Decompression.Flight.Out: [%d] [%x]", len(hmData), hmData)
+	return hmData, nil
+}
+
 //////////
 
 func (c CTLSHandshakeCompression) CompressServerFlight(hmData []byte) ([]byte, error) {
-	return hmData, nil
+	return c.compressFlight(hmData, true)
 }
 
 func (c CTLSHandshakeCompression) CompressClientFlight(hmData []byte) ([]byte, error) {
@@ -227,7 +382,7 @@ func (c CTLSHandshakeCompression) CompressClientFlight(hmData []byte) ([]byte, e
 }
 
 func (c CTLSHandshakeCompression) DecompressServerFlight(hmData []byte) ([]byte, error) {
-	return hmData, nil
+	return c.decompressFlight(hmData, true)
 }
 
 func (c CTLSHandshakeCompression) DecompressClientFlight(hmData []byte) ([]byte, error) {
