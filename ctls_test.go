@@ -62,6 +62,7 @@ func TestCTLSRPK(t *testing.T) {
 		SignatureScheme:  ECDSA_P256_SHA256,
 		SupportedGroup:   X25519,
 		Certificates:     allCertificates,
+		ZeroRandom:       true,
 	}
 
 	configServer := &Config{
@@ -70,6 +71,7 @@ func TestCTLSRPK(t *testing.T) {
 		CipherSuites:      suites,
 		SignatureSchemes:  schemes,
 		Groups:            groups,
+		ZeroRandom:        true,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    true,
 			Compression: compression,
@@ -82,6 +84,7 @@ func TestCTLSRPK(t *testing.T) {
 		CipherSuites:       suites,
 		SignatureSchemes:   schemes,
 		Groups:             groups,
+		ZeroRandom:         true,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    false,
 			Compression: compression,
