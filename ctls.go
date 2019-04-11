@@ -371,14 +371,12 @@ func (c CTLSHandshakeCompression) decompressFlight(cfData []byte, server bool) (
 	return hmData, nil
 }
 
-//////////
-
 func (c CTLSHandshakeCompression) CompressServerFlight(hmData []byte) ([]byte, error) {
 	return c.compressFlight(hmData, true)
 }
 
 func (c CTLSHandshakeCompression) CompressClientFlight(hmData []byte) ([]byte, error) {
-	return hmData, nil
+	return c.compressFlight(hmData, false)
 }
 
 func (c CTLSHandshakeCompression) DecompressServerFlight(hmData []byte) ([]byte, error) {
@@ -386,7 +384,7 @@ func (c CTLSHandshakeCompression) DecompressServerFlight(hmData []byte) ([]byte,
 }
 
 func (c CTLSHandshakeCompression) DecompressClientFlight(hmData []byte) ([]byte, error) {
-	return hmData, nil
+	return c.decompressFlight(hmData, false)
 }
 
 // Assumptions:
