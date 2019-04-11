@@ -40,9 +40,10 @@ func TestCTLSRecordLayer(t *testing.T) {
 }
 
 func TestCTLSRPK(t *testing.T) {
-	suites := []CipherSuite{TLS_AES_128_GCM_SHA256}
-	groups := []NamedGroup{X25519}
-	schemes := []SignatureScheme{ECDSA_P256_SHA256}
+	suite := TLS_AES_128_GCM_SHA256
+	group := X25519
+	scheme := ECDSA_P256_SHA256
+	zeroRandom := true
 
 	allCertificates := map[string]*Certificate{
 		"a": {
@@ -56,22 +57,22 @@ func TestCTLSRPK(t *testing.T) {
 	}
 
 	compression := &RPKCompression{
-		ServerName:       serverName,
-		CipherSuite:      TLS_AES_128_GCM_SHA256,
 		SupportedVersion: tls13Version,
-		SignatureScheme:  ECDSA_P256_SHA256,
-		SupportedGroup:   X25519,
+		ServerName:       serverName,
+		CipherSuite:      suite,
+		SignatureScheme:  scheme,
+		SupportedGroup:   group,
 		Certificates:     allCertificates,
-		ZeroRandom:       true,
+		ZeroRandom:       zeroRandom,
 	}
 
 	configServer := &Config{
 		RequireClientAuth: true,
 		Certificates:      certificates,
-		CipherSuites:      suites,
-		SignatureSchemes:  schemes,
-		Groups:            groups,
-		ZeroRandom:        true,
+		CipherSuites:      []CipherSuite{suite},
+		SignatureSchemes:  []SignatureScheme{scheme},
+		Groups:            []NamedGroup{group},
+		ZeroRandom:        zeroRandom,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    true,
 			Compression: compression,
@@ -81,10 +82,10 @@ func TestCTLSRPK(t *testing.T) {
 		ServerName:         serverName,
 		Certificates:       clientCertificates,
 		InsecureSkipVerify: true,
-		CipherSuites:       suites,
-		SignatureSchemes:   schemes,
-		Groups:             groups,
-		ZeroRandom:         true,
+		CipherSuites:       []CipherSuite{suite},
+		SignatureSchemes:   []SignatureScheme{scheme},
+		Groups:             []NamedGroup{group},
+		ZeroRandom:         zeroRandom,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    false,
 			Compression: compression,

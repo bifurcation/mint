@@ -2,7 +2,9 @@ package mint
 
 import (
 	"bytes"
+	"encoding/asn1"
 	"fmt"
+	"math/big"
 
 	"github.com/bifurcation/mint/syntax"
 )
@@ -72,6 +74,65 @@ func (c RPKCompression) marshalMessages(hms []HandshakeMessageBody) ([]byte, err
 		data = append(data, hmData...)
 	}
 	return data, nil
+}
+
+type ecdsaASN struct {
+	R *big.Int
+	S *big.Int
+}
+
+func (c RPKCompression) compressECDSA(sigIn []byte) []byte {
+	var sig ecdsaASN
+	asn1.Unmarshal(sigIn, &sig)
+
+	rb := sig.R.Bytes()
+	sb := sig.S.Bytes()
+
+	il := c.sigSize() / 2
+	rb = rb[il-len(rb):]
+	sb = sb[il-len(sb):]
+
+	return append(rb, sb...)
+}
+
+func (c RPKCompression) decompressECDSA(sigIn []byte) []byte {
+	il := c.sigSize() / 2
+	rb := sigIn[:il]
+	sb := sigIn[il:]
+
+	sig := ecdsaASN{
+		R: big.NewInt(0).SetBytes(rb),
+		S: big.NewInt(0).SetBytes(sb),
+	}
+	sigOut, _ := asn1.Marshal(sig)
+	return sigOut
+}
+
+func (c RPKCompression) sigSize() int {
+	switch c.SignatureScheme {
+	case ECDSA_P256_SHA256, Ed25519:
+		return 64
+	case ECDSA_P384_SHA384:
+		return 96
+	case Ed448:
+		return 112
+	case ECDSA_P521_SHA512:
+		return 132
+	default:
+		panic("Non-compressible signature scheme")
+	}
+}
+
+func (c RPKCompression) macSize() int {
+	switch c.CipherSuite {
+	case TLS_AES_128_GCM_SHA256, TLS_CHACHA20_POLY1305_SHA256,
+		TLS_AES_128_CCM_SHA256, TLS_AES_256_CCM_8_SHA256:
+		return 32
+	case TLS_AES_256_GCM_SHA384:
+		return 48
+	default:
+		panic("Unknown ciphersuite")
+	}
 }
 
 type rpkHello struct {
@@ -289,12 +350,6 @@ const (
 	rpkClientFlightLength = 3
 )
 
-type rpkFlight struct {
-	CertID    []byte `tls:"head=1"`
-	Signature []byte `tls:"head=1"`
-	MAC       []byte `tls:"head=none"`
-}
-
 func (c RPKCompression) compressFlight(hmData []byte, server bool) ([]byte, error) {
 	logf(logTypeCompression, "Compression.Flight.In: [%v] [%d] [%x]", server, len(hmData), hmData)
 	hms, err := c.unmarshalMessages(hmData)
@@ -349,16 +404,15 @@ func (c RPKCompression) compressFlight(hmData []byte, server bool) ([]byte, erro
 		return nil, fmt.Errorf("Unkonwn certificate")
 	}
 
-	cf := rpkFlight{
-		CertID:    certID,
-		Signature: cv.Signature,
-		MAC:       fin.VerifyData,
+	sig := cv.Signature
+	if c.SignatureScheme == ECDSA_P256_SHA256 ||
+		c.SignatureScheme == ECDSA_P384_SHA384 ||
+		c.SignatureScheme == ECDSA_P521_SHA512 {
+		sig = c.compressECDSA(sig)
 	}
 
-	cfData, err := syntax.Marshal(cf)
-	if err != nil {
-		return nil, err
-	}
+	cfData := append(certID, sig...)
+	cfData = append(cfData, fin.VerifyData...)
 
 	logf(logTypeCompression, "Compression.Flight.Out: [%d] [%x]", len(cfData), cfData)
 	return cfData, nil
@@ -367,10 +421,19 @@ func (c RPKCompression) compressFlight(hmData []byte, server bool) ([]byte, erro
 func (c RPKCompression) decompressFlight(cfData []byte, server bool) ([]byte, error) {
 	logf(logTypeCompression, "Deompression.Flight.In: [%v] [%d] [%x]", server, len(cfData), cfData)
 
-	cf := rpkFlight{}
-	_, err := syntax.Unmarshal(cfData, &cf)
-	if err != nil {
-		return nil, err
+	sigSize := c.sigSize()
+	macSize := c.macSize()
+	cut1 := len(cfData) - sigSize - macSize
+	cut2 := len(cfData) - macSize
+
+	certID := string(cfData[:cut1])
+	sig := cfData[cut1:cut2]
+	mac := cfData[cut2:]
+
+	if c.SignatureScheme == ECDSA_P256_SHA256 ||
+		c.SignatureScheme == ECDSA_P384_SHA384 ||
+		c.SignatureScheme == ECDSA_P521_SHA512 {
+		sig = c.decompressECDSA(sig)
 	}
 
 	hms := []HandshakeMessageBody{}
@@ -388,10 +451,9 @@ func (c RPKCompression) decompressFlight(cfData []byte, server bool) ([]byte, er
 		hms = []HandshakeMessageBody{ee, cr}
 	}
 
-	certID := string(cf.CertID)
 	certChain, found := c.Certificates[certID]
 	if !found {
-		return nil, fmt.Errorf("Unknown certificate for ID [%s] [%x]", certID, cf.CertID)
+		return nil, fmt.Errorf("Unknown certificate for ID [%s]", certID)
 	}
 
 	chain := certChain.Chain
@@ -405,13 +467,13 @@ func (c RPKCompression) decompressFlight(cfData []byte, server bool) ([]byte, er
 
 	cv := &CertificateVerifyBody{
 		Algorithm: c.SignatureScheme,
-		Signature: cf.Signature,
+		Signature: sig,
 	}
 	hms = append(hms, cv)
 
 	fin := &FinishedBody{
-		VerifyDataLen: len(cf.MAC),
-		VerifyData:    cf.MAC,
+		VerifyDataLen: len(mac),
+		VerifyData:    mac,
 	}
 	hms = append(hms, fin)
 
