@@ -6,6 +6,40 @@ import (
 )
 
 func TestCTLSRecordLayer(t *testing.T) {
+	configServer := &Config{
+		RequireClientAuth: true,
+		Certificates:      certificates,
+		RecordLayer:       CTLSRecordLayerFactory{IsServer: true},
+	}
+	configClient := &Config{
+		ServerName:         serverName,
+		Certificates:       clientCertificates,
+		InsecureSkipVerify: true,
+		RecordLayer:        CTLSRecordLayerFactory{IsServer: false},
+	}
+
+	cConn, sConn := pipe()
+	client := Client(cConn, configClient)
+	server := Server(sConn, configServer)
+
+	var clientAlert, serverAlert Alert
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+
+	<-done
+
+	checkConsistency(t, client, server)
+	assertTrue(t, client.state.Params.UsingClientAuth, "Session did not negotiate client auth")
+}
+
+func TestCTLSRPK(t *testing.T) {
 	suites := []CipherSuite{TLS_AES_128_GCM_SHA256}
 	groups := []NamedGroup{X25519}
 	schemes := []SignatureScheme{ECDSA_P256_SHA256}
@@ -21,7 +55,7 @@ func TestCTLSRecordLayer(t *testing.T) {
 		},
 	}
 
-	compression := &CTLSHandshakeCompression{
+	compression := &RPKCompression{
 		ServerName:       serverName,
 		CipherSuite:      TLS_AES_128_GCM_SHA256,
 		SupportedVersion: tls13Version,
