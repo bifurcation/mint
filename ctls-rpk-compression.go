@@ -10,13 +10,17 @@ import (
 )
 
 type RPKCompression struct {
+	// Compression attributes
 	ServerName       string
 	CipherSuite      CipherSuite
 	SupportedVersion uint16
 	SupportedGroup   NamedGroup
 	SignatureScheme  SignatureScheme
 	Certificates     map[string]*Certificate
-	ZeroRandom       bool
+
+	// TLS tweaks
+	ZeroRandom      bool
+	VirtualFinished bool
 }
 
 func (c RPKCompression) unmarshalOne(msgType HandshakeType, data []byte) (HandshakeMessageBody, error) {
@@ -124,6 +128,10 @@ func (c RPKCompression) sigSize() int {
 }
 
 func (c RPKCompression) macSize() int {
+	if c.VirtualFinished {
+		return 0
+	}
+
 	switch c.CipherSuite {
 	case TLS_AES_128_GCM_SHA256, TLS_CHACHA20_POLY1305_SHA256,
 		TLS_AES_128_CCM_SHA256, TLS_AES_256_CCM_8_SHA256:
@@ -357,37 +365,31 @@ func (c RPKCompression) compressFlight(hmData []byte, server bool) ([]byte, erro
 		return nil, err
 	}
 
+	flightLength := rpkClientFlightLength
 	if server {
-		if len(hms) != rpkServerFlightLength {
-			return nil, fmt.Errorf("Incorrect server flight length")
-		}
+		flightLength = rpkServerFlightLength
+	}
+	if c.VirtualFinished {
+		flightLength -= 1
+	}
+	if len(hms) != flightLength {
+		return nil, fmt.Errorf("Incorrect server flight length")
+	}
 
+	if server {
 		if hms[0].msgType != HandshakeTypeEncryptedExtensions ||
 			hms[1].msgType != HandshakeTypeCertificateRequest {
 			return nil, fmt.Errorf("Malformed server flight (EE, CR)")
 		}
 
 		hms = hms[2:]
-	} else if len(hms) != rpkClientFlightLength {
-		return nil, fmt.Errorf("Incorrect server flight length")
 	}
 
 	// TODO verify that the flight is compressible
 
+	// Process Certificate
 	body, err := hms[0].ToBody()
 	cert, ok := body.(*CertificateBody)
-	if err != nil || !ok {
-		return nil, err
-	}
-
-	body, err = hms[1].ToBody()
-	cv, ok := body.(*CertificateVerifyBody)
-	if err != nil || !ok {
-		return nil, err
-	}
-
-	body, err = hms[2].ToBody()
-	fin, ok := body.(*FinishedBody)
 	if err != nil || !ok {
 		return nil, err
 	}
@@ -404,6 +406,13 @@ func (c RPKCompression) compressFlight(hmData []byte, server bool) ([]byte, erro
 		return nil, fmt.Errorf("Unkonwn certificate")
 	}
 
+	// Process CertificateVerify
+	body, err = hms[1].ToBody()
+	cv, ok := body.(*CertificateVerifyBody)
+	if err != nil || !ok {
+		return nil, err
+	}
+
 	sig := cv.Signature
 	if c.SignatureScheme == ECDSA_P256_SHA256 ||
 		c.SignatureScheme == ECDSA_P384_SHA384 ||
@@ -411,8 +420,20 @@ func (c RPKCompression) compressFlight(hmData []byte, server bool) ([]byte, erro
 		sig = c.compressECDSA(sig)
 	}
 
+	// Process Finished
+	mac := []byte{}
+	if !c.VirtualFinished {
+		body, err = hms[2].ToBody()
+		fin, ok := body.(*FinishedBody)
+		if err != nil || !ok {
+			return nil, err
+		}
+
+		mac = fin.VerifyData
+	}
+
 	cfData := append(certID, sig...)
-	cfData = append(cfData, fin.VerifyData...)
+	cfData = append(cfData, mac...)
 
 	logf(logTypeCompression, "Compression.Flight.Out: [%d] [%x]", len(cfData), cfData)
 	return cfData, nil
@@ -471,11 +492,13 @@ func (c RPKCompression) decompressFlight(cfData []byte, server bool) ([]byte, er
 	}
 	hms = append(hms, cv)
 
-	fin := &FinishedBody{
-		VerifyDataLen: len(mac),
-		VerifyData:    mac,
+	if !c.VirtualFinished {
+		fin := &FinishedBody{
+			VerifyDataLen: len(mac),
+			VerifyData:    mac,
+		}
+		hms = append(hms, fin)
 	}
-	hms = append(hms, fin)
 
 	hmData, err := c.marshalMessages(hms)
 	if err != nil {

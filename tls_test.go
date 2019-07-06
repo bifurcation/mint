@@ -214,7 +214,7 @@ func TestExchangeData(t *testing.T) {
 	defer conn.Close()
 
 	srv := <-srvCh
-	assertNotNil(t, srv, "Server should have completed handshake")
+	assertNotNil(t, srv, fmt.Sprintf("Server should have completed handshake %v", serr))
 
 	buf := make([]byte, 16)
 	buf = buf[0:6]

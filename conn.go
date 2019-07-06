@@ -129,6 +129,7 @@ type Config struct {
 	NonBlocking      bool
 	UseDTLS          bool
 	ZeroRandom       bool
+	VirtualFinished  bool
 
 	RecordLayer RecordLayerFactory
 
