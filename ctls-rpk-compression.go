@@ -5,8 +5,6 @@ import (
 	"encoding/asn1"
 	"fmt"
 	"math/big"
-
-	"github.com/bifurcation/mint/syntax"
 )
 
 type RPKCompression struct {
@@ -19,7 +17,7 @@ type RPKCompression struct {
 	Certificates     map[string]*Certificate
 
 	// TLS tweaks
-	ZeroRandom      bool
+	RandomSize      int
 	VirtualFinished bool
 }
 
@@ -143,15 +141,6 @@ func (c RPKCompression) macSize() int {
 	}
 }
 
-type rpkHello struct {
-	Random   [32]byte
-	KeyShare []byte `tls:"head=none"`
-}
-
-type rpkHelloZeroRandom struct {
-	KeyShare []byte `tls:"head=none"`
-}
-
 func (c RPKCompression) CompressClientHello(chm []byte) ([]byte, error) {
 	logf(logTypeCompression, "Compression.ClientHello.In: [%d] [%x]", len(chm), chm)
 	body, err := c.unmarshalOne(HandshakeTypeClientHello, chm)
@@ -171,24 +160,28 @@ func (c RPKCompression) CompressClientHello(chm []byte) ([]byte, error) {
 		return nil, fmt.Errorf("No KeyShares extension")
 	}
 
-	var cchData []byte
-	if c.ZeroRandom {
-		cch := rpkHelloZeroRandom{
-			KeyShare: ks.Shares[0].KeyExchange,
-		}
+	cchData := ch.Random[:c.RandomSize]
+	cchData = append(cchData, ks.Shares[0].KeyExchange...)
 
-		cchData, err = syntax.Marshal(cch)
-	} else {
-		cch := rpkHello{
-			Random:   ch.Random,
-			KeyShare: ks.Shares[0].KeyExchange,
-		}
+	/*
+		if c.ZeroRandom {
+			cch := rpkHelloZeroRandom{
+				KeyShare: ks.Shares[0].KeyExchange,
+			}
 
-		cchData, err = syntax.Marshal(cch)
-	}
-	if err != nil {
-		return nil, err
-	}
+			cchData, err = syntax.Marshal(cch)
+		} else {
+			cch := rpkHello{
+				Random:   ch.Random,
+				KeyShare: ks.Shares[0].KeyExchange,
+			}
+
+			cchData, err = syntax.Marshal(cch)
+		}
+		if err != nil {
+			return nil, err
+		}
+	*/
 
 	logf(logTypeCompression, "Compression.ClientHello.Out: [%d] [%x]", len(cchData), cchData)
 	return cchData, nil
@@ -197,29 +190,40 @@ func (c RPKCompression) CompressClientHello(chm []byte) ([]byte, error) {
 func (c RPKCompression) ReadClientHello(cchData []byte) ([]byte, int, error) {
 	logf(logTypeCompression, "Decompression.ClientHello.In: [%d] [%x]", len(cchData), cchData)
 
-	var err error
-	var read int
-	var random [32]byte
-	var keyShare []byte
-	if c.ZeroRandom {
-		cch := rpkHelloZeroRandom{}
-		read, err = syntax.Unmarshal(cchData, &cch)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		random = [32]byte{}
-		keyShare = cch.KeyShare
-	} else {
-		cch := rpkHello{}
-		read, err = syntax.Unmarshal(cchData, &cch)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		random = cch.Random
-		keyShare = cch.KeyShare
+	if len(cchData) < c.RandomSize {
+		return nil, 0, fmt.Errorf("To little CCH data")
 	}
+
+	var err error
+	var random [32]byte
+	copy(random[:], cchData[:c.RandomSize])
+	keyShare := cchData[c.RandomSize:]
+
+	/*
+		var err error
+		var read int
+		var random [32]byte
+		var keyShare []byte
+		if c.ZeroRandom {
+			cch := rpkHelloZeroRandom{}
+			read, err = syntax.Unmarshal(cchData, &cch)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			random = [32]byte{}
+			keyShare = cch.KeyShare
+		} else {
+			cch := rpkHello{}
+			read, err = syntax.Unmarshal(cchData, &cch)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			random = cch.Random
+			keyShare = cch.KeyShare
+		}
+	*/
 
 	ch := &ClientHelloBody{
 		LegacyVersion: tls12Version,
@@ -250,7 +254,7 @@ func (c RPKCompression) ReadClientHello(cchData []byte) ([]byte, int, error) {
 	}
 
 	logf(logTypeCompression, "Decompression.ClientHello.Out: [%d] [%x]", len(chm), chm)
-	return chm, read, nil
+	return chm, len(cchData), nil
 }
 
 func (c RPKCompression) CompressServerHello(shm []byte) ([]byte, error) {
@@ -259,12 +263,12 @@ func (c RPKCompression) CompressServerHello(shm []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := body.(*ServerHelloBody)
+	sh := body.(*ServerHelloBody)
 
 	// TODO verify that the ServerHello is compressible
 
 	ks := &KeyShareExtension{HandshakeType: HandshakeTypeServerHello}
-	found, err := ch.Extensions.Find(ks)
+	found, err := sh.Extensions.Find(ks)
 	if err != nil {
 		return nil, err
 	}
@@ -272,24 +276,29 @@ func (c RPKCompression) CompressServerHello(shm []byte) ([]byte, error) {
 		return nil, fmt.Errorf("No KeyShares extension")
 	}
 
-	var cshData []byte
-	if c.ZeroRandom {
-		csh := rpkHelloZeroRandom{
-			KeyShare: ks.Shares[0].KeyExchange,
-		}
+	cshData := sh.Random[:c.RandomSize]
+	cshData = append(cshData, ks.Shares[0].KeyExchange...)
 
-		cshData, err = syntax.Marshal(csh)
-	} else {
-		csh := rpkHello{
-			Random:   ch.Random,
-			KeyShare: ks.Shares[0].KeyExchange,
-		}
+	/*
+		var cshData []byte
+		if c.ZeroRandom {
+			csh := rpkHelloZeroRandom{
+				KeyShare: ks.Shares[0].KeyExchange,
+			}
 
-		cshData, err = syntax.Marshal(csh)
-	}
-	if err != nil {
-		return nil, err
-	}
+			cshData, err = syntax.Marshal(csh)
+		} else {
+			csh := rpkHello{
+				Random:   ch.Random,
+				KeyShare: ks.Shares[0].KeyExchange,
+			}
+
+			cshData, err = syntax.Marshal(csh)
+		}
+		if err != nil {
+			return nil, err
+		}
+	*/
 
 	logf(logTypeCompression, "Compression.ServerHello.Out: [%d] [%x]", len(cshData), cshData)
 	return cshData, nil
@@ -299,28 +308,34 @@ func (c RPKCompression) ReadServerHello(cshData []byte) ([]byte, int, error) {
 	logf(logTypeCompression, "Decompression.ServerHello.In: [%d] [%x]", len(cshData), cshData)
 
 	var err error
-	var read int
 	var random [32]byte
-	var keyShare []byte
-	if c.ZeroRandom {
-		csh := rpkHelloZeroRandom{}
-		read, err = syntax.Unmarshal(cshData, &csh)
-		if err != nil {
-			return nil, 0, err
-		}
+	copy(random[:], cshData[:c.RandomSize])
+	keyShare := cshData[c.RandomSize:]
 
-		random = [32]byte{}
-		keyShare = csh.KeyShare
-	} else {
-		csh := rpkHello{}
-		read, err = syntax.Unmarshal(cshData, &csh)
-		if err != nil {
-			return nil, 0, err
-		}
+	/*
+		var read int
+		var random [32]byte
+		var keyShare []byte
+		if c.ZeroRandom {
+			csh := rpkHelloZeroRandom{}
+			read, err = syntax.Unmarshal(cshData, &csh)
+			if err != nil {
+				return nil, 0, err
+			}
 
-		random = csh.Random
-		keyShare = csh.KeyShare
-	}
+			random = [32]byte{}
+			keyShare = csh.KeyShare
+		} else {
+			csh := rpkHello{}
+			read, err = syntax.Unmarshal(cshData, &csh)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			random = csh.Random
+			keyShare = csh.KeyShare
+		}
+	*/
 
 	sh := &ServerHelloBody{
 		Version:     tls12Version,
@@ -348,7 +363,7 @@ func (c RPKCompression) ReadServerHello(cshData []byte) ([]byte, int, error) {
 	}
 
 	logf(logTypeCompression, "Decompression.ServerHello.Out: [%d] [%x]", len(shm), shm)
-	return shm, read, nil
+	return shm, len(cshData), nil
 }
 
 // Server: EE, CR, Cert, CV, Fin

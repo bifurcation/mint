@@ -113,9 +113,9 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		logf(logTypeHandshake, "[ClientStateStart] Error creating ClientHello random [%v]", err)
 		return nil, nil, AlertInternalError
 	}
-	if state.Config.ZeroRandom {
-		logf(logTypeHandshake, "[ClientStateStart] Setting ClientHello.Random to zero")
-		for i := range ch.Random {
+	if state.Config.ShortRandom {
+		logf(logTypeHandshake, "[ClientStateStart] Setting excess ClientHello.Random to zero")
+		for i := state.Config.RandomSize; i < len(ch.Random); i += 1 {
 			ch.Random[i] = 0x00
 		}
 	}

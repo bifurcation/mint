@@ -43,8 +43,9 @@ func TestCTLSRPK(t *testing.T) {
 	suite := TLS_AES_128_GCM_SHA256
 	group := X25519
 	scheme := ECDSA_P256_SHA256
-	zeroRandom := true
 	virtualFinished := false
+	shortRandom := true
+	randomSize := 16
 
 	allCertificates := map[string]*Certificate{
 		"acdc": {
@@ -64,7 +65,7 @@ func TestCTLSRPK(t *testing.T) {
 		SignatureScheme:  scheme,
 		SupportedGroup:   group,
 		Certificates:     allCertificates,
-		ZeroRandom:       zeroRandom,
+		RandomSize:       randomSize,
 		VirtualFinished:  virtualFinished,
 	}
 
@@ -74,7 +75,8 @@ func TestCTLSRPK(t *testing.T) {
 		CipherSuites:      []CipherSuite{suite},
 		SignatureSchemes:  []SignatureScheme{scheme},
 		Groups:            []NamedGroup{group},
-		ZeroRandom:        zeroRandom,
+		ShortRandom:       shortRandom,
+		RandomSize:        randomSize,
 		VirtualFinished:   virtualFinished,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    true,
@@ -88,7 +90,8 @@ func TestCTLSRPK(t *testing.T) {
 		CipherSuites:       []CipherSuite{suite},
 		SignatureSchemes:   []SignatureScheme{scheme},
 		Groups:             []NamedGroup{group},
-		ZeroRandom:         zeroRandom,
+		ShortRandom:        shortRandom,
+		RandomSize:         randomSize,
 		VirtualFinished:    virtualFinished,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    false,

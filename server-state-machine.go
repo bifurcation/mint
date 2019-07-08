@@ -482,9 +482,9 @@ func (state serverStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 		logf(logTypeHandshake, "[ServerStateNegotiated] Error creating server random [%v]", err)
 		return nil, nil, AlertInternalError
 	}
-	if state.Config.ZeroRandom {
-		logf(logTypeHandshake, "[ClientStateStart] Setting ServerHello.Random to zero")
-		for i := range sh.Random {
+	if state.Config.ShortRandom {
+		logf(logTypeHandshake, "[ServerStateStart] Setting excess ServerHello.Random to zero")
+		for i := state.Config.RandomSize; i < len(sh.Random); i += 1 {
 			sh.Random[i] = 0x00
 		}
 	}

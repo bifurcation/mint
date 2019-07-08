@@ -128,8 +128,9 @@ type Config struct {
 	PSKModes         []PSKKeyExchangeMode
 	NonBlocking      bool
 	UseDTLS          bool
-	ZeroRandom       bool
 	VirtualFinished  bool
+	ShortRandom      bool
+	RandomSize       int
 
 	RecordLayer RecordLayerFactory
 
@@ -171,7 +172,8 @@ func (c *Config) Clone() *Config {
 		PSKModes:              c.PSKModes,
 		NonBlocking:           c.NonBlocking,
 		UseDTLS:               c.UseDTLS,
-		ZeroRandom:            c.ZeroRandom,
+		ShortRandom:           c.ShortRandom,
+		RandomSize:            c.RandomSize,
 	}
 }
 
