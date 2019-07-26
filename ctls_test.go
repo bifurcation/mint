@@ -48,11 +48,11 @@ func TestCTLSRPK(t *testing.T) {
 	randomSize := 16
 
 	allCertificates := map[string]*Certificate{
-		"acdc": {
+		"a": {
 			Chain:      []*x509.Certificate{serverCert},
 			PrivateKey: serverKey,
 		},
-		"beta": {
+		"b": {
 			Chain:      []*x509.Certificate{clientCert},
 			PrivateKey: clientKey,
 		},
