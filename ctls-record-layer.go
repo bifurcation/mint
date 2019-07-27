@@ -180,7 +180,7 @@ func (r *CTLSRecordLayer) WriteRecord(pt *TLSPlaintext) error {
 
 func (r *CTLSRecordLayer) WriteRecordWithPadding(pt *TLSPlaintext, cipher *CipherState, padLen int) error {
 	if pt.contentType != RecordTypeHandshake {
-		panic(fmt.Sprintf("non-hanshake record [%02x]", pt.contentType))
+		panic(fmt.Sprintf("non-handshake record [%02x]", pt.contentType)) // XXX
 		return fmt.Errorf("tls.record: Only handshake messages allowed with compact record layer")
 	}
 
