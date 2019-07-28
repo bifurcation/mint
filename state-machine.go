@@ -63,6 +63,8 @@ type ConnectionParameters struct {
 	UsingClientAuth        bool
 	ShortFinished          bool
 	FinishedSize           int
+	ShortBinder            bool
+	BinderSize             int
 
 	CipherSuite CipherSuite
 	ServerName  string

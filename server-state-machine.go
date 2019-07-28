@@ -113,6 +113,8 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	connParams := ConnectionParameters{
 		ShortFinished: state.Config.ShortFinished,
 		FinishedSize:  state.Config.FinishedSize,
+		ShortBinder:   state.Config.ShortBinder,
+		BinderSize:    state.Config.BinderSize,
 	}
 
 	supportedVersions := &SupportedVersionsExtension{HandshakeType: HandshakeTypeClientHello}
@@ -237,7 +239,7 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		}
 		context := append(contextBase, chTrunc...)
 
-		canDoPSK, selectedPSK, psk, params, err = PSKNegotiation(clientPSK.Identities, clientPSK.Binders, context, state.Config.PSKs)
+		canDoPSK, selectedPSK, psk, params, err = PSKNegotiation(clientPSK.Identities, clientPSK.Binders, context, state.Config.PSKs, state.Config.ShortBinder, state.Config.BinderSize)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateStart] Error in PSK negotiation [%v]", err)
 			return nil, nil, AlertInternalError

@@ -133,9 +133,11 @@ func TestCTLSPSK(t *testing.T) {
 	scheme := ECDSA_P256_SHA256
 	pskMode := PSKModeDHEKE
 	shortRandom := true
-	randomSize := 8
+	randomSize := 0
 	shortFinished := true
-	finishedSize := 8
+	finishedSize := 0
+	shortBinder := true
+	binderSize := 0
 
 	psk = PreSharedKey{
 		CipherSuite:  TLS_AES_128_CCM_8_SHA256,
@@ -171,6 +173,8 @@ func TestCTLSPSK(t *testing.T) {
 		RandomSize:       randomSize,
 		ShortFinished:    shortFinished,
 		FinishedSize:     finishedSize,
+		ShortBinder:      shortBinder,
+		BinderSize:       binderSize,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    false,
 			Compression: compression,
@@ -187,6 +191,8 @@ func TestCTLSPSK(t *testing.T) {
 		RandomSize:       randomSize,
 		ShortFinished:    shortFinished,
 		FinishedSize:     finishedSize,
+		ShortBinder:      shortBinder,
+		BinderSize:       binderSize,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    true,
 			Compression: compression,

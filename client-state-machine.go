@@ -97,6 +97,8 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	state.Params.ServerName = state.Opts.ServerName
 	state.Params.ShortFinished = state.Config.ShortFinished
 	state.Params.FinishedSize = state.Config.FinishedSize
+	state.Params.ShortBinder = state.Config.ShortBinder
+	state.Params.BinderSize = state.Config.BinderSize
 
 	// Application Layer Protocol Negotiation
 	var alpn *ALPNExtension
@@ -210,6 +212,10 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		}
 
 		// Add the shim PSK extension to the ClientHello
+		binderSize := params.Hash.Size()
+		if state.Params.ShortBinder {
+			binderSize = state.Params.BinderSize
+		}
 		logf(logTypeHandshake, "Adding PSK extension with id = %x", key.Identity)
 		psk = &PreSharedKeyExtension{
 			HandshakeType: HandshakeTypeClientHello,
@@ -221,10 +227,14 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 			},
 			Binders: []PSKBinderEntry{
 				// Note: Stub to get the length fields right
-				{Binder: bytes.Repeat([]byte{0x00}, params.Hash.Size())},
+				{Binder: bytes.Repeat([]byte{0x00}, binderSize)},
 			},
 		}
-		ch.Extensions.Add(psk)
+		err = ch.Extensions.Add(psk)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error adding PSK extension [%v]", err)
+			return nil, nil, AlertInternalError
+		}
 
 		// Compute the binder key
 		h0 := params.Hash.New().Sum(nil)
@@ -252,6 +262,7 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		truncHash.Write(trunc)
 
 		binder := computeFinishedData(params, binderKey, truncHash.Sum(nil))
+		binder = binder[:binderSize]
 
 		// Replace the PSK extension
 		psk.Binders[0].Binder = binder

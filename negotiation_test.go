@@ -57,6 +57,7 @@ func TestDHNegotiation(t *testing.T) {
 func TestPSKNegotiation(t *testing.T) {
 	chTrunc := unhex("0001020304050607")
 	binderValue := unhex("13a468af471adc19b94dcc0b888135423a11911f2c13050238b579d0f19d41c9")
+	shortBinderSize := 8
 
 	identities := []PSKIdentity{
 		{Identity: []byte{0, 1, 2, 3}},
@@ -65,6 +66,10 @@ func TestPSKNegotiation(t *testing.T) {
 	binders := []PSKBinderEntry{
 		{Binder: binderValue},
 		{Binder: binderValue},
+	}
+	shortBinders := []PSKBinderEntry{
+		{Binder: binderValue[:shortBinderSize]},
+		{Binder: binderValue[:shortBinderSize]},
 	}
 	badBinders := []PSKBinderEntry{
 		{Binder: []byte{}},
@@ -79,7 +84,15 @@ func TestPSKNegotiation(t *testing.T) {
 	}
 
 	// Test successful negotiation
-	ok, selected, psk, params, err := PSKNegotiation(identities, binders, chTrunc, psks)
+	ok, selected, psk, params, err := PSKNegotiation(identities, binders, chTrunc, psks, false, 0)
+	assertEquals(t, ok, true)
+	assertEquals(t, selected, 1)
+	assertNotNil(t, psk, "PSK not set")
+	assertEquals(t, params.Suite, psk.CipherSuite)
+	assertNotError(t, err, "Valid PSK negotiation failed")
+
+	// Test negotiation works with short binders
+	ok, _, _, _, err = PSKNegotiation(identities, shortBinders, chTrunc, psks, true, shortBinderSize)
 	assertEquals(t, ok, true)
 	assertEquals(t, selected, 1)
 	assertNotNil(t, psk, "PSK not set")
@@ -87,12 +100,12 @@ func TestPSKNegotiation(t *testing.T) {
 	assertNotError(t, err, "Valid PSK negotiation failed")
 
 	// Test negotiation failure on binder value failure
-	ok, _, _, _, err = PSKNegotiation(identities, badBinders, chTrunc, psks)
+	ok, _, _, _, err = PSKNegotiation(identities, badBinders, chTrunc, psks, false, 0)
 	assertEquals(t, ok, false)
 	assertError(t, err, "Failed to error on binder failure")
 
 	// Test negotiation failure on no PSK overlap
-	ok, _, _, _, err = PSKNegotiation(identities, binders, chTrunc, &PSKMapCache{})
+	ok, _, _, _, err = PSKNegotiation(identities, binders, chTrunc, &PSKMapCache{}, false, 0)
 	assertEquals(t, ok, false)
 	assertNotError(t, err, "Errored on PSK negotiation failure")
 }

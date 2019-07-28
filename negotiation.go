@@ -52,7 +52,7 @@ const (
 	ticketAgeTolerance uint32 = 5 * 1000 // five seconds in milliseconds
 )
 
-func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context []byte, psks PreSharedKeyCache) (bool, int, *PreSharedKey, CipherSuiteParams, error) {
+func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context []byte, psks PreSharedKeyCache, shortBinder bool, extBinderSize int) (bool, int, *PreSharedKey, CipherSuiteParams, error) {
 	logf(logTypeNegotiation, "Negotiating PSK offered=[%d] supported=[%d]", len(identities), psks.Size())
 	for i, id := range identities {
 		identityHex := hex.EncodeToString(id.Identity)
@@ -101,7 +101,13 @@ func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context 
 		ctxHash := params.Hash.New()
 		ctxHash.Write(context)
 
+		binderSize := params.Hash.Size()
+		if shortBinder {
+			binderSize = extBinderSize
+		}
+
 		binder := computeFinishedData(params, binderKey, ctxHash.Sum(nil))
+		binder = binder[:binderSize]
 		if !bytes.Equal(binder, binders[i].Binder) {
 			logf(logTypeNegotiation, "Binder check failed for identity %x; [%x] != [%x]", psk.Identity, binder, binders[i].Binder)
 			return false, 0, nil, CipherSuiteParams{}, fmt.Errorf("Binder check failed identity %x", psk.Identity)

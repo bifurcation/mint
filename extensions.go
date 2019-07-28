@@ -404,7 +404,7 @@ type PSKIdentity struct {
 }
 
 type PSKBinderEntry struct {
-	Binder []byte `tls:"head=1,min=32"`
+	Binder []byte `tls:"head=1"`
 }
 
 type PreSharedKeyExtension struct {
@@ -416,7 +416,7 @@ type PreSharedKeyExtension struct {
 
 type preSharedKeyClientInner struct {
 	Identities []PSKIdentity    `tls:"head=2,min=7"`
-	Binders    []PSKBinderEntry `tls:"head=2,min=33"`
+	Binders    []PSKBinderEntry `tls:"head=2"`
 }
 
 type preSharedKeyServerInner struct {

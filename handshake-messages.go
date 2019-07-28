@@ -124,7 +124,6 @@ func (ch *ClientHelloBody) Unmarshal(data []byte) (int, error) {
 	return read, nil
 }
 
-// TODO: File a spec bug to clarify this
 func (ch ClientHelloBody) Truncated() ([]byte, error) {
 	if len(ch.Extensions) == 0 {
 		return nil, fmt.Errorf("tls.clienthello.truncate: No extensions")
@@ -132,7 +131,7 @@ func (ch ClientHelloBody) Truncated() ([]byte, error) {
 
 	pskExt := ch.Extensions[len(ch.Extensions)-1]
 	if pskExt.ExtensionType != ExtensionTypePreSharedKey {
-		return nil, fmt.Errorf("tls.clienthello.truncate: Last extension is not PSK")
+		return nil, fmt.Errorf("tls.clienthello.truncate: Last extension is not PSK [%d]", pskExt.ExtensionType)
 	}
 
 	body, err := ch.Marshal()
@@ -156,7 +155,7 @@ func (ch ClientHelloBody) Truncated() ([]byte, error) {
 
 	// Marshal just the binders so that we know how much to truncate
 	binders := struct {
-		Binders []PSKBinderEntry `tls:"head=2,min=33"`
+		Binders []PSKBinderEntry `tls:"head=2"`
 	}{Binders: psk.Binders}
 	binderData, _ := syntax.Marshal(binders)
 	binderLen := len(binderData)

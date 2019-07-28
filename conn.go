@@ -132,6 +132,8 @@ type Config struct {
 	FinishedSize     int
 	ShortRandom      bool
 	RandomSize       int
+	ShortBinder      bool
+	BinderSize       int
 
 	RecordLayer RecordLayerFactory
 
