@@ -17,8 +17,8 @@ type RPKCompression struct {
 	Certificates     map[string]*Certificate
 
 	// TLS tweaks
-	RandomSize      int
-	VirtualFinished bool
+	RandomSize   int
+	FinishedSize int
 }
 
 func (c RPKCompression) unmarshalOne(msgType HandshakeType, data []byte) (HandshakeMessageBody, error) {
@@ -122,22 +122,6 @@ func (c RPKCompression) sigSize() int {
 		return 132
 	default:
 		panic("Non-compressible signature scheme")
-	}
-}
-
-func (c RPKCompression) macSize() int {
-	if c.VirtualFinished {
-		return 0
-	}
-
-	switch c.CipherSuite {
-	case TLS_AES_128_GCM_SHA256, TLS_CHACHA20_POLY1305_SHA256,
-		TLS_AES_128_CCM_SHA256, TLS_AES_256_CCM_8_SHA256:
-		return 32
-	case TLS_AES_256_GCM_SHA384:
-		return 48
-	default:
-		panic("Unknown ciphersuite")
 	}
 }
 
@@ -292,9 +276,6 @@ func (c RPKCompression) compressFlight(hmData []byte, server bool) ([]byte, erro
 	if server {
 		flightLength = rpkServerFlightLength
 	}
-	if c.VirtualFinished {
-		flightLength -= 1
-	}
 	if len(hms) != flightLength {
 		return nil, fmt.Errorf("Incorrect server flight length")
 	}
@@ -344,16 +325,12 @@ func (c RPKCompression) compressFlight(hmData []byte, server bool) ([]byte, erro
 	}
 
 	// Process Finished
-	mac := []byte{}
-	if !c.VirtualFinished {
-		body, err = hms[2].ToBody()
-		fin, ok := body.(*FinishedBody)
-		if err != nil || !ok {
-			return nil, err
-		}
-
-		mac = fin.VerifyData
+	body, err = hms[2].ToBody()
+	fin, ok := body.(*FinishedBody)
+	if err != nil || !ok {
+		return nil, err
 	}
+	mac := fin.VerifyData
 
 	cfData := append(certID, sig...)
 	cfData = append(cfData, mac...)
@@ -366,9 +343,8 @@ func (c RPKCompression) decompressFlight(cfData []byte, server bool) ([]byte, er
 	logf(logTypeCompression, "Deompression.Flight.In: [%v] [%d] [%x]", server, len(cfData), cfData)
 
 	sigSize := c.sigSize()
-	macSize := c.macSize()
-	cut1 := len(cfData) - sigSize - macSize
-	cut2 := len(cfData) - macSize
+	cut1 := len(cfData) - sigSize - c.FinishedSize
+	cut2 := len(cfData) - c.FinishedSize
 
 	certID := string(cfData[:cut1])
 	sig := cfData[cut1:cut2]
@@ -415,13 +391,11 @@ func (c RPKCompression) decompressFlight(cfData []byte, server bool) ([]byte, er
 	}
 	hms = append(hms, cv)
 
-	if !c.VirtualFinished {
-		fin := &FinishedBody{
-			VerifyDataLen: len(mac),
-			VerifyData:    mac,
-		}
-		hms = append(hms, fin)
+	fin := &FinishedBody{
+		VerifyDataLen: len(mac),
+		VerifyData:    mac,
 	}
+	hms = append(hms, fin)
 
 	hmData, err := c.marshalMessages(hms)
 	if err != nil {

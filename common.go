@@ -66,7 +66,7 @@ const (
 	TLS_AES_256_GCM_SHA384       CipherSuite = 0x1302
 	TLS_CHACHA20_POLY1305_SHA256 CipherSuite = 0x1303
 	TLS_AES_128_CCM_SHA256       CipherSuite = 0x1304
-	TLS_AES_256_CCM_8_SHA256     CipherSuite = 0x1305
+	TLS_AES_128_CCM_8_SHA256     CipherSuite = 0x1305
 )
 
 func (c CipherSuite) String() string {
@@ -81,8 +81,8 @@ func (c CipherSuite) String() string {
 		return "TLS_CHACHA20_POLY1305_SHA256"
 	case TLS_AES_128_CCM_SHA256:
 		return "TLS_AES_128_CCM_SHA256"
-	case TLS_AES_256_CCM_8_SHA256:
-		return "TLS_AES_256_CCM_8_SHA256"
+	case TLS_AES_128_CCM_8_SHA256:
+		return "TLS_AES_128_CCM_8_SHA256"
 	}
 	// cannot use %x here, since it calls String(), leading to infinite recursion
 	return fmt.Sprintf("invalid CipherSuite value: 0x%s", strconv.FormatUint(uint64(c), 16))

@@ -95,7 +95,8 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	sa := SignatureAlgorithmsExtension{Algorithms: state.Config.SignatureSchemes}
 
 	state.Params.ServerName = state.Opts.ServerName
-	state.Params.VirtualFinished = state.Config.VirtualFinished
+	state.Params.ShortFinished = state.Config.ShortFinished
+	state.Params.FinishedSize = state.Config.FinishedSize
 
 	// Application Layer Protocol Negotiation
 	var alpn *ALPNExtension
@@ -913,46 +914,38 @@ func (state clientStateWaitFinished) State() State {
 }
 
 func (state clientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
-	logf(logTypeHandshake, "virtualFinished: %v", state.Params.VirtualFinished)
-
 	// Verify server's Finished
 	h3 := state.handshakeHash.Sum(nil)
 	logf(logTypeCrypto, "handshake hash 3 [%d] %x", len(h3), h3)
 	logf(logTypeCrypto, "handshake hash for server Finished: [%d] %x", len(h3), h3)
 
 	serverFinishedData := computeFinishedData(state.cryptoParams, state.serverHandshakeTrafficSecret, h3)
+	if state.Params.ShortFinished {
+		serverFinishedData = serverFinishedData[:state.Params.FinishedSize]
+	}
 	logf(logTypeCrypto, "server finished data: [%d] %x", len(serverFinishedData), serverFinishedData)
 
 	var hm *HandshakeMessage
 	var alert Alert
-	if !state.Params.VirtualFinished {
-		hm, alert = hr.ReadMessage()
-		if alert != AlertNoAlert {
-			return nil, nil, alert
-		}
-		if hm == nil || hm.msgType != HandshakeTypeFinished {
-			logf(logTypeHandshake, "[ClientStateWaitFinished] Unexpected message")
-			return nil, nil, AlertUnexpectedMessage
-		}
+	hm, alert = hr.ReadMessage()
+	if alert != AlertNoAlert {
+		return nil, nil, alert
+	}
+	if hm == nil || hm.msgType != HandshakeTypeFinished {
+		logf(logTypeHandshake, "[ClientStateWaitFinished] Unexpected message")
+		return nil, nil, AlertUnexpectedMessage
+	}
 
-		fin := &FinishedBody{VerifyDataLen: len(serverFinishedData)}
-		if err := safeUnmarshal(fin, hm.body); err != nil {
-			logf(logTypeHandshake, "[ClientStateWaitFinished] Error decoding message: %v", err)
-			return nil, nil, AlertDecodeError
-		}
+	sFin := &FinishedBody{VerifyDataLen: len(serverFinishedData)}
+	if err := safeUnmarshal(sFin, hm.body); err != nil {
+		logf(logTypeHandshake, "[ClientStateWaitFinished] Error decoding message: %v", err)
+		return nil, nil, AlertDecodeError
+	}
 
-		if !bytes.Equal(fin.VerifyData, serverFinishedData) {
-			logf(logTypeHandshake, "[ClientStateWaitFinished] Server's Finished failed to verify [%x] != [%x]",
-				fin.VerifyData, serverFinishedData)
-			return nil, nil, AlertHandshakeFailure
-		}
-	} else {
-		fin := &FinishedBody{
-			VerifyDataLen: len(serverFinishedData),
-			VerifyData:    serverFinishedData,
-		}
-
-		hm, _ = state.hsCtx.hOut.HandshakeMessageFromBody(fin)
+	if !bytes.Equal(sFin.VerifyData, serverFinishedData) {
+		logf(logTypeHandshake, "[ClientStateWaitFinished] Server's Finished failed to verify [%x] != [%x]",
+			sFin.VerifyData, serverFinishedData)
+		return nil, nil, AlertHandshakeFailure
 	}
 
 	// Update the handshake hash with the Finished
@@ -1066,16 +1059,20 @@ func (state clientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 
 	clientFinishedData := computeFinishedData(state.cryptoParams, state.clientHandshakeTrafficSecret, h5)
 	logf(logTypeCrypto, "client Finished data: [%d] %x", len(clientFinishedData), clientFinishedData)
+	if state.Params.ShortFinished {
+		clientFinishedData = clientFinishedData[:state.Params.FinishedSize]
+	}
 
-	fin := &FinishedBody{
+	cFin := &FinishedBody{
 		VerifyDataLen: len(clientFinishedData),
 		VerifyData:    clientFinishedData,
 	}
-	finm, err := state.hsCtx.hOut.HandshakeMessageFromBody(fin)
+	finm, err := state.hsCtx.hOut.HandshakeMessageFromBody(cFin)
 	if err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitFinished] Error marshaling client Finished [%v]", err)
 		return nil, nil, AlertInternalError
 	}
+	toSend = append(toSend, QueueHandshakeMessage{finm})
 
 	// Compute the resumption secret
 	state.handshakeHash.Write(finm.Marshal())
@@ -1083,10 +1080,6 @@ func (state clientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 
 	resumptionSecret := deriveSecret(state.cryptoParams, state.masterSecret, labelResumptionSecret, h6)
 	logf(logTypeCrypto, "resumption secret: [%d] %x", len(resumptionSecret), resumptionSecret)
-
-	if !state.Params.VirtualFinished {
-		toSend = append(toSend, QueueHandshakeMessage{finm})
-	}
 
 	toSend = append(toSend, []HandshakeAction{
 		SendQueuedHandshake{},

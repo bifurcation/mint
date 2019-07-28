@@ -128,7 +128,8 @@ type Config struct {
 	PSKModes         []PSKKeyExchangeMode
 	NonBlocking      bool
 	UseDTLS          bool
-	VirtualFinished  bool
+	ShortFinished    bool
+	FinishedSize     int
 	ShortRandom      bool
 	RandomSize       int
 

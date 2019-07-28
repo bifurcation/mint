@@ -61,7 +61,8 @@ type ConnectionParameters struct {
 	UsingEarlyData         bool
 	RejectedEarlyData      bool
 	UsingClientAuth        bool
-	VirtualFinished        bool
+	ShortFinished          bool
+	FinishedSize           int
 
 	CipherSuite CipherSuite
 	ServerName  string

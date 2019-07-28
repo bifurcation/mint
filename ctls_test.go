@@ -6,13 +6,17 @@ import (
 )
 
 func TestCTLSRecordLayer(t *testing.T) {
+	suite := TLS_AES_128_CCM_SHA256
+
 	configServer := &Config{
 		RequireClientAuth: true,
+		CipherSuites:      []CipherSuite{suite},
 		Certificates:      certificates,
 		RecordLayer:       CTLSRecordLayerFactory{IsServer: true},
 	}
 	configClient := &Config{
 		ServerName:         serverName,
+		CipherSuites:       []CipherSuite{suite},
 		Certificates:       clientCertificates,
 		InsecureSkipVerify: true,
 		RecordLayer:        CTLSRecordLayerFactory{IsServer: false},
@@ -40,12 +44,13 @@ func TestCTLSRecordLayer(t *testing.T) {
 }
 
 func TestCTLSRPK(t *testing.T) {
-	suite := TLS_AES_128_GCM_SHA256
+	suite := TLS_AES_128_CCM_8_SHA256
 	group := X25519
 	scheme := ECDSA_P256_SHA256
-	virtualFinished := false
-	shortRandom := true
-	randomSize := 16
+	shortRandom := false
+	randomSize := 32
+	shortFinished := false
+	finishedSize := 32
 
 	allCertificates := map[string]*Certificate{
 		"a": {
@@ -66,7 +71,7 @@ func TestCTLSRPK(t *testing.T) {
 		SupportedGroup:   group,
 		Certificates:     allCertificates,
 		RandomSize:       randomSize,
-		VirtualFinished:  virtualFinished,
+		FinishedSize:     finishedSize,
 	}
 
 	configServer := &Config{
@@ -77,7 +82,8 @@ func TestCTLSRPK(t *testing.T) {
 		Groups:            []NamedGroup{group},
 		ShortRandom:       shortRandom,
 		RandomSize:        randomSize,
-		VirtualFinished:   virtualFinished,
+		ShortFinished:     shortFinished,
+		FinishedSize:      finishedSize,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    true,
 			Compression: compression,
@@ -92,7 +98,8 @@ func TestCTLSRPK(t *testing.T) {
 		Groups:             []NamedGroup{group},
 		ShortRandom:        shortRandom,
 		RandomSize:         randomSize,
-		VirtualFinished:    virtualFinished,
+		ShortFinished:      shortFinished,
+		FinishedSize:       finishedSize,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    false,
 			Compression: compression,
@@ -121,16 +128,17 @@ func TestCTLSRPK(t *testing.T) {
 }
 
 func TestCTLSPSK(t *testing.T) {
-	suite := TLS_AES_128_GCM_SHA256
+	suite := TLS_AES_128_CCM_8_SHA256
 	group := X25519
 	scheme := ECDSA_P256_SHA256
 	pskMode := PSKModeDHEKE
-	virtualFinished := false
 	shortRandom := true
-	randomSize := 16
+	randomSize := 8
+	shortFinished := true
+	finishedSize := 8
 
 	psk = PreSharedKey{
-		CipherSuite:  TLS_AES_128_GCM_SHA256,
+		CipherSuite:  TLS_AES_128_CCM_8_SHA256,
 		IsResumption: false,
 		Identity:     []byte{0, 1, 2, 3},
 		Key:          []byte{4, 5, 6, 7},
@@ -149,19 +157,20 @@ func TestCTLSPSK(t *testing.T) {
 		SignatureScheme:  scheme,
 		PSKMode:          pskMode,
 		RandomSize:       randomSize,
-		VirtualFinished:  virtualFinished,
+		FinishedSize:     finishedSize,
 	}
 
 	configClient := &Config{
 		ServerName:       serverName,
-		CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+		CipherSuites:     []CipherSuite{suite},
 		PSKs:             psks,
 		Groups:           []NamedGroup{group},
 		SignatureSchemes: []SignatureScheme{scheme},
 		PSKModes:         []PSKKeyExchangeMode{pskMode},
 		ShortRandom:      shortRandom,
 		RandomSize:       randomSize,
-		VirtualFinished:  virtualFinished,
+		ShortFinished:    shortFinished,
+		FinishedSize:     finishedSize,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    false,
 			Compression: compression,
@@ -169,14 +178,15 @@ func TestCTLSPSK(t *testing.T) {
 	}
 	configServer := &Config{
 		ServerName:       serverName,
-		CipherSuites:     []CipherSuite{TLS_AES_128_GCM_SHA256},
+		CipherSuites:     []CipherSuite{suite},
 		PSKs:             psks,
 		Groups:           []NamedGroup{group},
 		SignatureSchemes: []SignatureScheme{scheme},
 		PSKModes:         []PSKKeyExchangeMode{pskMode},
 		ShortRandom:      shortRandom,
 		RandomSize:       randomSize,
-		VirtualFinished:  virtualFinished,
+		ShortFinished:    shortFinished,
+		FinishedSize:     finishedSize,
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    true,
 			Compression: compression,
@@ -191,7 +201,6 @@ func TestCTLSPSK(t *testing.T) {
 	done := make(chan bool)
 	go func(t *testing.T) {
 		serverAlert = server.Handshake()
-		t.Logf("server alert: %v", serverAlert)
 		assertEquals(t, serverAlert, AlertNoAlert)
 		done <- true
 	}(t)

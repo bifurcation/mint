@@ -17,6 +17,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/bifurcation/mint/ccm"
 	"golang.org/x/crypto/curve25519"
 
 	// Blank includes to ensure hash support
@@ -88,6 +89,17 @@ var (
 		return cipher.NewGCMWithNonceSize(block, 12)
 	}
 
+	newAESCCMFactory = func(tagSize int) AEADFactory {
+		return func(key []byte) (cipher.AEAD, error) {
+			block, err := aes.NewCipher(key)
+			if err != nil {
+				return nil, err
+			}
+
+			return ccm.NewCCMWithNonceAndTagSizes(block, 12, tagSize)
+		}
+	}
+
 	cipherSuiteMap = map[CipherSuite]CipherSuiteParams{
 		TLS_AES_128_GCM_SHA256: {
 			Suite:      TLS_AES_128_GCM_SHA256,
@@ -100,6 +112,18 @@ var (
 			Cipher:     newAESGCM,
 			Hash:       crypto.SHA384,
 			KeyLengths: map[string]int{labelForKey: 32, labelForIV: 12},
+		},
+		TLS_AES_128_CCM_SHA256: {
+			Suite:      TLS_AES_128_CCM_SHA256,
+			Cipher:     newAESCCMFactory(16),
+			Hash:       crypto.SHA256,
+			KeyLengths: map[string]int{labelForKey: 16, labelForIV: 12},
+		},
+		TLS_AES_128_CCM_8_SHA256: {
+			Suite:      TLS_AES_128_CCM_SHA256,
+			Cipher:     newAESCCMFactory(8),
+			Hash:       crypto.SHA256,
+			KeyLengths: map[string]int{labelForKey: 16, labelForIV: 12},
 		},
 	}
 
