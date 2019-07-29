@@ -139,14 +139,14 @@ func TestCTLSPSK(t *testing.T) {
 	shortBinder := true
 	binderSize := 0
 
-	psk = PreSharedKey{
+	psk := PreSharedKey{
 		CipherSuite:  TLS_AES_128_CCM_8_SHA256,
 		IsResumption: false,
 		Identity:     []byte{0, 1, 2, 3},
 		Key:          []byte{4, 5, 6, 7},
 	}
 
-	psks = &PSKMapCache{
+	psks := &PSKMapCache{
 		serverName: psk,
 		"00010203": psk,
 	}

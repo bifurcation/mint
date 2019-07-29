@@ -255,18 +255,16 @@ func (r *DefaultRecordLayer) encrypt(cipher *CipherState, seq uint64, header []b
 	// Expand the fragment to hold contentType, padding, and overhead
 	originalLen := len(pt.fragment)
 	plaintextLen := originalLen + 1 + padLen
-	ciphertextLen := plaintextLen + cipher.overhead()
 
-	ciphertext := make([]byte, ciphertextLen)
-	copy(ciphertext, pt.fragment)
-	ciphertext[originalLen] = byte(pt.contentType)
+	payload := make([]byte, plaintextLen)
+	copy(payload, pt.fragment)
+	payload[originalLen] = byte(pt.contentType)
 	for i := 1; i <= padLen; i++ {
-		ciphertext[originalLen+i] = 0
+		payload[originalLen+i] = 0
 	}
 
 	// Encrypt the fragment
-	payload := ciphertext[:plaintextLen]
-	cipher.cipher.Seal(payload[:0], cipher.computeNonce(seq), payload, header)
+	ciphertext := cipher.cipher.Seal(nil, cipher.computeNonce(seq), payload, header)
 	return ciphertext
 }
 
