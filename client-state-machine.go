@@ -102,6 +102,24 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		alpn = &ALPNExtension{Protocols: state.Opts.NextProtos}
 	}
 
+	// Raw public keys
+	var cct *ClientCertTypeExtension
+	var sct *ClientCertTypeExtension
+	if state.Config.AllowRawPublicKeys || !state.Config.ForbidCertificates {
+		cct := &ClientCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
+		sct := &ServerCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
+
+		if state.Config.AllowRawPublicKeys {
+			cct.CertificateTypes = append(cct.CertificateTypes, CertificateTypeRawPublicKey)
+			sct.CertificateTypes = append(sct.CertificateTypes, CertificateTypeRawPublicKey)
+		}
+
+		if !state.Config.ForbidCertificates {
+			cct.CertificateTypes = append(cct.CertificateTypes, CertificateTypeX509)
+			sct.CertificateTypes = append(sct.CertificateTypes, CertificateTypeX509)
+		}
+	}
+
 	// Construct base ClientHello
 	ch := &ClientHelloBody{
 		LegacyVersion: wireVersion(state.hsCtx.hIn),
@@ -113,7 +131,7 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		return nil, nil, AlertInternalError
 	}
 	for _, ext := range []ExtensionBody{&sv, &sni, &ks, &sg, &sa} {
-		err := ch.Extensions.Add(ext)
+		err = ch.Extensions.Add(ext)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateStart] Error adding extension type=[%v] [%v]", ext.Type(), err)
 			return nil, nil, AlertInternalError
@@ -125,6 +143,18 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		err := ch.Extensions.Add(alpn)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateStart] Error adding ALPN extension [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+	}
+	if cct != nil {
+		err = ch.Extensions.Add(cct)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error adding ClientCertType extension [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+		err = ch.Extensions.Add(sct)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error adding ServerCertType extension [%v]", err)
 			return nil, nil, AlertInternalError
 		}
 	}

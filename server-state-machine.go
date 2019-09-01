@@ -122,6 +122,8 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	clientALPN := new(ALPNExtension)
 	clientPSKModes := new(PSKKeyExchangeModesExtension)
 	clientCookie := new(CookieExtension)
+	clientClientCertTypes := new(ClientCertTypeExtension)
+	clientServerCertTypes := new(ServerCertTypeExtension)
 
 	// Handle external extensions.
 	if state.Config.ExtensionHandler != nil {
@@ -144,6 +146,8 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 			clientALPN,
 			clientPSKModes,
 			clientCookie,
+			clientClientCertTypes,
+			clientServerCertTypes,
 		})
 
 	if err != nil {
@@ -331,6 +335,7 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	var pskSecret []byte
 	var cert *Certificate
 	var certScheme SignatureScheme
+	rawPublicKey := false
 	if connParams.UsingPSK {
 		pskSecret = psk.Key
 	} else {
@@ -342,6 +347,11 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 			foundExts[ExtensionTypeSignatureAlgorithms]) {
 			logf(logTypeHandshake, "[ServerStateStart] Insufficient extensions (%v)", foundExts)
 			return nil, nil, AlertMissingExtension
+		}
+
+		// Figure out if we're going to use a certificate or a raw public key
+		if foundExts[ExtensionTypeServerCertType] && state.Config.AllowRawPublicKeys {
+			rawPublicKey = true
 		}
 
 		// Select a certificate
@@ -394,6 +404,7 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		selectedPSK:              selectedPSK,
 		cert:                     cert,
 		certScheme:               certScheme,
+		rawPublicKey:             rawPublicKey,
 		legacySessionId:          ch.LegacySessionID,
 		clientEarlyTrafficSecret: clientEarlyTrafficSecret,
 
@@ -456,6 +467,7 @@ type serverStateNegotiated struct {
 	selectedPSK              int
 	cert                     *Certificate
 	certScheme               SignatureScheme
+	rawPublicKey             bool
 	legacySessionId          []byte
 	firstClientHello         *HandshakeMessage
 	helloRetryRequest        *HandshakeMessage
@@ -591,6 +603,27 @@ func (state serverStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 			return nil, nil, AlertInternalError
 		}
 	}
+	if state.rawPublicKey {
+		logf(logTypeHandshake, "[server] sending ClientCertType extension")
+		err = eeList.Add(&ClientCertTypeExtension{
+			HandshakeType:    HandshakeTypeEncryptedExtensions,
+			CertificateTypes: []CertificateType{CertificateTypeRawPublicKey},
+		})
+		if err != nil {
+			logf(logTypeHandshake, "[ServerStateNegotiated] Error adding CCT to EncryptedExtensions [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+
+		logf(logTypeHandshake, "[server] sending ServerCertType extension")
+		err = eeList.Add(&ServerCertTypeExtension{
+			HandshakeType:    HandshakeTypeEncryptedExtensions,
+			CertificateTypes: []CertificateType{CertificateTypeRawPublicKey},
+		})
+		if err != nil {
+			logf(logTypeHandshake, "[ServerStateNegotiated] Error adding SCT to EncryptedExtensions [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+	}
 	ee := &EncryptedExtensionsBody{eeList}
 
 	// Run the external extension handler.
@@ -643,13 +676,19 @@ func (state serverStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 			handshakeHash.Write(crm.Marshal())
 		}
 
-		// Create and send Certificate, CertificateVerify
-		certificate := &CertificateBody{
-			CertificateList: make([]CertificateEntry, len(state.cert.Chain)),
+		// Create and send Certificate
+		var certList []CertificateEntry
+		if !state.rawPublicKey {
+			certList = make([]CertificateEntry, len(state.cert.Chain))
+			for i, entry := range state.cert.Chain {
+				certList[i] = CertificateEntry{CertData: entry}
+			}
+		} else {
+			// TODO
+			panic("raw public keys not implemented yet")
 		}
-		for i, entry := range state.cert.Chain {
-			certificate.CertificateList[i] = CertificateEntry{CertData: entry}
-		}
+
+		certificate := &CertificateBody{CertificateList: certList}
 		certm, err := state.hsCtx.hOut.HandshakeMessageFromBody(certificate)
 		if err != nil {
 			logf(logTypeHandshake, "[ServerStateNegotiated] Error marshaling Certificate [%v]", err)
@@ -659,6 +698,7 @@ func (state serverStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 		toSend = append(toSend, QueueHandshakeMessage{certm})
 		handshakeHash.Write(certm.Marshal())
 
+		// Create and send CertificateVerify
 		certificateVerify := &CertificateVerifyBody{Algorithm: state.certScheme}
 		logf(logTypeHandshake, "Creating CertVerify: %04x %v", state.certScheme, params.Hash)
 

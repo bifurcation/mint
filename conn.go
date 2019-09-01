@@ -129,6 +129,11 @@ type Config struct {
 	NonBlocking      bool
 	UseDTLS          bool
 
+	// These bools are arranged in opposite directions so that their default
+	// values reflect the correct default semantics (certs yes, raw keys no)
+	AllowRawPublicKeys bool
+	ForbidCertificates bool
+
 	RecordLayer RecordLayerFactory
 
 	// The same config object can be shared among different connections, so it
