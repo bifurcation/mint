@@ -65,7 +65,7 @@ func TestNewKeyShare(t *testing.T) {
 	}
 
 	for _, group := range nonECGroups {
-		priv, pub, err := newKeyShare(group)
+		pub, priv, err := newKeyShare(group)
 		assertNotError(t, err, "Failed to generate new key pair")
 		assertNotNil(t, priv, "Private key is nil")
 		assertEquals(t, len(pub), keyExchangeSizeFromNamedGroup(group))
