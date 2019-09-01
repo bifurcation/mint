@@ -57,6 +57,7 @@ type ConnectionOptions struct {
 type ConnectionParameters struct {
 	UsingPSK               bool
 	UsingDH                bool
+	UsingRawPublicKeys     bool
 	ClientSendingEarlyData bool
 	UsingEarlyData         bool
 	RejectedEarlyData      bool
@@ -97,7 +98,7 @@ type stateConnected struct {
 	clientTrafficSecret []byte
 	serverTrafficSecret []byte
 	exporterSecret      []byte
-	peerCertificates    []*x509.Certificate
+	peerCertificates    [][]byte
 	verifiedChains      [][]*x509.Certificate
 }
 

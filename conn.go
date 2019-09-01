@@ -16,6 +16,7 @@ import (
 type Certificate struct {
 	Chain      []*x509.Certificate
 	PrivateKey crypto.Signer
+	PublicKey  crypto.PublicKey
 }
 
 type PreSharedKey struct {
@@ -255,7 +256,7 @@ var (
 type ConnectionState struct {
 	HandshakeState   State
 	CipherSuite      CipherSuiteParams     // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
-	PeerCertificates []*x509.Certificate   // certificate chain presented by remote peer
+	PeerCertificates [][]byte              // certificate chain presented by remote peer
 	VerifiedChains   [][]*x509.Certificate // verified chains built from PeerCertificates
 	NextProto        string                // Selected ALPN proto
 	UsingPSK         bool                  // Are we using PSK.

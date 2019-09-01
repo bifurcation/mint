@@ -620,11 +620,15 @@ func (state clientStateWaitEE) Next(hr handshakeMessageReader) (HandshakeState, 
 
 	serverALPN := &ALPNExtension{}
 	serverEarlyData := &EarlyDataExtension{}
+	serverClientCertType := &ClientCertTypeExtension{HandshakeType: HandshakeTypeEncryptedExtensions}
+	serverServerCertType := &ServerCertTypeExtension{HandshakeType: HandshakeTypeEncryptedExtensions}
 
 	foundExts, err := ee.Extensions.Parse(
 		[]ExtensionBody{
 			serverALPN,
 			serverEarlyData,
+			serverClientCertType,
+			serverServerCertType,
 		})
 	if err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitEE] Error decoding extensions: %v", err)
@@ -635,6 +639,14 @@ func (state clientStateWaitEE) Next(hr handshakeMessageReader) (HandshakeState, 
 
 	if foundExts[ExtensionTypeALPN] && len(serverALPN.Protocols) > 0 {
 		state.Params.NextProto = serverALPN.Protocols[0]
+	}
+
+	if foundExts[ExtensionTypeClientCertType] &&
+		foundExts[ExtensionTypeServerCertType] &&
+		state.Config.AllowRawPublicKeys {
+		foundClient := serverClientCertType.CertificateTypes[0] == CertificateTypeRawPublicKey
+		foundServer := serverServerCertType.CertificateTypes[0] == CertificateTypeRawPublicKey
+		state.Params.UsingRawPublicKeys = foundClient && foundServer
 	}
 
 	state.handshakeHash.Write(hm.Marshal())
@@ -848,44 +860,67 @@ func (state clientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	hcv := state.handshakeHash.Sum(nil)
 	logf(logTypeHandshake, "Handshake Hash to be verified: [%d] %x", len(hcv), hcv)
 
-	serverPublicKey := state.serverCertificate.CertificateList[0].CertData.PublicKey
+	certs := make([][]byte, len(state.serverCertificate.CertificateList))
+	for i, certEntry := range state.serverCertificate.CertificateList {
+		certs[i] = certEntry.CertData
+	}
+
+	var err error
+	var serverPublicKey crypto.PublicKey
+	var eeCert *x509.Certificate
+	if !state.Params.UsingRawPublicKeys {
+		eeCert, err = x509.ParseCertificate(certs[0])
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateWaitCV] Unable to parse client cert: %v", err)
+		}
+
+		serverPublicKey = eeCert.PublicKey
+	} else {
+		serverPublicKey, err = unmarshalSigningKey(certs[0])
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateWaitCV] Unable to parse raw public key: %v", err)
+		}
+	}
+
 	if err := certVerify.Verify(serverPublicKey, hcv); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitCV] Server signature failed to verify")
 		return nil, nil, AlertHandshakeFailure
 	}
 
-	certs := make([]*x509.Certificate, len(state.serverCertificate.CertificateList))
-	rawCerts := make([][]byte, len(state.serverCertificate.CertificateList))
-	for i, certEntry := range state.serverCertificate.CertificateList {
-		certs[i] = certEntry.CertData
-		rawCerts[i] = certEntry.CertData.Raw
-	}
-
 	var verifiedChains [][]*x509.Certificate
-	if !state.Config.InsecureSkipVerify {
-		opts := x509.VerifyOptions{
-			Roots:         state.Config.RootCAs,
-			CurrentTime:   state.Config.time(),
-			DNSName:       state.Config.ServerName,
-			Intermediates: x509.NewCertPool(),
-		}
-
-		for i, cert := range certs {
-			if i == 0 {
-				continue
+	if !state.Params.UsingRawPublicKeys {
+		if !state.Config.InsecureSkipVerify {
+			opts := x509.VerifyOptions{
+				Roots:         state.Config.RootCAs,
+				CurrentTime:   state.Config.time(),
+				DNSName:       state.Config.ServerName,
+				Intermediates: x509.NewCertPool(),
 			}
-			opts.Intermediates.AddCert(cert)
-		}
-		var err error
-		verifiedChains, err = certs[0].Verify(opts)
-		if err != nil {
-			logf(logTypeHandshake, "[ClientStateWaitCV] Certificate verification failed: %s", err)
-			return nil, nil, AlertBadCertificate
+
+			for i, cert := range certs {
+				if i == 0 {
+					continue
+				}
+
+				caCert, err := x509.ParseCertificate(cert)
+				if err != nil {
+					logf(logTypeHandshake, "[ClientStateWaitCV] Error parsing server chain: %v", err)
+					return nil, nil, AlertDecodeError
+				}
+
+				opts.Intermediates.AddCert(caCert)
+			}
+			var err error
+			verifiedChains, err = eeCert.Verify(opts)
+			if err != nil {
+				logf(logTypeHandshake, "[ClientStateWaitCV] Certificate verification failed: %s", err)
+				return nil, nil, AlertBadCertificate
+			}
 		}
 	}
 
 	if state.Config.VerifyPeerCertificate != nil {
-		if err := state.Config.VerifyPeerCertificate(rawCerts, verifiedChains); err != nil {
+		if err := state.Config.VerifyPeerCertificate(certs, verifiedChains); err != nil {
 			logf(logTypeHandshake, "[ClientStateWaitCV] Application rejected server certificate: %s", err)
 			return nil, nil, AlertBadCertificate
 		}
@@ -918,7 +953,7 @@ type clientStateWaitFinished struct {
 
 	certificates             []*Certificate
 	serverCertificateRequest *CertificateRequestBody
-	peerCertificates         []*x509.Certificate
+	peerCertificates         [][]byte
 	verifiedChains           [][]*x509.Certificate
 
 	masterSecret                 []byte
@@ -1030,12 +1065,23 @@ func (state clientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 			state.handshakeHash.Write(certm.Marshal())
 		} else {
 			// Create and send Certificate, CertificateVerify
-			certificate := &CertificateBody{
-				CertificateList: make([]CertificateEntry, len(cert.Chain)),
+			var certList []CertificateEntry
+			if !state.Params.UsingRawPublicKeys {
+				certList = make([]CertificateEntry, len(cert.Chain))
+				for i, entry := range cert.Chain {
+					certList[i] = CertificateEntry{CertData: entry.Raw}
+				}
+			} else {
+				certData, err := marshalSigningKey(cert.PublicKey)
+				if err != nil {
+					logf(logTypeHandshake, "[ClientStateWaitFinished] Unable to marshal raw public key [%v]", err)
+					return nil, nil, AlertInternalError
+				}
+
+				certList = []CertificateEntry{{CertData: certData}}
 			}
-			for i, entry := range cert.Chain {
-				certificate.CertificateList[i] = CertificateEntry{CertData: entry}
-			}
+
+			certificate := &CertificateBody{CertificateList: certList}
 			certm, err := state.hsCtx.hOut.HandshakeMessageFromBody(certificate)
 			if err != nil {
 				logf(logTypeHandshake, "[ClientStateWaitFinished] Error marshaling Certificate [%v]", err)
@@ -1045,6 +1091,7 @@ func (state clientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 			toSend = append(toSend, QueueHandshakeMessage{certm})
 			state.handshakeHash.Write(certm.Marshal())
 
+			// Create and send CertificateVerify
 			hcv := state.handshakeHash.Sum(nil)
 			logf(logTypeHandshake, "Handshake Hash to be verified: [%d] %x", len(hcv), hcv)
 
