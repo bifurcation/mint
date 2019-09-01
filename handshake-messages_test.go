@@ -539,29 +539,38 @@ func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {
 	_, err = cv.Unmarshal(certVerifyValid[:5])
 	assertError(t, err, "Unmarshaled a CertificateVerify with no header")
 
-	// Test successful sign / verify round-trip
-	certVerifyValidIn.Algorithm = RSA_PSS_SHA256
-	err = certVerifyValidIn.Sign(privRSA, handshakeHash)
-	assertNotError(t, err, "Failed to sign CertificateVerify")
-
 	// Test sign failure on algorithm
 	originalAlg := certVerifyValidIn.Algorithm
 	certVerifyValidIn.Algorithm = SignatureScheme(0)
-	err = certVerifyValidIn.Sign(privRSA, handshakeHash)
+	err = certVerifyValidIn.Sign(true, privRSA, handshakeHash)
 	assertError(t, err, "Signed CertificateVerify despite bad algorithm")
 	certVerifyValidIn.Algorithm = originalAlg
 
-	// Test successful verify
+	// Test successful sign / verify round trip (client side)
 	certVerifyValidIn = CertificateVerifyBody{Algorithm: RSA_PSS_SHA256}
-	err = certVerifyValidIn.Sign(privRSA, handshakeHash)
+	err = certVerifyValidIn.Sign(false, privRSA, handshakeHash)
 	assertNotError(t, err, "Failed to sign CertificateVerify")
-	err = certVerifyValidIn.Verify(privRSA.Public(), handshakeHash)
+	err = certVerifyValidIn.Verify(false, privRSA.Public(), handshakeHash)
 	assertNotError(t, err, "Failed to verify CertificateVerify")
+
+	// Test successful sign / verify round trip (server side)
+	certVerifyValidIn = CertificateVerifyBody{Algorithm: RSA_PSS_SHA256}
+	err = certVerifyValidIn.Sign(true, privRSA, handshakeHash)
+	assertNotError(t, err, "Failed to sign CertificateVerify")
+	err = certVerifyValidIn.Verify(true, privRSA.Public(), handshakeHash)
+	assertNotError(t, err, "Failed to verify CertificateVerify")
+
+	// Test verify failure on client/server difference
+	certVerifyValidIn = CertificateVerifyBody{Algorithm: RSA_PSS_SHA256}
+	err = certVerifyValidIn.Sign(true, privRSA, handshakeHash)
+	assertNotError(t, err, "Failed to sign CertificateVerify")
+	err = certVerifyValidIn.Verify(false, privRSA.Public(), handshakeHash)
+	assertError(t, err, "Accpepted CertificateVerify in wrong context")
 
 	// Test verify failure on bad algorithm
 	originalAlg = certVerifyValidIn.Algorithm
 	certVerifyValidIn.Algorithm = SignatureScheme(0)
-	err = certVerifyValidIn.Verify(privRSA.Public(), handshakeHash)
+	err = certVerifyValidIn.Verify(true, privRSA.Public(), handshakeHash)
 	assertError(t, err, "Verified CertificateVerify despite bad hash algorithm")
 	certVerifyValidIn.Algorithm = originalAlg
 }

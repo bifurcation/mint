@@ -523,6 +523,8 @@ func HkdfExtract(hash crypto.Hash, saltIn, input []byte) []byte {
 }
 
 const (
+	clientCertVerifyContext             = "TLS 1.3, client CertificateVerify"
+	serverCertVerifyContext             = "TLS 1.3, server CertificateVerify"
 	labelExternalBinder                 = "ext binder"
 	labelResumptionBinder               = "res binder"
 	labelEarlyTrafficSecret             = "c e traffic"
