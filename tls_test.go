@@ -215,6 +215,7 @@ func TestExchangeData(t *testing.T) {
 
 	srv := <-srvCh
 	assertNotNil(t, srv, "Server should have completed handshake")
+	assertNotError(t, serr, "Server should not have raised an error")
 
 	buf := make([]byte, 16)
 	buf = buf[0:6]

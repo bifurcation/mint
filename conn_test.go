@@ -100,7 +100,6 @@ func (b *bufferedConn) Write(buf []byte) (int, error) {
 	ctr := b.writeCounter
 	b.writeCounter++
 	if b.lostWrite[ctr] {
-		fmt.Println("Losing write ", ctr)
 		return 0, nil
 	}
 
@@ -583,10 +582,10 @@ func TestCertChain(t *testing.T) {
 	// generate a CA cert
 	cakey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	certTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-		IsCA:         true,
+		SerialNumber:          big.NewInt(1),
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
 		BasicConstraintsValid: true,
 	}
 	cacertDER, _ := x509.CreateCertificate(rand.Reader, certTemplate, certTemplate, cakey.Public(), cakey)
