@@ -819,7 +819,7 @@ func (state clientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	logf(logTypeHandshake, "Handshake Hash to be verified: [%d] %x", len(hcv), hcv)
 
 	serverPublicKey := state.serverCertificate.CertificateList[0].CertData.PublicKey
-	if err := certVerify.Verify(serverPublicKey, hcv); err != nil {
+	if err := certVerify.Verify(true, serverPublicKey, hcv); err != nil {
 		logf(logTypeHandshake, "[ClientStateWaitCV] Server signature failed to verify")
 		return nil, nil, AlertHandshakeFailure
 	}
@@ -1021,7 +1021,7 @@ func (state clientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 			certificateVerify := &CertificateVerifyBody{Algorithm: certScheme}
 			logf(logTypeHandshake, "Creating CertVerify: %04x %v", certScheme, state.cryptoParams.Hash)
 
-			err = certificateVerify.Sign(cert.PrivateKey, hcv)
+			err = certificateVerify.Sign(false, cert.PrivateKey, hcv)
 			if err != nil {
 				logf(logTypeHandshake, "[ClientStateWaitFinished] Error signing CertificateVerify [%v]", err)
 				return nil, nil, AlertInternalError

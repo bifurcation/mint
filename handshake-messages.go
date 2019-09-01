@@ -124,7 +124,6 @@ func (ch *ClientHelloBody) Unmarshal(data []byte) (int, error) {
 	return read, nil
 }
 
-// TODO: File a spec bug to clarify this
 func (ch ClientHelloBody) Truncated() ([]byte, error) {
 	if len(ch.Extensions) == 0 {
 		return nil, fmt.Errorf("tls.clienthello.truncate: No extensions")
@@ -205,8 +204,6 @@ func (sh *ServerHelloBody) Unmarshal(data []byte) (int, error) {
 //
 // For similar reasons, we don't use the `syntax` module here, because this
 // struct doesn't map well to standard TLS presentation language concepts.
-//
-// TODO: File a spec bug
 type FinishedBody struct {
 	VerifyDataLen int
 	VerifyData    []byte
@@ -351,10 +348,12 @@ func (cv *CertificateVerifyBody) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, cv)
 }
 
-func (cv *CertificateVerifyBody) EncodeSignatureInput(data []byte) []byte {
-	// TODO: Change context for client auth
-	// TODO: Put this in a const
-	const context = "TLS 1.3, server CertificateVerify"
+func (cv *CertificateVerifyBody) EncodeSignatureInput(server bool, data []byte) []byte {
+	context := clientCertVerifyContext
+	if server {
+		context = serverCertVerifyContext
+	}
+
 	sigInput := bytes.Repeat([]byte{0x20}, 64)
 	sigInput = append(sigInput, []byte(context)...)
 	sigInput = append(sigInput, []byte{0}...)
@@ -362,15 +361,15 @@ func (cv *CertificateVerifyBody) EncodeSignatureInput(data []byte) []byte {
 	return sigInput
 }
 
-func (cv *CertificateVerifyBody) Sign(privateKey crypto.Signer, handshakeHash []byte) (err error) {
-	sigInput := cv.EncodeSignatureInput(handshakeHash)
+func (cv *CertificateVerifyBody) Sign(server bool, privateKey crypto.Signer, handshakeHash []byte) (err error) {
+	sigInput := cv.EncodeSignatureInput(server, handshakeHash)
 	cv.Signature, err = sign(cv.Algorithm, privateKey, sigInput)
 	logf(logTypeHandshake, "Signed: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return
 }
 
-func (cv *CertificateVerifyBody) Verify(publicKey crypto.PublicKey, handshakeHash []byte) error {
-	sigInput := cv.EncodeSignatureInput(handshakeHash)
+func (cv *CertificateVerifyBody) Verify(server bool, publicKey crypto.PublicKey, handshakeHash []byte) error {
+	sigInput := cv.EncodeSignatureInput(server, handshakeHash)
 	logf(logTypeHandshake, "About to verify: alg=[%04x] sigInput=[%x], sig=[%x]", cv.Algorithm, sigInput, cv.Signature)
 	return verify(cv.Algorithm, publicKey, sigInput, cv.Signature)
 }
