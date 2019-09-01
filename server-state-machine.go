@@ -702,7 +702,7 @@ func (state serverStateNegotiated) Next(_ handshakeMessageReader) (HandshakeStat
 				certList[i] = CertificateEntry{CertData: entry.Raw}
 			}
 		} else {
-			certData, err := marshalSigningKey(state.cert.PublicKey)
+			certData, err := marshalSigningKey(state.cert.PrivateKey.Public())
 			if err != nil {
 				logf(logTypeHandshake, "[ServerStateNegotiated] Unable to marshal raw public key [%v]", err)
 				return nil, nil, AlertInternalError
