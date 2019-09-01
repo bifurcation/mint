@@ -96,6 +96,12 @@ func newTypeEncoder(t reflect.Type) encoderFunc {
 
 ///// Specific encoders below
 
+func omitEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+	// This space intentionally left blank
+}
+
+//////////
+
 func marshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 	if v.Kind() == reflect.Ptr && v.IsNil() {
 		panic(fmt.Errorf("Cannot encode nil pointer"))
@@ -242,6 +248,11 @@ func newStructEncoder(t reflect.Type) encoderFunc {
 		f := t.Field(i)
 		tag := f.Tag.Get("tls")
 		tagOpts := parseTag(tag)
+
+		if tagOpts[omitOption] > 0 {
+			se.fieldEncs[i] = omitEncoder
+			continue
+		}
 
 		se.fieldOpts[i] = encOpts{
 			head:   tagOpts["head"],
