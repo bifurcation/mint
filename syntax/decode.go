@@ -32,6 +32,7 @@ type decOpts struct {
 	min    uint // minimum size in bytes
 	max    uint // maximum size in bytes
 	varint bool // whether to decode as a varint
+	none   bool // whether to decode at all
 }
 
 type decodeState struct {
@@ -287,6 +288,10 @@ func newSliceDecoder(t reflect.Type) decoderFunc {
 
 //////////
 
+func noopDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
+	return 0
+}
+
 type structDecoder struct {
 	fieldOpts []decOpts
 	fieldDecs []decoderFunc
@@ -318,6 +323,12 @@ func newStructDecoder(t reflect.Type) decoderFunc {
 			max:    tagOpts["max"],
 			min:    tagOpts["min"],
 			varint: tagOpts[varintOption] > 0,
+			none:   tagOpts[noneOption] > 0,
+		}
+
+		if sd.fieldOpts[i].none {
+			sd.fieldDecs[i] = noopDecoder
+			continue
 		}
 
 		sd.fieldDecs[i] = typeDecoder(f.Type)

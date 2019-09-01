@@ -29,6 +29,7 @@ type encOpts struct {
 	min    uint // minimum size in bytes
 	max    uint // maximum size in bytes
 	varint bool // whether to encode as a varint
+	none   bool // whether to encode at all
 }
 
 type encodeState struct {
@@ -220,6 +221,8 @@ func newSliceEncoder(t reflect.Type) encoderFunc {
 
 //////////
 
+func noopEncoder(e *encodeState, v reflect.Value, opts encOpts) {}
+
 type structEncoder struct {
 	fieldOpts []encOpts
 	fieldEncs []encoderFunc
@@ -248,7 +251,14 @@ func newStructEncoder(t reflect.Type) encoderFunc {
 			max:    tagOpts["max"],
 			min:    tagOpts["min"],
 			varint: tagOpts[varintOption] > 0,
+			none:   tagOpts[noneOption] > 0,
 		}
+
+		if se.fieldOpts[i].none {
+			se.fieldEncs[i] = noopEncoder
+			continue
+		}
+
 		se.fieldEncs[i] = typeEncoder(f.Type)
 	}
 

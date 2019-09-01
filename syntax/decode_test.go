@@ -20,6 +20,28 @@ func TestDecodeUnsupported(t *testing.T) {
 	}
 }
 
+func TestDecodeNone(t *testing.T) {
+	template := struct {
+		A uint16
+		B uint16 `tls:"none"`
+		C uint16
+	}{}
+	encoding := unhex("AAAACCCC")
+
+	template.B = 0xBBBB
+	n, err := Unmarshal(encoding, &template)
+	if n != len(encoding) {
+		t.Fatalf("Failed to use all of the encoded value")
+	}
+	if err != nil {
+		t.Fatalf("Error in unmarshal: %v", err)
+	}
+	if template.B != 0xBBBB {
+		t.Fatalf("Overwrote value of unencoded field")
+	}
+
+}
+
 func TestDecodeErrors(t *testing.T) {
 	vector0x20 := append([]byte{0x20}, buffer(0x20)...)
 	errorCases := map[string]struct {

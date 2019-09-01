@@ -10,6 +10,7 @@ import (
 type tagOptions map[string]uint
 
 var (
+	noneOption   = "none"
 	varintOption = "varint"
 
 	headOptionNone   = "none"
@@ -24,6 +25,11 @@ var (
 func parseTag(tag string) tagOptions {
 	opts := tagOptions{}
 	for _, token := range strings.Split(tag, ",") {
+		if token == noneOption {
+			opts[noneOption] = 1
+			continue
+		}
+
 		if token == varintOption {
 			opts[varintOption] = 1
 			continue

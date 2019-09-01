@@ -174,6 +174,18 @@ func TestSuccessCases(t *testing.T) {
 			value:    struct{ V *uint16 }{V: &dummyUint16},
 			encoding: unhex("B0A0"),
 		},
+		"struct-none": {
+			value: struct {
+				A uint16
+				B uint16 `tls:"none"`
+				C uint16
+			}{
+				A: 0xAAAA,
+				B: 0x0000, // must be zero value in order for tests to pass
+				C: 0xCCCC,
+			},
+			encoding: unhex("AAAACCCC"),
+		},
 
 		// Marshaler
 		"marshaler": {
