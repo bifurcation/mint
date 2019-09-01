@@ -322,11 +322,14 @@ func init() {
 	}
 }
 
-func assertKeySetEquals(t *testing.T, k1, k2 keySet) {
+func assertKeySetEquals(t *testing.T, k1, k2 KeySet) {
 	t.Helper()
 	// Assume cipher is the same
-	assertByteEquals(t, k1.iv, k2.iv)
-	assertByteEquals(t, k1.key, k2.key)
+	assertTrue(t, len(k1.Keys) > 0, "assert that there are some keys")
+	assertEquals(t, len(k1.Keys), len(k2.Keys))
+	for k, v := range k1.Keys {
+		assertByteEquals(t, v, k2.Keys[k])
+	}
 }
 
 func computeExporter(t *testing.T, c *Conn, label string, context []byte, length int) []byte {
@@ -379,9 +382,9 @@ func testConnInner(t *testing.T, name string, p testInstanceState) {
 
 	done := make(chan bool)
 	go func(t *testing.T) {
+		defer close(done)
 		serverAlert = server.Handshake()
 		assertEquals(t, serverAlert, AlertNoAlert)
-		done <- true
 	}(t)
 
 	clientAlert = client.Handshake()
@@ -1689,6 +1692,38 @@ func TestDTLSOutOfEpochPostHSDiscard(t *testing.T) {
 	tmp := make([]byte, 10)
 	_, err := server.Read(tmp)
 	assertEquals(t, err, AlertWouldBlock)
+}
+
+func TestHRRRecordVersion(t *testing.T) {
+	cConn, sConn := pipe()
+	cbConn := newBufferedConn(cConn)
+	sbConn := newBufferedConn(sConn)
+
+	cconf := *pskConfig
+	cconf.NonBlocking = true
+	client := Client(cbConn, &cconf)
+	sconf := *hrrConfig
+	sconf.NonBlocking = true
+	cp, err := NewDefaultCookieProtector()
+	assertNotError(t, err, "Couldn't make default cookie protector")
+	sconf.CookieProtector = cp
+	server := Server(sbConn, &sconf)
+
+	hsUntilBlocked(t, client, cbConn) // CH1
+	cbConn.Flush()
+	hsUntilBlocked(t, server, sbConn) // HRR
+	sbConn.Flush()
+	hsUntilBlocked(t, client, cbConn) // CH2
+
+	p := make([]byte, 3)
+	_, err = io.ReadFull(&cbConn.buffer, p)
+	assertNotError(t, err, "should have records available")
+	expectedRecord := []byte{
+		byte(RecordTypeHandshake),
+		byte(tls12Version >> 8),
+		byte(tls12Version & 0xff),
+	}
+	assertByteEquals(t, p, expectedRecord)
 }
 
 // Test for issue #175.
