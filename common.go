@@ -125,6 +125,8 @@ const (
 	ExtensionTypeCookie              ExtensionType = 44
 	ExtensionTypePSKKeyExchangeModes ExtensionType = 45
 	ExtensionTypeTicketEarlyDataInfo ExtensionType = 46
+	ExtensionTypeClientCertType      ExtensionType = 19
+	ExtensionTypeServerCertType      ExtensionType = 20
 )
 
 // enum {...} NamedGroup
@@ -162,6 +164,19 @@ type KeyUpdateRequest uint8
 const (
 	KeyUpdateNotRequested KeyUpdateRequest = 0
 	KeyUpdateRequested    KeyUpdateRequest = 1
+)
+
+/*
+0 	X.509 	Y 	[RFC6091]
+1 	OpenPGP_RESERVED 	N 	[RFC6091][RFC8446] 	Used in TLS versions prior to 1.3.
+2 	Raw Public Key 	Y 	[RFC7250]
+3 	1609Dot2 	N
+*/
+type CertificateType uint8
+
+const (
+	CertificateTypeX509         CertificateType = 0
+	CertificateTypeRawPublicKey CertificateType = 2
 )
 
 type State uint8
