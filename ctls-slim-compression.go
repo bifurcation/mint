@@ -10,7 +10,6 @@ import (
 
 // TODO: Message sequences => PSK support
 // TODO: Certificate suppression
-// TODO: Ciphersuite suppression
 
 // Slimmed-down message formats
 
@@ -19,14 +18,12 @@ type slimExtension struct {
 	ExtensionData []byte        `tls:"head=varint"`
 }
 
-type slimClientHello struct {
-	CipherSuites []CipherSuite   `tls:"head=varint"`
-	Extensions   []slimExtension `tls:"head=varint"`
+type slimExtensionList struct {
+	Extensions []slimExtension `tls:"head=varint"`
 }
 
-type slimServerHello struct {
-	CipherSuite CipherSuite
-	Extensions  []slimExtension `tls:"head=varint"`
+type slimCipherSuites struct {
+	CipherSuites []CipherSuite `tls:"head=varint"`
 }
 
 type slimEncryptedExtensions struct {
@@ -128,10 +125,20 @@ func unslimify(slim []slimExtension, predefined PredefinedExtensions) (Extension
 
 // Compression logic
 
+type ClientHelloConstraints struct {
+	RandomSize int
+	Extensions PredefinedExtensions
+}
+
+type ServerHelloConstraints struct {
+	RandomSize int
+	Extensions PredefinedExtensions
+}
+
 type SlimCompression struct {
-	RandomSize                   int
-	ClientHelloExtensions        PredefinedExtensions
-	ServerHelloExtensions        PredefinedExtensions
+	CipherSuite                  *CipherSuite
+	ClientHello                  ClientHelloConstraints
+	ServerHello                  ServerHelloConstraints
 	EncryptedExtensions          PredefinedExtensions
 	CertificateRequestExtensions PredefinedExtensions
 	CertificateExtensions        PredefinedExtensions
@@ -198,26 +205,37 @@ func (c SlimCompression) CompressClientHello(chm []byte) ([]byte, error) {
 	logf(logTypeCompression, "Compression.ClientHello.In: [%d] [%x]", len(chm), chm)
 	body, err := c.unmarshalOne(HandshakeTypeClientHello, chm)
 	if err != nil {
+		logf(logTypeCompression, "Compression.ClientHello.Error1: [%v]", err)
 		return nil, err
 	}
 	ch := body.(*ClientHelloBody)
 
-	random := ch.Random[:c.RandomSize]
+	randomData := ch.Random[:c.ClientHello.RandomSize]
 
-	sch := slimClientHello{
-		CipherSuites: ch.CipherSuites,
+	suiteData := []byte{}
+	if c.CipherSuite == nil {
+		suites := slimCipherSuites{ch.CipherSuites}
+		suiteData, err = syntax.Marshal(suites)
+		if err != nil {
+			logf(logTypeCompression, "Compression.ClientHello.Error2: [%v]", err)
+			return nil, err
+		}
 	}
-	sch.Extensions, err = slimify(ch.Extensions, c.ClientHelloExtensions)
+
+	extensions, err := slimify(ch.Extensions, c.ClientHello.Extensions)
 	if err != nil {
+		logf(logTypeCompression, "Compression.ClientHello.Error3: [%v]", err)
 		return nil, err
 	}
 
-	schData, err := syntax.Marshal(sch)
+	extData, err := syntax.Marshal(slimExtensionList{extensions})
 	if err != nil {
+		logf(logTypeCompression, "Compression.ClientHello.Error4: [%v]", err)
 		return nil, err
 	}
 
-	schData = append(random, schData...)
+	schData := append(randomData, suiteData...)
+	schData = append(schData, extData...)
 
 	logf(logTypeCompression, "Compression.ClientHello.Out: [%d] [%x]", len(schData), schData)
 	return schData, nil
@@ -226,34 +244,56 @@ func (c SlimCompression) CompressClientHello(chm []byte) ([]byte, error) {
 func (c SlimCompression) ReadClientHello(schData []byte) ([]byte, int, error) {
 	logf(logTypeCompression, "Decompression.ClientHello.In: [%d] [%x]", len(schData), schData)
 
-	random := schData[:c.RandomSize]
-	schData = schData[c.RandomSize:]
+	random := schData[:c.ClientHello.RandomSize]
+	schData = schData[c.ClientHello.RandomSize:]
+	read := len(random)
 
-	sch := slimClientHello{}
-	read, err := syntax.Unmarshal(schData, &sch)
+	suites := []CipherSuite{}
+	if c.CipherSuite != nil {
+		suites = []CipherSuite{*c.CipherSuite}
+	} else {
+		ssuites := slimCipherSuites{}
+		readSuites, err := syntax.Unmarshal(schData, &ssuites)
+		if err != nil {
+			logf(logTypeCompression, "Decompression.ClientHello.Error1: [%v]", err)
+			return nil, 0, err
+		}
+
+		suites = ssuites.CipherSuites
+		schData = schData[readSuites:]
+		read += readSuites
+	}
+
+	sext := slimExtensionList{}
+	readExt, err := syntax.Unmarshal(schData, &sext)
 	if err != nil {
+		logf(logTypeCompression, "Decompression.ClientHello.Error2: [%v]", err)
 		return nil, 0, err
 	}
 
+	read += readExt
+
 	ch := &ClientHelloBody{
 		LegacyVersion: tls12Version,
-		CipherSuites:  sch.CipherSuites,
+		CipherSuites:  suites,
 	}
 
 	copy(ch.Random[:], random)
 
-	ch.Extensions, err = unslimify(sch.Extensions, c.ClientHelloExtensions)
+	ch.Extensions, err = unslimify(sext.Extensions, c.ClientHello.Extensions)
 	if err != nil {
+		logf(logTypeCompression, "Decompression.ClientHello.Error3: [%v]", err)
 		return nil, 0, err
 	}
 
 	chm, err := c.marshalOne(ch)
 	if err != nil {
+		logf(logTypeCompression, "Decompression.ClientHello.Error4: [%v] [%+v]", err, ch)
 		return nil, 0, err
 	}
 
 	logf(logTypeCompression, "Decompression.ClientHello.Out: [%d] [%x]", len(chm), chm)
-	return chm, len(random) + read, nil
+	return chm, read, nil
 }
 
 func (c SlimCompression) CompressServerHello(shm []byte) ([]byte, error) {
@@ -264,20 +304,28 @@ func (c SlimCompression) CompressServerHello(shm []byte) ([]byte, error) {
 	}
 	sh := body.(*ServerHelloBody)
 
-	random := sh.Random[:c.RandomSize]
+	randomData := sh.Random[:c.ServerHello.RandomSize]
 
-	ssh := slimServerHello{CipherSuite: sh.CipherSuite}
-	ssh.Extensions, err = slimify(sh.Extensions, c.ServerHelloExtensions)
+	suiteData := []byte{}
+	if c.CipherSuite == nil {
+		suiteData, err = syntax.Marshal(sh.CipherSuite)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	sext, err := slimify(sh.Extensions, c.ServerHello.Extensions)
 	if err != nil {
 		return nil, err
 	}
 
-	sshData, err := syntax.Marshal(ssh)
+	extData, err := syntax.Marshal(slimExtensionList{sext})
 	if err != nil {
 		return nil, err
 	}
 
-	sshData = append(random, sshData...)
+	sshData := append(randomData, suiteData...)
+	sshData = append(sshData, extData...)
 
 	logf(logTypeCompression, "Compression.ServerHello.Out: [%d] [%x]", len(sshData), sshData)
 	return sshData, nil
@@ -286,23 +334,39 @@ func (c SlimCompression) CompressServerHello(shm []byte) ([]byte, error) {
 func (c SlimCompression) ReadServerHello(sshData []byte) ([]byte, int, error) {
 	logf(logTypeCompression, "Decompression.ServerHello.In: [%d] [%x]", len(sshData), sshData)
 
-	random := sshData[:c.RandomSize]
-	sshData = sshData[c.RandomSize:]
+	random := sshData[:c.ServerHello.RandomSize]
+	sshData = sshData[c.ServerHello.RandomSize:]
+	read := c.ServerHello.RandomSize
 
-	ssh := slimServerHello{}
-	read, err := syntax.Unmarshal(sshData, &ssh)
+	var suite CipherSuite
+	if c.CipherSuite != nil {
+		suite = *c.CipherSuite
+	} else {
+		readSuite, err := syntax.Unmarshal(sshData, &suite)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		sshData = sshData[readSuite:]
+		read += readSuite
+	}
+
+	sext := slimExtensionList{}
+	readExt, err := syntax.Unmarshal(sshData, &sext)
 	if err != nil {
 		return nil, 0, err
 	}
 
+	read += readExt
+
 	sh := &ServerHelloBody{
 		Version:     tls12Version,
-		CipherSuite: ssh.CipherSuite,
+		CipherSuite: suite,
 	}
 
 	copy(sh.Random[:], random)
 
-	sh.Extensions, err = unslimify(ssh.Extensions, c.ServerHelloExtensions)
+	sh.Extensions, err = unslimify(sext.Extensions, c.ServerHello.Extensions)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -313,7 +377,7 @@ func (c SlimCompression) ReadServerHello(sshData []byte) ([]byte, int, error) {
 	}
 
 	logf(logTypeCompression, "Decompression.ServerHello.Out: [%d] [%x]", len(shm), shm)
-	return shm, len(random) + read, nil
+	return shm, read, nil
 }
 
 func (c SlimCompression) compressFlight(hmData []byte, server bool) ([]byte, error) {

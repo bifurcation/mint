@@ -54,15 +54,23 @@ func TestCTLSSlim(t *testing.T) {
 	finishedSize := 8
 
 	compression := &SlimCompression{
-		RandomSize: randomSize,
-		ClientHelloExtensions: PredefinedExtensions{
-			ExtensionTypeServerName:          unhex("000e00000b6578616d706c652e636f6d"),
-			ExtensionTypeSupportedGroups:     unhex(fmt.Sprintf("0002%04x", group)),
-			ExtensionTypeSignatureAlgorithms: unhex(fmt.Sprintf("0002%04x", scheme)),
-			ExtensionTypeSupportedVersions:   unhex("020304"),
+		CipherSuite: &suite,
+
+		ClientHello: ClientHelloConstraints{
+			RandomSize: randomSize,
+			Extensions: PredefinedExtensions{
+				ExtensionTypeServerName:          unhex("000e00000b6578616d706c652e636f6d"),
+				ExtensionTypeSupportedGroups:     unhex(fmt.Sprintf("0002%04x", group)),
+				ExtensionTypeSignatureAlgorithms: unhex(fmt.Sprintf("0002%04x", scheme)),
+				ExtensionTypeSupportedVersions:   unhex("020304"),
+			},
 		},
-		ServerHelloExtensions: PredefinedExtensions{
-			ExtensionTypeSupportedVersions: unhex("0304"),
+
+		ServerHello: ServerHelloConstraints{
+			RandomSize: randomSize,
+			Extensions: PredefinedExtensions{
+				ExtensionTypeSupportedVersions: unhex("0304"),
+			},
 		},
 	}
 
