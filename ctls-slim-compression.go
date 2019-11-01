@@ -26,18 +26,14 @@ type slimCipherSuites struct {
 	CipherSuites []CipherSuite `tls:"head=varint"`
 }
 
-type slimEncryptedExtensions struct {
-	Extensions []slimExtension `tls:"head=varint"`
-}
-
 type slimCertificateRequest struct {
-	CertificateRequestContext []byte          `tls:"head=varint"`
-	Extensions                []slimExtension `tls:"head=varint"`
+	CertificateRequestContext []byte `tls:"head=varint"`
+	Extensions                slimExtensionList
 }
 
 type slimCertificateEntry struct {
-	CertData   []byte          `tls:"head=varint"`
-	Extensions []slimExtension `tls:"head=varint"`
+	CertData   []byte `tls:"head=varint"`
+	Extensions slimExtensionList
 }
 
 type slimCertificate struct {
@@ -67,7 +63,7 @@ type slimCertificateVerify struct {
 //   with a different value than is specified in the map
 type PredefinedExtensions map[ExtensionType][]byte
 
-func slimify(exts ExtensionList, predefined PredefinedExtensions) ([]slimExtension, error) {
+func slimify(exts ExtensionList, predefined PredefinedExtensions) (slimExtensionList, error) {
 	predefSeen := map[ExtensionType]bool{}
 
 	slim := []slimExtension{}
@@ -84,7 +80,7 @@ func slimify(exts ExtensionList, predefined PredefinedExtensions) ([]slimExtensi
 		if !bytes.Equal(predefVal, ext.ExtensionData) {
 			err := fmt.Errorf("Incorrect value for predefined extension")
 			logf(logTypeCompression, "Compression.Ext error: [%v] [%x] [%x]", err, predefVal, ext.ExtensionData)
-			return nil, err
+			return slimExtensionList{}, err
 		}
 	}
 
@@ -95,16 +91,16 @@ func slimify(exts ExtensionList, predefined PredefinedExtensions) ([]slimExtensi
 
 		err := fmt.Errorf("Required extension %04x not provided", extType)
 		logf(logTypeCompression, "Compression.Ext error: [%v] [%x] [%x]", err, predefSeen, predefined)
-		return nil, err
+		return slimExtensionList{}, err
 	}
 
-	return slim, nil
+	return slimExtensionList{slim}, nil
 }
 
-func unslimify(slim []slimExtension, predefined PredefinedExtensions) (ExtensionList, error) {
+func unslimify(slim slimExtensionList, predefined PredefinedExtensions) (ExtensionList, error) {
 	exts := ExtensionList{}
 
-	for _, ext := range slim {
+	for _, ext := range slim.Extensions {
 		predefVal, defined := predefined[ext.ExtensionType]
 
 		if defined && !bytes.Equal(predefVal, ext.ExtensionData) {
@@ -228,7 +224,7 @@ func (c SlimCompression) CompressClientHello(chm []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	extData, err := syntax.Marshal(slimExtensionList{extensions})
+	extData, err := syntax.Marshal(extensions)
 	if err != nil {
 		logf(logTypeCompression, "Compression.ClientHello.Error4: [%v]", err)
 		return nil, err
@@ -280,7 +276,7 @@ func (c SlimCompression) ReadClientHello(schData []byte) ([]byte, int, error) {
 
 	copy(ch.Random[:], random)
 
-	ch.Extensions, err = unslimify(sext.Extensions, c.ClientHello.Extensions)
+	ch.Extensions, err = unslimify(sext, c.ClientHello.Extensions)
 	if err != nil {
 		logf(logTypeCompression, "Decompression.ClientHello.Error3: [%v]", err)
 		return nil, 0, err
@@ -319,7 +315,7 @@ func (c SlimCompression) CompressServerHello(shm []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	extData, err := syntax.Marshal(slimExtensionList{sext})
+	extData, err := syntax.Marshal(sext)
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +362,7 @@ func (c SlimCompression) ReadServerHello(sshData []byte) ([]byte, int, error) {
 
 	copy(sh.Random[:], random)
 
-	sh.Extensions, err = unslimify(sext.Extensions, c.ServerHello.Extensions)
+	sh.Extensions, err = unslimify(sext, c.ServerHello.Extensions)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -408,8 +404,7 @@ func (c SlimCompression) compressFlight(hmData []byte, server bool) ([]byte, err
 			return nil, fmt.Errorf("Unexpected message")
 		}
 
-		see := slimEncryptedExtensions{}
-		see.Extensions, err = slimify(ee.Extensions, c.EncryptedExtensions)
+		see, err := slimify(ee.Extensions, c.EncryptedExtensions)
 		if err != nil {
 			return nil, err
 		}
@@ -452,6 +447,7 @@ func (c SlimCompression) compressFlight(hmData []byte, server bool) ([]byte, err
 		return nil, err
 	}
 
+	certDataLen := 0
 	scert := slimCertificate{
 		CertificateRequestContext: cert.CertificateRequestContext,
 		CertificateList:           make([]slimCertificateEntry, len(cert.CertificateList)),
@@ -462,7 +458,10 @@ func (c SlimCompression) compressFlight(hmData []byte, server bool) ([]byte, err
 		if err != nil {
 			return nil, err
 		}
+
+		certDataLen += len(scert.CertificateList[i].CertData)
 	}
+	logf(logTypeCompression, "Compression.Flight.CertData: [%d]", certDataLen)
 
 	certData, err := syntax.Marshal(scert)
 	if err != nil {
@@ -510,14 +509,14 @@ func (c SlimCompression) decompressFlight(flightData []byte, server bool) ([]byt
 	hms := []HandshakeMessageBody{}
 	if server {
 		// Process EncryptedExtensions
-		see := slimEncryptedExtensions{}
+		see := slimExtensionList{}
 		read, err := syntax.Unmarshal(flightData, &see)
 		if err != nil {
 			return nil, err
 		}
 
 		ee := &EncryptedExtensionsBody{}
-		ee.Extensions, err = unslimify(see.Extensions, c.EncryptedExtensions)
+		ee.Extensions, err = unslimify(see, c.EncryptedExtensions)
 		if err != nil {
 			return nil, err
 		}
