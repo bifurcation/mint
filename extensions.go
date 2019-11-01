@@ -78,6 +78,12 @@ func (el *ExtensionList) AddExtension(extType ExtensionType, data []byte) error 
 		}
 	}
 
+	// If the last extension is a PSK, and there is no lower preceding, put this
+	// just before the PSK
+	if cut == len(*el) && len(*el) > 0 && (*el)[len(*el)-1].ExtensionType == ExtensionTypePreSharedKey {
+		cut -= 1
+	}
+
 	// PSK extension has to go at the end
 	if extType == ExtensionTypePreSharedKey {
 		if len(*el) > 0 && (*el)[len(*el)-1].ExtensionType == ExtensionTypePreSharedKey {

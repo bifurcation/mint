@@ -68,23 +68,6 @@ func (state clientStateStart) State() State {
 }
 
 func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, []HandshakeAction, Alert) {
-	// key_shares
-	offeredDH := map[NamedGroup][]byte{}
-	ks := KeyShareExtension{
-		HandshakeType: HandshakeTypeClientHello,
-		Shares:        make([]KeyShareEntry, len(state.Config.Groups)),
-	}
-	for i, group := range state.Config.Groups {
-		pub, priv, err := newKeyShare(group)
-		if err != nil {
-			logf(logTypeHandshake, "[ClientStateStart] Error generating key share [%v]", err)
-			return nil, nil, AlertInternalError
-		}
-
-		ks.Shares[i].Group = group
-		ks.Shares[i].KeyExchange = pub
-		offeredDH[group] = priv
-	}
 
 	logf(logTypeHandshake, "opts: %+v", state.Opts)
 
@@ -122,7 +105,7 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 			ch.Random[i] = 0x00
 		}
 	}
-	for _, ext := range []ExtensionBody{&sv, &sni, &ks, &sg, &sa} {
+	for _, ext := range []ExtensionBody{&sv, &sni, &sg, &sa} {
 		err := ch.Extensions.Add(ext)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateStart] Error adding extension type=[%v] [%v]", ext.Type(), err)
@@ -151,6 +134,34 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		err := state.Config.ExtensionHandler.Send(HandshakeTypeClientHello, &ch.Extensions)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateStart] Error running external extension sender [%v]", err)
+			return nil, nil, AlertInternalError
+		}
+	}
+
+	// Add key shares only if we need them
+	_, havePSK := state.Config.PSKs.Get(state.Opts.ServerName)
+	onlyModeKE := len(state.Config.PSKModes) == 1 || state.Config.PSKModes[0] == PSKModeKE
+	offeredDH := map[NamedGroup][]byte{}
+	if !havePSK || !onlyModeKE {
+		ks := &KeyShareExtension{
+			HandshakeType: HandshakeTypeClientHello,
+			Shares:        make([]KeyShareEntry, len(state.Config.Groups)),
+		}
+		for i, group := range state.Config.Groups {
+			pub, priv, err := newKeyShare(group)
+			if err != nil {
+				logf(logTypeHandshake, "[ClientStateStart] Error generating key share [%v]", err)
+				return nil, nil, AlertInternalError
+			}
+
+			ks.Shares[i].Group = group
+			ks.Shares[i].KeyExchange = pub
+			offeredDH[group] = priv
+		}
+
+		err := ch.Extensions.Add(ks)
+		if err != nil {
+			logf(logTypeHandshake, "[ClientStateStart] Error adding KeyShares extension [%v]", err)
 			return nil, nil, AlertInternalError
 		}
 	}
