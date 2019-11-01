@@ -8,10 +8,16 @@ import (
 	"github.com/bifurcation/mint/syntax"
 )
 
+// TODO: Message sequences => PSK support
+// TODO: Certificate suppression
+// TODO: Ciphersuite suppression
+// TODO: Random truncation
+// TODO: Finished truncation
+
 // Slimmed-down message formats
 
 type slimExtension struct {
-	ExtensionType ExtensionType `tls:varint`
+	ExtensionType ExtensionType `tls:"varint"`
 	ExtensionData []byte        `tls:"head=varint"`
 }
 
