@@ -43,6 +43,58 @@ func TestCTLSRecordLayer(t *testing.T) {
 	assertTrue(t, client.state.Params.UsingClientAuth, "Session did not negotiate client auth")
 }
 
+func TestCTLSSlim(t *testing.T) {
+	suite := TLS_AES_128_CCM_8_SHA256
+	group := X25519
+	scheme := ECDSA_P256_SHA256
+
+	compression := &SlimCompression{}
+
+	configServer := &Config{
+		RequireClientAuth: true,
+		Certificates:      certificates,
+		CipherSuites:      []CipherSuite{suite},
+		SignatureSchemes:  []SignatureScheme{scheme},
+		Groups:            []NamedGroup{group},
+		RecordLayer: CTLSRecordLayerFactory{
+			IsServer:    true,
+			Compression: compression,
+		},
+	}
+	configClient := &Config{
+		ServerName:         serverName,
+		Certificates:       clientCertificates,
+		InsecureSkipVerify: true,
+		CipherSuites:       []CipherSuite{suite},
+		SignatureSchemes:   []SignatureScheme{scheme},
+		Groups:             []NamedGroup{group},
+		RecordLayer: CTLSRecordLayerFactory{
+			IsServer:    false,
+			Compression: compression,
+		},
+	}
+
+	cConn, sConn := pipe()
+	client := Client(cConn, configClient)
+	server := Server(sConn, configServer)
+
+	var clientAlert, serverAlert Alert
+	done := make(chan bool)
+	go func(t *testing.T) {
+		serverAlert = server.Handshake()
+		assertEquals(t, serverAlert, AlertNoAlert)
+		done <- true
+	}(t)
+
+	clientAlert = client.Handshake()
+	assertEquals(t, clientAlert, AlertNoAlert)
+
+	<-done
+
+	checkConsistency(t, client, server)
+	assertTrue(t, client.state.Params.UsingClientAuth, "Session did not negotiate client auth")
+}
+
 func TestCTLSRPK(t *testing.T) {
 	suite := TLS_AES_128_CCM_8_SHA256
 	group := X25519
