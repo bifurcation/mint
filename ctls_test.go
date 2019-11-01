@@ -2,6 +2,7 @@ package mint
 
 import (
 	"crypto/x509"
+	"fmt"
 	"testing"
 )
 
@@ -47,12 +48,15 @@ func TestCTLSSlim(t *testing.T) {
 	suite := TLS_AES_128_CCM_8_SHA256
 	group := X25519
 	scheme := ECDSA_P256_SHA256
+	shortRandom := true
+	randomSize := 8
 
 	compression := &SlimCompression{
+		RandomSize: randomSize,
 		ClientHelloExtensions: PredefinedExtensions{
 			ExtensionTypeServerName:          unhex("000e00000b6578616d706c652e636f6d"),
-			ExtensionTypeSupportedGroups:     unhex("0002001d"),
-			ExtensionTypeSignatureAlgorithms: unhex("00020403"),
+			ExtensionTypeSupportedGroups:     unhex(fmt.Sprintf("0002%04x", group)),
+			ExtensionTypeSignatureAlgorithms: unhex(fmt.Sprintf("0002%04x", scheme)),
 			ExtensionTypeSupportedVersions:   unhex("020304"),
 		},
 		ServerHelloExtensions: PredefinedExtensions{
@@ -66,6 +70,9 @@ func TestCTLSSlim(t *testing.T) {
 		CipherSuites:      []CipherSuite{suite},
 		SignatureSchemes:  []SignatureScheme{scheme},
 		Groups:            []NamedGroup{group},
+		ShortRandom:       shortRandom,
+		RandomSize:        randomSize,
+
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    true,
 			Compression: compression,
@@ -78,6 +85,9 @@ func TestCTLSSlim(t *testing.T) {
 		CipherSuites:       []CipherSuite{suite},
 		SignatureSchemes:   []SignatureScheme{scheme},
 		Groups:             []NamedGroup{group},
+		ShortRandom:        shortRandom,
+		RandomSize:         randomSize,
+
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    false,
 			Compression: compression,
