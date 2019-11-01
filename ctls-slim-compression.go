@@ -11,7 +11,6 @@ import (
 // TODO: Message sequences => PSK support
 // TODO: Certificate suppression
 // TODO: Ciphersuite suppression
-// TODO: Finished truncation
 
 // Slimmed-down message formats
 
@@ -136,7 +135,6 @@ type SlimCompression struct {
 	EncryptedExtensions          PredefinedExtensions
 	CertificateRequestExtensions PredefinedExtensions
 	CertificateExtensions        PredefinedExtensions
-	FinishedSize                 int
 }
 
 func (c SlimCompression) unmarshalOne(msgType HandshakeType, data []byte) (HandshakeMessageBody, error) {

@@ -50,6 +50,8 @@ func TestCTLSSlim(t *testing.T) {
 	scheme := ECDSA_P256_SHA256
 	shortRandom := true
 	randomSize := 8
+	shortFinished := true
+	finishedSize := 8
 
 	compression := &SlimCompression{
 		RandomSize: randomSize,
@@ -72,6 +74,8 @@ func TestCTLSSlim(t *testing.T) {
 		Groups:            []NamedGroup{group},
 		ShortRandom:       shortRandom,
 		RandomSize:        randomSize,
+		ShortFinished:     shortFinished,
+		FinishedSize:      finishedSize,
 
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    true,
@@ -87,6 +91,8 @@ func TestCTLSSlim(t *testing.T) {
 		Groups:             []NamedGroup{group},
 		ShortRandom:        shortRandom,
 		RandomSize:         randomSize,
+		ShortFinished:      shortFinished,
+		FinishedSize:       finishedSize,
 
 		RecordLayer: CTLSRecordLayerFactory{
 			IsServer:    false,
