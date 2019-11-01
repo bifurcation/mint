@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"bytes"
 	"crypto/x509"
 	"fmt"
 
@@ -13,6 +14,8 @@ type slimExtension struct {
 	ExtensionType ExtensionType `tls:varint`
 	ExtensionData []byte        `tls:"head=varint"`
 }
+
+// TODO: We probably need slimeExtensionList that maintains the proper order
 
 type slimClientHello struct {
 	Random       [32]byte
@@ -50,25 +53,87 @@ type slimCertificateVerify struct {
 	Signature []byte `tls:"head=varint"`
 }
 
-func slimify(exts ExtensionList) []slimExtension {
-	slim := make([]slimExtension, len(exts))
-	for i, ext := range exts {
-		slim[i] = slimExtension{ext.ExtensionType, ext.ExtensionData}
+// Extension slimming
+
+// Pre-defined extensions can be used as part of slimming compression.
+//
+// On compress:
+// * Extensions in the map are not serialized
+// * It is an error if any of the following occur
+//   * The value of an extension in the map differs from the value in the map
+//   * An extension in the map is not provided
+// * ... because then decompression will produce a different result
+//
+// On decompress:
+// * Extensions in the map are added to the decompressed extension list
+// * It is an error if an extension in the map is present in the compressed list
+//   with a different value than is specified in the map
+type PredefinedExtensions map[ExtensionType][]byte
+
+func slimify(exts ExtensionList, predefined PredefinedExtensions) ([]slimExtension, error) {
+	predefSeen := map[ExtensionType]bool{}
+
+	slim := []slimExtension{}
+	for _, ext := range exts {
+		predefVal, defined := predefined[ext.ExtensionType]
+
+		if !defined {
+			slim = append(slim, slimExtension{ext.ExtensionType, ext.ExtensionData})
+			continue
+		}
+
+		predefSeen[ext.ExtensionType] = true
+
+		if !bytes.Equal(predefVal, ext.ExtensionData) {
+			err := fmt.Errorf("Incorrect value for predefined extension")
+			logf(logTypeCompression, "Compression.Ext error: [%v] [%x] [%x]", err, predefVal, ext.ExtensionData)
+			return nil, err
+		}
 	}
-	return slim
+
+	for extType := range predefined {
+		if predefSeen[extType] {
+			continue
+		}
+
+		err := fmt.Errorf("Required extension %04x not provided", extType)
+		logf(logTypeCompression, "Compression.Ext error: [%v] [%x] [%x]", err, predefSeen, predefined)
+		return nil, err
+	}
+
+	return slim, nil
 }
 
-func unslimify(slim []slimExtension) ExtensionList {
-	exts := make(ExtensionList, len(slim))
-	for i, ext := range slim {
-		exts[i] = Extension{ext.ExtensionType, ext.ExtensionData}
+func unslimify(slim []slimExtension, predefined PredefinedExtensions) (ExtensionList, error) {
+	exts := ExtensionList{}
+
+	for _, ext := range slim {
+		predefVal, defined := predefined[ext.ExtensionType]
+
+		if defined && !bytes.Equal(predefVal, ext.ExtensionData) {
+			err := fmt.Errorf("Incorrect value for predefined extension")
+			logf(logTypeCompression, "Decompression.Ext error: [%v] [%x] [%x]", err, predefVal, ext.ExtensionData)
+			return nil, err
+		}
+
+		exts.AddExtension(ext.ExtensionType, ext.ExtensionData)
 	}
-	return exts
+
+	for extType, data := range predefined {
+		exts.AddExtension(extType, data)
+	}
+
+	return exts, nil
 }
 
 // Compression logic
 
 type SlimCompression struct {
+	ClientHelloExtensions        PredefinedExtensions
+	ServerHelloExtensions        PredefinedExtensions
+	EncryptedExtensions          PredefinedExtensions
+	CertificateRequestExtensions PredefinedExtensions
+	CertificateExtensions        PredefinedExtensions
 }
 
 func (c SlimCompression) unmarshalOne(msgType HandshakeType, data []byte) (HandshakeMessageBody, error) {
@@ -139,7 +204,10 @@ func (c SlimCompression) CompressClientHello(chm []byte) ([]byte, error) {
 	sch := slimClientHello{
 		Random:       ch.Random,
 		CipherSuites: ch.CipherSuites,
-		Extensions:   slimify(ch.Extensions),
+	}
+	sch.Extensions, err = slimify(ch.Extensions, c.ClientHelloExtensions)
+	if err != nil {
+		return nil, err
 	}
 
 	schData, err := syntax.Marshal(sch)
@@ -164,7 +232,10 @@ func (c SlimCompression) ReadClientHello(schData []byte) ([]byte, int, error) {
 		LegacyVersion: tls12Version,
 		Random:        sch.Random,
 		CipherSuites:  sch.CipherSuites,
-		Extensions:    unslimify(sch.Extensions),
+	}
+	ch.Extensions, err = unslimify(sch.Extensions, c.ClientHelloExtensions)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	chm, err := c.marshalOne(ch)
@@ -187,7 +258,10 @@ func (c SlimCompression) CompressServerHello(shm []byte) ([]byte, error) {
 	ssh := slimServerHello{
 		Random:      sh.Random,
 		CipherSuite: sh.CipherSuite,
-		Extensions:  slimify(sh.Extensions),
+	}
+	ssh.Extensions, err = slimify(sh.Extensions, c.ServerHelloExtensions)
+	if err != nil {
+		return nil, err
 	}
 
 	sshData, err := syntax.Marshal(ssh)
@@ -212,7 +286,10 @@ func (c SlimCompression) ReadServerHello(sshData []byte) ([]byte, int, error) {
 		Version:     tls12Version,
 		Random:      ssh.Random,
 		CipherSuite: ssh.CipherSuite,
-		Extensions:  unslimify(ssh.Extensions),
+	}
+	sh.Extensions, err = unslimify(ssh.Extensions, c.ServerHelloExtensions)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	shm, err := c.marshalOne(sh)
@@ -252,8 +329,10 @@ func (c SlimCompression) compressFlight(hmData []byte, server bool) ([]byte, err
 			return nil, fmt.Errorf("Unexpected message")
 		}
 
-		see := slimEncryptedExtensions{
-			Extensions: slimify(ee.Extensions),
+		see := slimEncryptedExtensions{}
+		see.Extensions, err = slimify(ee.Extensions, c.EncryptedExtensions)
+		if err != nil {
+			return nil, err
 		}
 
 		eeData, err = syntax.Marshal(see)
@@ -273,7 +352,10 @@ func (c SlimCompression) compressFlight(hmData []byte, server bool) ([]byte, err
 
 		scr := slimCertificateRequest{
 			CertificateRequestContext: cr.CertificateRequestContext,
-			Extensions:                slimify(cr.Extensions),
+		}
+		scr.Extensions, err = slimify(cr.Extensions, c.CertificateRequestExtensions)
+		if err != nil {
+			return nil, err
 		}
 
 		certReqData, err = syntax.Marshal(scr)
@@ -296,9 +378,10 @@ func (c SlimCompression) compressFlight(hmData []byte, server bool) ([]byte, err
 		CertificateList:           make([]slimCertificateEntry, len(cert.CertificateList)),
 	}
 	for i, entry := range cert.CertificateList {
-		scert.CertificateList[i] = slimCertificateEntry{
-			CertData:   entry.CertData.Raw,
-			Extensions: slimify(entry.Extensions),
+		scert.CertificateList[i] = slimCertificateEntry{CertData: entry.CertData.Raw}
+		scert.CertificateList[i].Extensions, err = slimify(entry.Extensions, c.CertificateExtensions)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -354,7 +437,11 @@ func (c SlimCompression) decompressFlight(flightData []byte, server bool) ([]byt
 			return nil, err
 		}
 
-		ee := &EncryptedExtensionsBody{unslimify(see.Extensions)}
+		ee := &EncryptedExtensionsBody{}
+		ee.Extensions, err = unslimify(see.Extensions, c.EncryptedExtensions)
+		if err != nil {
+			return nil, err
+		}
 
 		flightData = flightData[read:]
 		hms = append(hms, ee)
@@ -366,9 +453,10 @@ func (c SlimCompression) decompressFlight(flightData []byte, server bool) ([]byt
 			return nil, err
 		}
 
-		cr := &CertificateRequestBody{
-			CertificateRequestContext: scr.CertificateRequestContext,
-			Extensions:                unslimify(scr.Extensions),
+		cr := &CertificateRequestBody{CertificateRequestContext: scr.CertificateRequestContext}
+		cr.Extensions, err = unslimify(scr.Extensions, c.CertificateRequestExtensions)
+		if err != nil {
+			return nil, err
 		}
 
 		flightData = flightData[read:]
@@ -387,8 +475,17 @@ func (c SlimCompression) decompressFlight(flightData []byte, server bool) ([]byt
 		CertificateList:           make([]CertificateEntry, len(scert.CertificateList)),
 	}
 	for i, entry := range scert.CertificateList {
-		cert.CertificateList[i] = CertificateEntry{Extensions: unslimify(entry.Extensions)}
+		cert.CertificateList[i] = CertificateEntry{}
+
 		cert.CertificateList[i].CertData, err = x509.ParseCertificate(entry.CertData)
+		if err != nil {
+			return nil, err
+		}
+
+		cert.CertificateList[i].Extensions, err = unslimify(entry.Extensions, c.CertificateExtensions)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	flightData = flightData[read:]

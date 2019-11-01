@@ -48,7 +48,17 @@ func TestCTLSSlim(t *testing.T) {
 	group := X25519
 	scheme := ECDSA_P256_SHA256
 
-	compression := &SlimCompression{}
+	compression := &SlimCompression{
+		ClientHelloExtensions: PredefinedExtensions{
+			ExtensionTypeServerName:          unhex("000e00000b6578616d706c652e636f6d"),
+			ExtensionTypeSupportedGroups:     unhex("0002001d"),
+			ExtensionTypeSignatureAlgorithms: unhex("00020403"),
+			ExtensionTypeSupportedVersions:   unhex("020304"),
+		},
+		ServerHelloExtensions: PredefinedExtensions{
+			ExtensionTypeSupportedVersions: unhex("0304"),
+		},
+	}
 
 	configServer := &Config{
 		RequireClientAuth: true,

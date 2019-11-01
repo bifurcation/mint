@@ -56,6 +56,10 @@ func (el *ExtensionList) Add(src ExtensionBody) error {
 		return err
 	}
 
+	return el.AddExtension(src.Type(), data)
+}
+
+func (el *ExtensionList) AddExtension(extType ExtensionType, data []byte) error {
 	if el == nil {
 		el = new(ExtensionList)
 	}
@@ -63,19 +67,19 @@ func (el *ExtensionList) Add(src ExtensionBody) error {
 	// If one already exists with this type, replace it
 	cut := len(*el)
 	for i := range *el {
-		if (*el)[i].ExtensionType == src.Type() {
+		if (*el)[i].ExtensionType == extType {
 			(*el)[i].ExtensionData = data
 			return nil
 		}
 
-		if (*el)[i].ExtensionType > src.Type() {
+		if (*el)[i].ExtensionType > extType {
 			cut = i
 			break
 		}
 	}
 
 	// PSK extension has to go at the end
-	if src.Type() == ExtensionTypePreSharedKey {
+	if extType == ExtensionTypePreSharedKey {
 		if len(*el) > 0 && (*el)[len(*el)-1].ExtensionType == ExtensionTypePreSharedKey {
 			(*el)[len(*el)-1].ExtensionData = data
 			return nil
@@ -86,10 +90,7 @@ func (el *ExtensionList) Add(src ExtensionBody) error {
 	// Otherwise insert in order
 	newEL := make(ExtensionList, len(*el)+1)
 	copy(newEL, (*el)[:cut])
-	newEL[cut] = Extension{
-		ExtensionType: src.Type(),
-		ExtensionData: data,
-	}
+	newEL[cut] = Extension{extType, data}
 	copy(newEL[cut+1:], (*el)[cut:])
 	*el = newEL
 	return nil
