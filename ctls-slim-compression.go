@@ -8,9 +8,6 @@ import (
 	"github.com/bifurcation/mint/syntax"
 )
 
-// TODO: Message sequences => PSK support
-// TODO: Certificate suppression
-
 // Slimmed-down message formats
 
 type slimExtension struct {
@@ -138,6 +135,7 @@ type CertificateRequestConstraints struct {
 
 type CertificateConstraints struct {
 	Omit       bool
+	KnownCerts map[string][]byte
 	Extensions PredefinedExtensions
 }
 
@@ -476,10 +474,10 @@ func (c SlimCompression) compressFlight(hmData []byte, server bool) (flightData 
 		}
 	}
 
-	// Process Certificate
 	certData := []byte{}
 	cvData := []byte{}
 	if !c.Certificate.Omit {
+		// Process Certificate
 		body, err := hms[0].ToBody()
 		if err != nil {
 			return nil, err
@@ -495,7 +493,19 @@ func (c SlimCompression) compressFlight(hmData []byte, server bool) (flightData 
 			CertificateList:           make([]slimCertificateEntry, len(cert.CertificateList)),
 		}
 		for i, entry := range cert.CertificateList {
-			scert.CertificateList[i] = slimCertificateEntry{CertData: entry.CertData.Raw}
+			// XXX(rlb): This just opportunistically replaces known certificates with
+			// labels from the dictionary, so there's a risk of collision on
+			// decompression.  This seems unlikely to be a problem in practice, but
+			// might merit some signaling.
+			certData := entry.CertData.Raw
+			for id, knownCert := range c.Certificate.KnownCerts {
+				if bytes.Equal(knownCert, certData) {
+					certData = []byte(id)
+					break
+				}
+			}
+
+			scert.CertificateList[i] = slimCertificateEntry{CertData: certData}
 			scert.CertificateList[i].Extensions, err = slimify(entry.Extensions, c.Certificate.Extensions)
 			if err != nil {
 				return nil, err
@@ -615,7 +625,16 @@ func (c SlimCompression) decompressFlight(flightData []byte, server bool) (hmDat
 		for i, entry := range scert.CertificateList {
 			cert.CertificateList[i] = CertificateEntry{}
 
-			cert.CertificateList[i].CertData, err = x509.ParseCertificate(entry.CertData)
+			// Decompress any compressed certificates
+			certData := entry.CertData
+			for id, knownCert := range c.Certificate.KnownCerts {
+				if id == string(certData) {
+					certData = knownCert
+					break
+				}
+			}
+
+			cert.CertificateList[i].CertData, err = x509.ParseCertificate(certData)
 			if err != nil {
 				return nil, err
 			}

@@ -72,6 +72,19 @@ func TestCTLSSlim(t *testing.T) {
 				ExtensionTypeSupportedVersions: unhex("0304"),
 			},
 		},
+
+		CertificateRequest: CertificateRequestConstraints{
+			Extensions: PredefinedExtensions{
+				ExtensionTypeSignatureAlgorithms: unhex(fmt.Sprintf("0002%04x", scheme)),
+			},
+		},
+
+		Certificate: CertificateConstraints{
+			KnownCerts: map[string][]byte{
+				"a": serverCert.Raw,
+				"b": clientCert.Raw,
+			},
+		},
 	}
 
 	configServer := &Config{
@@ -133,13 +146,13 @@ func TestCTLSSlimPSK(t *testing.T) {
 	suite := TLS_AES_128_CCM_8_SHA256
 	group := X25519
 	scheme := ECDSA_P256_SHA256
-	pskMode := PSKModeDHEKE
+	pskMode := PSKModeKE
 	shortRandom := true
-	randomSize := 0
+	randomSize := 8
 	shortFinished := true
-	finishedSize := 0
+	finishedSize := 8
 	shortBinder := true
-	binderSize := 0
+	binderSize := 8
 
 	psk := PreSharedKey{
 		CipherSuite:  TLS_AES_128_CCM_8_SHA256,
@@ -159,7 +172,11 @@ func TestCTLSSlimPSK(t *testing.T) {
 		ClientHello: ClientHelloConstraints{
 			RandomSize: randomSize,
 			Extensions: PredefinedExtensions{
-				ExtensionTypeSupportedVersions: unhex("020304"),
+				ExtensionTypeServerName:          unhex("000e00000b6578616d706c652e636f6d"),
+				ExtensionTypeSupportedGroups:     unhex(fmt.Sprintf("0002%04x", group)),
+				ExtensionTypeSignatureAlgorithms: unhex(fmt.Sprintf("0002%04x", scheme)),
+				ExtensionTypeSupportedVersions:   unhex("020304"),
+				ExtensionTypePSKKeyExchangeModes: unhex("0100"),
 			},
 		},
 
