@@ -78,6 +78,10 @@ func newTypeEncoder(t reflect.Type) encoderFunc {
 		return marshalerEncoder
 	}
 
+	if t == reflect.TypeOf(Varint(0)) {
+		return varintEncoder
+	}
+
 	switch t.Kind() {
 	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return uintEncoder

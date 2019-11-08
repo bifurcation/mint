@@ -84,6 +84,10 @@ func newTypeDecoder(t reflect.Type) decoderFunc {
 		return unmarshalerDecoder
 	}
 
+	if t == reflect.TypeOf(Varint(0)) {
+		return varintDecoder
+	}
+
 	switch t.Kind() {
 	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return uintDecoder

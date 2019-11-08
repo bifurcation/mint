@@ -85,27 +85,19 @@ func TestSuccessCases(t *testing.T) {
 
 		// Varints
 		"varint8": {
-			value: struct {
-				V uint8 `tls:"varint"`
-			}{V: 0x3F},
+			value:    Varint(0x3F),
 			encoding: unhex("3F"),
 		},
 		"varint16": {
-			value: struct {
-				V uint16 `tls:"varint"`
-			}{V: 0x3FFF},
+			value:    Varint(0x3FFF),
 			encoding: unhex("7FFF"),
 		},
 		"varint32": {
-			value: struct {
-				V uint32 `tls:"varint"`
-			}{V: 0x3FFFFFFF},
+			value:    Varint(0x3FFFFFFF),
 			encoding: unhex("BFFFFFFF"),
 		},
 		"varint64": {
-			value: struct {
-				V uint64 `tls:"varint"`
-			}{V: 0x3FFFFFFFFFFFFFFF},
+			value:    Varint(0x3FFFFFFFFFFFFFFF),
 			encoding: unhex("FFFFFFFFFFFFFFFF"),
 		},
 
