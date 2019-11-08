@@ -57,7 +57,6 @@ type slimCertificateVerify struct {
 // On decompress:
 // * Extensions in the map are added to the decompressed extension list
 // * It is an error if an extension in the map is present in the compressed list
-//   with a different value than is specified in the map
 type PredefinedExtensions map[ExtensionType][]byte
 
 func slimify(exts ExtensionList, predefined PredefinedExtensions) (slimExtensionList, error) {
@@ -254,7 +253,9 @@ func (c SlimCompression) CompressClientHello(chm []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	schData := append(randomData, suiteData...)
+	schData := []byte{byte(HandshakeTypeClientHello)}
+	schData = append(schData, randomData...)
+	schData = append(schData, suiteData...)
 	schData = append(schData, extData...)
 
 	logf(logTypeCompression, "Compression.ClientHello.Out: [%d] [%x]", len(schData), schData)
@@ -264,9 +265,17 @@ func (c SlimCompression) CompressClientHello(chm []byte) ([]byte, error) {
 func (c SlimCompression) ReadClientHello(schData []byte) ([]byte, int, error) {
 	logf(logTypeCompression, "Decompression.ClientHello.In: [%d] [%x]", len(schData), schData)
 
+	msgType := HandshakeType(schData[0])
+	if msgType != HandshakeTypeClientHello {
+		return nil, 0, fmt.Errorf("Message type should be ClientHello")
+	}
+
+	read := 1
+	schData = schData[1:]
+
 	random := schData[:c.ClientHello.RandomSize]
 	schData = schData[c.ClientHello.RandomSize:]
-	read := len(random)
+	read += len(random)
 
 	suites := []CipherSuite{}
 	if c.CipherSuite != nil {
@@ -344,7 +353,9 @@ func (c SlimCompression) CompressServerHello(shm []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	sshData := append(randomData, suiteData...)
+	sshData := []byte{byte(HandshakeTypeServerHello)}
+	sshData = append(sshData, randomData...)
+	sshData = append(sshData, suiteData...)
 	sshData = append(sshData, extData...)
 
 	logf(logTypeCompression, "Compression.ServerHello.Out: [%d] [%x]", len(sshData), sshData)
@@ -354,9 +365,17 @@ func (c SlimCompression) CompressServerHello(shm []byte) ([]byte, error) {
 func (c SlimCompression) ReadServerHello(sshData []byte) ([]byte, int, error) {
 	logf(logTypeCompression, "Decompression.ServerHello.In: [%d] [%x]", len(sshData), sshData)
 
+	msgType := HandshakeType(sshData[0])
+	if msgType != HandshakeTypeServerHello {
+		return nil, 0, fmt.Errorf("Message type should be ServerHello")
+	}
+
+	read := 1
+	sshData = sshData[1:]
+
 	random := sshData[:c.ServerHello.RandomSize]
 	sshData = sshData[c.ServerHello.RandomSize:]
-	read := c.ServerHello.RandomSize
+	read += c.ServerHello.RandomSize
 
 	var suite CipherSuite
 	if c.CipherSuite != nil {
@@ -400,6 +419,98 @@ func (c SlimCompression) ReadServerHello(sshData []byte) ([]byte, int, error) {
 	return shm, read, nil
 }
 
+func (c SlimCompression) compressEncryptedExtensions(body HandshakeMessageBody) ([]byte, error) {
+	ee, ok := body.(*EncryptedExtensionsBody)
+	if !ok {
+		return nil, fmt.Errorf("Unexpected message of type [%v]", body.Type())
+	}
+
+	see, err := slimify(ee.Extensions, c.EncryptedExtensions)
+	if err != nil {
+		return nil, err
+	}
+
+	return syntax.Marshal(see)
+}
+
+func (c SlimCompression) compressCertificateRequest(body HandshakeMessageBody) ([]byte, error) {
+	var err error
+	cr, ok := body.(*CertificateRequestBody)
+	if !ok {
+		return nil, fmt.Errorf("Unexpected message of type [%v]", body.Type())
+	}
+
+	scr := slimCertificateRequest{
+		CertificateRequestContext: cr.CertificateRequestContext,
+	}
+	scr.Extensions, err = slimify(cr.Extensions, c.CertificateRequest.Extensions)
+	if err != nil {
+		return nil, err
+	}
+
+	return syntax.Marshal(scr)
+}
+
+func (c SlimCompression) compressCertificate(body HandshakeMessageBody) ([]byte, error) {
+	var err error
+	cert, ok := body.(*CertificateBody)
+	if !ok {
+		return nil, fmt.Errorf("Unexpected message of type [%v]", body.Type())
+	}
+
+	certDataLen := 0
+	scert := slimCertificate{
+		CertificateRequestContext: cert.CertificateRequestContext,
+		CertificateList:           make([]slimCertificateEntry, len(cert.CertificateList)),
+	}
+	for i, entry := range cert.CertificateList {
+		// XXX(rlb): This just opportunistically replaces known certificates with
+		// labels from the dictionary, so there's a risk of collision on
+		// decompression.  This seems unlikely to be a problem in practice, but
+		// might merit some signaling.
+		certData := entry.CertData.Raw
+		for id, knownCert := range c.Certificate.KnownCerts {
+			if bytes.Equal(knownCert, certData) {
+				certData = []byte(id)
+				break
+			}
+		}
+
+		scert.CertificateList[i] = slimCertificateEntry{CertData: certData}
+		scert.CertificateList[i].Extensions, err = slimify(entry.Extensions, c.Certificate.Extensions)
+		if err != nil {
+			return nil, err
+		}
+
+		certDataLen += len(scert.CertificateList[i].CertData)
+	}
+	logf(logTypeCompression, "Compression.Flight.CertData: [%d]", certDataLen)
+
+	return syntax.Marshal(scert)
+}
+
+func (c SlimCompression) compressCertificateVerify(body HandshakeMessageBody) ([]byte, error) {
+	cv, ok := body.(*CertificateVerifyBody)
+	if !ok {
+		return nil, fmt.Errorf("Unexpected message of type [%v]", body.Type())
+	}
+
+	scv := slimCertificateVerify{
+		Algorithm: cv.Algorithm,
+		Signature: cv.Signature,
+	}
+
+	return syntax.Marshal(scv)
+}
+
+func (c SlimCompression) compressFinished(body HandshakeMessageBody) ([]byte, error) {
+	fin, ok := body.(*FinishedBody)
+	if !ok {
+		return nil, fmt.Errorf("Unexpected message of type [%v]", body.Type())
+	}
+	return fin.VerifyData, nil
+}
+
 func (c SlimCompression) compressFlight(hmData []byte, server bool) (flightData []byte, err error) {
 	defer func() {
 		if err != nil {
@@ -413,155 +524,127 @@ func (c SlimCompression) compressFlight(hmData []byte, server bool) (flightData 
 		return nil, err
 	}
 
-	flightLength := c.clientFlightLength()
-	if server {
-		flightLength = c.serverFlightLength()
+	flightData = []byte{}
+	for _, hm := range hms {
+		body, err := hm.ToBody()
+		if err != nil {
+			return nil, err
+		}
+
+		hmData := []byte{}
+		switch hm.msgType {
+		case HandshakeTypeEncryptedExtensions:
+			hmData, err = c.compressEncryptedExtensions(body)
+		case HandshakeTypeCertificateRequest:
+			hmData, err = c.compressCertificateRequest(body)
+		case HandshakeTypeCertificate:
+			hmData, err = c.compressCertificate(body)
+		case HandshakeTypeCertificateVerify:
+			hmData, err = c.compressCertificateVerify(body)
+		case HandshakeTypeFinished:
+			hmData, err = c.compressFinished(body)
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		flightData = append(flightData, byte(hm.msgType))
+		flightData = append(flightData, hmData...)
 	}
-	if len(hms) != flightLength {
-		return nil, fmt.Errorf("Incorrect server flight length")
-	}
-
-	eeData := []byte{}
-	certReqData := []byte{}
-	if server {
-		// Process EncryptedExtensions
-		body, err := hms[0].ToBody()
-		if err != nil {
-			return nil, err
-		}
-		ee, ok := body.(*EncryptedExtensionsBody)
-		if !ok {
-			return nil, fmt.Errorf("Unexpected message of type [%v]", body.Type())
-		}
-
-		see, err := slimify(ee.Extensions, c.EncryptedExtensions)
-		if err != nil {
-			return nil, err
-		}
-
-		eeData, err = syntax.Marshal(see)
-		if err != nil {
-			return nil, err
-		}
-
-		hms = hms[1:]
-
-		// Process CertificateRequest
-		if !c.CertificateRequest.Omit {
-			body, err = hms[0].ToBody()
-			if err != nil {
-				return nil, err
-			}
-			cr, ok := body.(*CertificateRequestBody)
-			if !ok {
-				return nil, fmt.Errorf("Unexpected message of type [%v]", body.Type())
-			}
-
-			scr := slimCertificateRequest{
-				CertificateRequestContext: cr.CertificateRequestContext,
-			}
-			scr.Extensions, err = slimify(cr.Extensions, c.CertificateRequest.Extensions)
-			if err != nil {
-				return nil, err
-			}
-
-			certReqData, err = syntax.Marshal(scr)
-			if err != nil {
-				return nil, err
-			}
-
-			hms = hms[1:]
-		}
-	}
-
-	certData := []byte{}
-	cvData := []byte{}
-	if !c.Certificate.Omit {
-		// Process Certificate
-		body, err := hms[0].ToBody()
-		if err != nil {
-			return nil, err
-		}
-		cert, ok := body.(*CertificateBody)
-		if !ok {
-			return nil, fmt.Errorf("Unexpected message of type [%v]", body.Type())
-		}
-
-		certDataLen := 0
-		scert := slimCertificate{
-			CertificateRequestContext: cert.CertificateRequestContext,
-			CertificateList:           make([]slimCertificateEntry, len(cert.CertificateList)),
-		}
-		for i, entry := range cert.CertificateList {
-			// XXX(rlb): This just opportunistically replaces known certificates with
-			// labels from the dictionary, so there's a risk of collision on
-			// decompression.  This seems unlikely to be a problem in practice, but
-			// might merit some signaling.
-			certData := entry.CertData.Raw
-			for id, knownCert := range c.Certificate.KnownCerts {
-				if bytes.Equal(knownCert, certData) {
-					certData = []byte(id)
-					break
-				}
-			}
-
-			scert.CertificateList[i] = slimCertificateEntry{CertData: certData}
-			scert.CertificateList[i].Extensions, err = slimify(entry.Extensions, c.Certificate.Extensions)
-			if err != nil {
-				return nil, err
-			}
-
-			certDataLen += len(scert.CertificateList[i].CertData)
-		}
-		logf(logTypeCompression, "Compression.Flight.CertData: [%d]", certDataLen)
-
-		certData, err = syntax.Marshal(scert)
-		if err != nil {
-			return nil, err
-		}
-
-		// Process CertificateVerify
-		body, err = hms[1].ToBody()
-		if err != nil {
-			return nil, err
-		}
-		cv, ok := body.(*CertificateVerifyBody)
-		if !ok {
-			return nil, fmt.Errorf("Unexpected message of type [%v]", body.Type())
-		}
-
-		scv := slimCertificateVerify{
-			Algorithm: cv.Algorithm,
-			Signature: cv.Signature,
-		}
-
-		cvData, err = syntax.Marshal(scv)
-		if err != nil {
-			return nil, err
-		}
-
-		hms = hms[2:]
-	}
-
-	// Process Finished
-	body, err := hms[0].ToBody()
-	if err != nil {
-		return nil, err
-	}
-	fin, ok := body.(*FinishedBody)
-	if !ok {
-		return nil, fmt.Errorf("Unexpected message of type [%v]", body.Type())
-	}
-	finData := fin.VerifyData
-
-	// Concatenate everything
-	flightData = append(eeData, certReqData...)
-	flightData = append(flightData, certData...)
-	flightData = append(flightData, cvData...)
-	flightData = append(flightData, finData...)
 
 	logf(logTypeCompression, "Compression.Flight.Out: [%d] [%x]", len(flightData), flightData)
 	return flightData, nil
+}
+
+func (c SlimCompression) readEncryptedExtensions(data []byte) (int, HandshakeMessageBody, error) {
+	see := slimExtensionList{}
+	read, err := syntax.Unmarshal(data, &see)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	ee := &EncryptedExtensionsBody{}
+	ee.Extensions, err = unslimify(see, c.EncryptedExtensions)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return read, ee, nil
+}
+
+func (c SlimCompression) readCertificateRequest(data []byte) (int, HandshakeMessageBody, error) {
+	scr := slimCertificateRequest{}
+	read, err := syntax.Unmarshal(data, &scr)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	cr := &CertificateRequestBody{CertificateRequestContext: scr.CertificateRequestContext}
+	cr.Extensions, err = unslimify(scr.Extensions, c.CertificateRequest.Extensions)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return read, cr, nil
+}
+
+func (c SlimCompression) readCertificate(data []byte) (int, HandshakeMessageBody, error) {
+	scert := slimCertificate{}
+	read, err := syntax.Unmarshal(data, &scert)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	cert := &CertificateBody{
+		CertificateRequestContext: scert.CertificateRequestContext,
+		CertificateList:           make([]CertificateEntry, len(scert.CertificateList)),
+	}
+	for i, entry := range scert.CertificateList {
+		cert.CertificateList[i] = CertificateEntry{}
+
+		// Decompress any compressed certificates
+		certData := entry.CertData
+		for id, knownCert := range c.Certificate.KnownCerts {
+			if id == string(certData) {
+				certData = knownCert
+				break
+			}
+		}
+
+		cert.CertificateList[i].CertData, err = x509.ParseCertificate(certData)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		cert.CertificateList[i].Extensions, err = unslimify(entry.Extensions, c.Certificate.Extensions)
+		if err != nil {
+			return 0, nil, err
+		}
+	}
+
+	return read, cert, nil
+}
+
+func (c SlimCompression) readCertificateVerify(data []byte) (int, HandshakeMessageBody, error) {
+	scv := slimCertificateVerify{}
+	read, err := syntax.Unmarshal(data, &scv)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	cv := &CertificateVerifyBody{
+		Algorithm: scv.Algorithm,
+		Signature: scv.Signature,
+	}
+	return read, cv, nil
+}
+
+func (c SlimCompression) readFinished(data []byte) (int, HandshakeMessageBody, error) {
+	fin := &FinishedBody{
+		VerifyDataLen: len(data),
+		VerifyData:    data,
+	}
+	return len(data), fin, nil
 }
 
 func (c SlimCompression) decompressFlight(flightData []byte, server bool) (hmData []byte, err error) {
@@ -574,103 +657,32 @@ func (c SlimCompression) decompressFlight(flightData []byte, server bool) (hmDat
 	logf(logTypeCompression, "Deompression.Flight.In: [%v] [%d] [%x]", server, len(flightData), flightData)
 
 	hms := []HandshakeMessageBody{}
-	if server {
-		// Process EncryptedExtensions
-		see := slimExtensionList{}
-		read, err := syntax.Unmarshal(flightData, &see)
+	for len(flightData) > 0 {
+		msgType := HandshakeType(flightData[0])
+		data := flightData[1:]
+
+		read := 0
+		var body HandshakeMessageBody
+		switch msgType {
+		case HandshakeTypeEncryptedExtensions:
+			read, body, err = c.readEncryptedExtensions(data)
+		case HandshakeTypeCertificateRequest:
+			read, body, err = c.readCertificateRequest(data)
+		case HandshakeTypeCertificate:
+			read, body, err = c.readCertificate(data)
+		case HandshakeTypeCertificateVerify:
+			read, body, err = c.readCertificateVerify(data)
+		case HandshakeTypeFinished:
+			read, body, err = c.readFinished(data)
+		}
+
 		if err != nil {
 			return nil, err
 		}
 
-		ee := &EncryptedExtensionsBody{}
-		ee.Extensions, err = unslimify(see, c.EncryptedExtensions)
-		if err != nil {
-			return nil, err
-		}
-
-		flightData = flightData[read:]
-		hms = append(hms, ee)
-
-		if !c.CertificateRequest.Omit {
-			// Process CertificateRequest
-			scr := slimCertificateRequest{}
-			read, err = syntax.Unmarshal(flightData, &scr)
-			if err != nil {
-				return nil, err
-			}
-
-			cr := &CertificateRequestBody{CertificateRequestContext: scr.CertificateRequestContext}
-			cr.Extensions, err = unslimify(scr.Extensions, c.CertificateRequest.Extensions)
-			if err != nil {
-				return nil, err
-			}
-
-			flightData = flightData[read:]
-			hms = append(hms, cr)
-		}
+		hms = append(hms, body)
+		flightData = flightData[read+1:]
 	}
-
-	// Process Certificate
-	if !c.Certificate.Omit {
-		scert := slimCertificate{}
-		read, err := syntax.Unmarshal(flightData, &scert)
-		if err != nil {
-			return nil, err
-		}
-
-		cert := &CertificateBody{
-			CertificateRequestContext: scert.CertificateRequestContext,
-			CertificateList:           make([]CertificateEntry, len(scert.CertificateList)),
-		}
-		for i, entry := range scert.CertificateList {
-			cert.CertificateList[i] = CertificateEntry{}
-
-			// Decompress any compressed certificates
-			certData := entry.CertData
-			for id, knownCert := range c.Certificate.KnownCerts {
-				if id == string(certData) {
-					certData = knownCert
-					break
-				}
-			}
-
-			cert.CertificateList[i].CertData, err = x509.ParseCertificate(certData)
-			if err != nil {
-				return nil, err
-			}
-
-			cert.CertificateList[i].Extensions, err = unslimify(entry.Extensions, c.Certificate.Extensions)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		flightData = flightData[read:]
-		hms = append(hms, cert)
-
-		// Process CertificateVerify
-		scv := slimCertificateVerify{}
-		read, err = syntax.Unmarshal(flightData, &scv)
-		if err != nil {
-			return nil, err
-		}
-
-		cv := &CertificateVerifyBody{
-			Algorithm: scv.Algorithm,
-			Signature: scv.Signature,
-		}
-
-		flightData = flightData[read:]
-		hms = append(hms, cv)
-	}
-
-	// Process Finished
-	fin := &FinishedBody{
-		VerifyDataLen: len(flightData),
-		VerifyData:    flightData,
-	}
-
-	hms = append(hms, fin)
 
 	// Assemble the outgoing package
 	hmData, err = c.marshalMessages(hms)

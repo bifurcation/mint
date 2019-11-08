@@ -148,11 +148,11 @@ func TestCTLSSlimPSK(t *testing.T) {
 	scheme := ECDSA_P256_SHA256
 	pskMode := PSKModeKE
 	shortRandom := true
-	randomSize := 8
+	randomSize := 16
 	shortFinished := true
-	finishedSize := 8
-	shortBinder := true
-	binderSize := 8
+	finishedSize := 0
+	shortBinder := false
+	binderSize := 32
 
 	psk := PreSharedKey{
 		CipherSuite:  TLS_AES_128_CCM_8_SHA256,
@@ -184,6 +184,7 @@ func TestCTLSSlimPSK(t *testing.T) {
 			RandomSize: randomSize,
 			Extensions: PredefinedExtensions{
 				ExtensionTypeSupportedVersions: unhex("0304"),
+				ExtensionTypePreSharedKey:      unhex("0000"),
 			},
 		},
 
