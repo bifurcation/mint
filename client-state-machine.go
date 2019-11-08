@@ -140,7 +140,7 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 
 	// Add key shares only if we need them
 	_, havePSK := state.Config.PSKs.Get(state.Opts.ServerName)
-	onlyModeKE := len(state.Config.PSKModes) == 1 || state.Config.PSKModes[0] == PSKModeKE
+	onlyModeKE := len(state.Config.PSKModes) == 1 && state.Config.PSKModes[0] == PSKModeKE
 	offeredDH := map[NamedGroup][]byte{}
 	if !havePSK || !onlyModeKE {
 		ks := &KeyShareExtension{

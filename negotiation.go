@@ -23,6 +23,7 @@ func VersionNegotiation(offered, supported []uint16) (bool, uint16) {
 }
 
 func DHNegotiation(keyShares []KeyShareEntry, groups []NamedGroup) (bool, NamedGroup, []byte, []byte) {
+	logf(logTypeNegotiation, "ks=[%+v] gp=[%+v]", keyShares, groups)
 	for _, share := range keyShares {
 		for _, group := range groups {
 			if group != share.Group {
@@ -59,7 +60,7 @@ func PSKNegotiation(identities []PSKIdentity, binders []PSKBinderEntry, context 
 
 		psk, ok := psks.Get(identityHex)
 		if !ok {
-			logf(logTypeNegotiation, "No PSK for identity %x", identityHex)
+			logf(logTypeNegotiation, "No PSK for identity %s", identityHex)
 			continue
 		}
 
