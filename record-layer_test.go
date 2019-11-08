@@ -9,16 +9,17 @@ import (
 )
 
 const (
-	plaintextHex = "1503010005F0F1F2F3F4"
+	recordType   = RecordTypeHandshake
+	plaintextHex = "1603010005F0F1F2F3F4"
 
 	// Random key and IV; hand-encoded ciphertext for the above plaintext
 	keyHex         = "45c71e5819170d622a9f4e3a089a0beb"
 	ivHex          = "2b7fbbf689f240e3e7aa44a6"
 	paddingLength  = 4
 	sequenceChange = 17
-	ciphertext0Hex = "1703010016621a75932c03e2bd29daedb50c27a2c70fc55934e6f3"
-	ciphertext1Hex = "170301001a621a75932c03076e386be13a583ce0d6789c6b6306ffadc377fc"
-	ciphertext2Hex = "170301001a1da650d5da822b7f4ebaba28b7c72032f4ac350c91c9bcb8f8ce"
+	ciphertext0Hex = "1703010016621a75932c007c0bcb8abf48fd45a81842ae7c557a09"
+	ciphertext1Hex = "170301001a621a75932c00076e386b7f8cba6cb22b89fe61bc4b9488a2eb06"
+	ciphertext2Hex = "170301001a1da650d5da812b7f4eba249e559772cf05ce3fd3dca299d96434"
 )
 
 func newRecordLayerFromBytes(b []byte) *DefaultRecordLayer {
@@ -61,7 +62,7 @@ func TestReadRecord(t *testing.T) {
 	r := newRecordLayerFromBytes(plaintext)
 	pt, err := r.ReadRecord()
 	assertNotError(t, err, "Failed to decode valid plaintext")
-	assertEquals(t, pt.contentType, RecordTypeAlert)
+	assertEquals(t, pt.contentType, recordType)
 	assertByteEquals(t, pt.fragment, plaintext[5:])
 
 	// Test failure on unkown record type
@@ -142,7 +143,7 @@ func TestDecryptRecord(t *testing.T) {
 	testRekeyHelper(r, key, iv)
 	pt, err := r.ReadRecord()
 	assertNotError(t, err, "Failed to decrypt valid record")
-	assertEquals(t, pt.contentType, RecordTypeAlert)
+	assertEquals(t, pt.contentType, recordType)
 	assertByteEquals(t, pt.fragment, plaintext[5:])
 
 	// Test successful decrypt after sequence number change
@@ -153,7 +154,7 @@ func TestDecryptRecord(t *testing.T) {
 	}
 	pt, err = r.ReadRecord()
 	assertNotError(t, err, "Failed to properly handle sequence number change")
-	assertEquals(t, pt.contentType, RecordTypeAlert)
+	assertEquals(t, pt.contentType, recordType)
 	assertByteEquals(t, pt.fragment, plaintext[5:])
 
 	// Test failure on decrypt failure
@@ -291,6 +292,41 @@ func TestReadWriteDTLS(t *testing.T) {
 	assertByteEquals(t, ptIn.fragment, ptOut.fragment)
 }
 
+func TestReadWriteCTLS(t *testing.T) {
+	key := unhex(keyHex)
+	iv := unhex(ivHex)
+	plaintext := unhex(plaintextHex)
+
+	b := bytes.NewBuffer(nil)
+	out := NewRecordLayerCTLS(b, DirectionWrite)
+	out.SetVersion(tls12Version)
+	in := NewRecordLayerCTLS(b, DirectionRead)
+	in.SetVersion(tls12Version)
+
+	// Unencrypted
+	ptIn := &TLSPlaintext{
+		contentType: RecordType(plaintext[0]),
+		fragment:    plaintext[5:],
+	}
+	err := out.WriteRecord(ptIn)
+	assertNotError(t, err, "Failed to write record")
+	ptOut, err := in.ReadRecord()
+	assertNotError(t, err, "Failed to read record")
+
+	assertEquals(t, ptIn.contentType, ptOut.contentType)
+	assertByteEquals(t, ptIn.fragment, ptOut.fragment)
+
+	// Encrypted
+	testRekeyHelper(in, key, iv)
+	testRekeyHelper(out, key, iv)
+	err = out.WriteRecord(ptIn)
+	assertNotError(t, err, "Failed to write record")
+	ptOut, err = in.ReadRecord()
+	assertNotError(t, err, "Failed to read record")
+	assertEquals(t, ptIn.contentType, ptOut.contentType)
+	assertByteEquals(t, ptIn.fragment, ptOut.fragment)
+}
+
 func TestOverSocket(t *testing.T) {
 	key := unhex(keyHex)
 	iv := unhex(ivHex)
@@ -371,6 +407,6 @@ func TestNonblockingRecord(t *testing.T) {
 	b.Write(ciphertext1[1:])
 	pt, err = r.ReadRecord()
 	assertNotError(t, err, "Failed to decrypt valid record")
-	assertEquals(t, pt.contentType, RecordTypeAlert)
+	assertEquals(t, pt.contentType, recordType)
 	assertByteEquals(t, pt.fragment, plaintext[5:])
 }

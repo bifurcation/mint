@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"io"
 	"sync"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 const (
 	sequenceNumberLen   = 8       // sequence number length
 	recordHeaderLenTLS  = 5       // record header length (TLS)
 	recordHeaderLenDTLS = 13      // record header length (DTLS)
+	recordHeaderLenCTLS = 2       // record header length (DTLS)
 	maxFragmentLen      = 1 << 14 // max number of bytes in a record
 	labelForKey         = "key"
 	labelForIV          = "iv"
@@ -100,6 +103,7 @@ type DefaultRecordLayer struct {
 	readCiphers map[Epoch]*CipherState
 
 	datagram bool
+	compact  bool
 }
 
 func (r *DefaultRecordLayer) Impl() *DefaultRecordLayer {
@@ -108,13 +112,18 @@ func (r *DefaultRecordLayer) Impl() *DefaultRecordLayer {
 
 type recordLayerFrameDetails struct {
 	datagram bool
+	compact  bool
 }
 
 func (d recordLayerFrameDetails) headerLen() int {
-	if d.datagram {
+	switch {
+	case d.datagram:
 		return recordHeaderLenDTLS
+	case d.compact:
+		return recordHeaderLenCTLS
+	default:
+		return recordHeaderLenTLS
 	}
-	return recordHeaderLenTLS
 }
 
 func (d recordLayerFrameDetails) defaultReadLen() int {
@@ -143,7 +152,7 @@ func NewRecordLayerTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
 	r.label = ""
 	r.direction = dir
 	r.conn = conn
-	r.frame = newFrameReader(recordLayerFrameDetails{false})
+	r.frame = newFrameReader(recordLayerFrameDetails{false, false})
 	r.cipher = newCipherStateNull()
 	r.version = tls10Version
 	return &r
@@ -154,11 +163,23 @@ func NewRecordLayerDTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
 	r.label = ""
 	r.direction = dir
 	r.conn = conn
-	r.frame = newFrameReader(recordLayerFrameDetails{true})
+	r.frame = newFrameReader(recordLayerFrameDetails{true, false})
 	r.cipher = newCipherStateNull()
 	r.readCiphers = make(map[Epoch]*CipherState, 0)
 	r.readCiphers[0] = r.cipher
 	r.datagram = true
+	return &r
+}
+
+func NewRecordLayerCTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
+	r := DefaultRecordLayer{}
+	r.label = ""
+	r.direction = dir
+	r.conn = conn
+	r.frame = newFrameReader(recordLayerFrameDetails{false, true})
+	r.cipher = newCipherStateNull()
+	r.version = tls10Version
+	r.compact = true
 	return &r
 }
 
@@ -181,6 +202,24 @@ func (r *DefaultRecordLayer) Cipher() *CipherState {
 
 func (r *DefaultRecordLayer) SetLabel(s string) {
 	r.label = s
+}
+
+func (r *DefaultRecordLayer) getContentType(header []byte) RecordType {
+	switch {
+	case r.compact:
+		return RecordTypeHandshake
+	default:
+		return RecordType(header[0])
+	}
+}
+
+func (r *DefaultRecordLayer) getVersion(header []byte) uint16 {
+	switch {
+	case r.compact:
+		return tls10Version
+	default:
+		return (uint16(header[1]) << 8) + uint16(header[2])
+	}
 }
 
 func (r *DefaultRecordLayer) Rekey(epoch Epoch, factory AEADFactory, keys *KeySet) error {
@@ -386,15 +425,17 @@ func (r *DefaultRecordLayer) nextRecord(allowOldEpoch bool) (*TLSPlaintext, erro
 
 	pt := &TLSPlaintext{}
 	// Validate content type
-	switch RecordType(header[0]) {
+	contentType := r.getContentType(header)
+	switch contentType {
 	default:
 		return nil, fmt.Errorf("tls.record: Unknown content type %02x", header[0])
 	case RecordTypeAlert, RecordTypeHandshake, RecordTypeApplicationData, RecordTypeAck:
-		pt.contentType = RecordType(header[0])
+		pt.contentType = contentType
 	}
 
 	// Validate version
-	if !allowWrongVersionNumber && (header[1] != 0x03 || header[2] != 0x01) {
+	version := r.getVersion(header)
+	if !allowWrongVersionNumber && (version != tls10Version) {
 		return nil, fmt.Errorf("tls.record: Invalid version %02x%02x", header[1], header[2])
 	}
 
@@ -470,13 +511,11 @@ func (r *DefaultRecordLayer) WriteRecordWithPadding(pt *TLSPlaintext, cipher *Ci
 	} else {
 		contentType = pt.contentType
 	}
-	var header []byte
 
-	if !r.datagram {
-		header = []byte{byte(contentType),
-			byte(r.version >> 8), byte(r.version & 0xff),
-			byte(length >> 8), byte(length)}
-	} else {
+	var header []byte
+	var err error
+	switch {
+	case r.datagram:
 		header = make([]byte, 13)
 		version := dtlsConvertVersion(r.version)
 		copy(header, []byte{byte(contentType),
@@ -484,6 +523,17 @@ func (r *DefaultRecordLayer) WriteRecordWithPadding(pt *TLSPlaintext, cipher *Ci
 		})
 		encodeUint(seq, 8, header[3:])
 		encodeUint(uint64(length), 2, header[11:])
+
+	case r.compact:
+		header, err = syntax.Marshal(uint16(length))
+		if err != nil {
+			return err
+		}
+
+	default:
+		header = []byte{byte(contentType),
+			byte(r.version >> 8), byte(r.version & 0xff),
+			byte(length >> 8), byte(length)}
 	}
 
 	var ciphertext []byte
@@ -506,6 +556,6 @@ func (r *DefaultRecordLayer) WriteRecordWithPadding(pt *TLSPlaintext, cipher *Ci
 	logf(logTypeIO, "%s RecordLayer.WriteRecord epoch=[%s] seq=[%x] [%d] ciphertext=[%x]", r.label, cipher.epoch.label(), cipher.seq, contentType, ciphertext)
 
 	cipher.incrementSequenceNumber()
-	_, err := r.conn.Write(record)
+	_, err = r.conn.Write(record)
 	return err
 }

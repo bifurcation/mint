@@ -128,6 +128,7 @@ type Config struct {
 	PSKModes         []PSKKeyExchangeMode
 	NonBlocking      bool
 	UseDTLS          bool
+	UseCTLS          bool // TODO make an enum
 	ShortFinished    bool
 	FinishedSize     int
 	ShortRandom      bool
@@ -175,6 +176,7 @@ func (c *Config) Clone() *Config {
 		PSKModes:              c.PSKModes,
 		NonBlocking:           c.NonBlocking,
 		UseDTLS:               c.UseDTLS,
+		UseCTLS:               c.UseCTLS,
 		ShortRandom:           c.ShortRandom,
 		RandomSize:            c.RandomSize,
 	}
@@ -286,24 +288,34 @@ type Conn struct {
 
 func NewConn(conn net.Conn, config *Config, isClient bool) *Conn {
 	c := &Conn{conn: conn, config: config, isClient: isClient, hsCtx: &HandshakeContext{}}
-	if !config.UseDTLS {
-		if config.RecordLayer == nil {
-			c.in = NewRecordLayerTLS(c.conn, DirectionRead)
-			c.out = NewRecordLayerTLS(c.conn, DirectionWrite)
-		} else {
-			c.in = config.RecordLayer.NewLayer(c.conn, DirectionRead)
-			c.out = config.RecordLayer.NewLayer(c.conn, DirectionWrite)
-		}
-		c.hsCtx.hIn = NewHandshakeLayerTLS(c.hsCtx, c.in)
-		c.hsCtx.hOut = NewHandshakeLayerTLS(c.hsCtx, c.out)
-	} else {
+
+	// Set up the record layer
+	switch {
+	case config.RecordLayer != nil:
+		c.in = config.RecordLayer.NewLayer(c.conn, DirectionRead)
+		c.out = config.RecordLayer.NewLayer(c.conn, DirectionWrite)
+	case config.UseDTLS:
 		c.in = NewRecordLayerDTLS(c.conn, DirectionRead)
 		c.out = NewRecordLayerDTLS(c.conn, DirectionWrite)
+	case config.UseCTLS:
+		c.in = NewRecordLayerCTLS(c.conn, DirectionRead)
+		c.out = NewRecordLayerCTLS(c.conn, DirectionWrite)
+	default:
+		c.in = NewRecordLayerTLS(c.conn, DirectionRead)
+		c.out = NewRecordLayerTLS(c.conn, DirectionWrite)
+	}
+
+	// Set up the handshake layer
+	switch {
+	case config.UseDTLS:
 		c.hsCtx.hIn = NewHandshakeLayerDTLS(c.hsCtx, c.in)
 		c.hsCtx.hOut = NewHandshakeLayerDTLS(c.hsCtx, c.out)
 		c.hsCtx.timeoutMS = initialTimeout
 		c.hsCtx.timers = newTimerSet()
 		c.hsCtx.waitingNextFlight = true
+	default:
+		c.hsCtx.hIn = NewHandshakeLayerTLS(c.hsCtx, c.in)
+		c.hsCtx.hOut = NewHandshakeLayerTLS(c.hsCtx, c.out)
 	}
 
 	c.in.SetLabel(c.label())
