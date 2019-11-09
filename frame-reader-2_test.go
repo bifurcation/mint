@@ -8,24 +8,11 @@ import (
 )
 
 var (
-	simpleFullFrame    = unhex("00056162636465")
-	simpleEmptyFrame   = unhex("0000")
+	fixedFullFrame     = unhex("ff00056162636465")
+	fixedEmptyFrame    = unhex("ff0000")
 	variableFullFrame  = unhex("40ff" + strings.Repeat("A0", 255))
 	variableEmptyFrame = unhex("00")
 )
-
-type simpleHeader2 struct{}
-
-func (h simpleHeader2) parse(buffer []byte) (headerReady bool, headerLen, bodyLen int) {
-	headerReady = len(buffer) >= 2
-	if !headerReady {
-		return
-	}
-
-	headerLen = 2
-	bodyLen = (int(buffer[0]) << 8) + int(buffer[1])
-	return
-}
 
 type variableHeader struct{}
 
@@ -121,10 +108,10 @@ func (frt frameReaderTester) Run(t *testing.T) {
 
 func TestFrameReader2(t *testing.T) {
 	cases := map[string]frameReaderTester{
-		"simple": frameReaderTester{
-			simpleHeader2{},
-			2, simpleFullFrame,
-			2, simpleEmptyFrame,
+		"fixed": frameReaderTester{
+			lastNBytesFraming{3, 2},
+			3, fixedFullFrame,
+			3, fixedEmptyFrame,
 		},
 		"variable": frameReaderTester{
 			variableHeader{},

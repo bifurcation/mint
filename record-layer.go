@@ -11,6 +11,7 @@ const (
 	sequenceNumberLen   = 8       // sequence number length
 	recordHeaderLenTLS  = 5       // record header length (TLS)
 	recordHeaderLenDTLS = 13      // record header length (DTLS)
+	maxHeaderLen        = 256     // invented upper bound for header size
 	maxFragmentLen      = 1 << 14 // max number of bytes in a record
 	labelForKey         = "key"
 	labelForIV          = "iv"
@@ -88,7 +89,7 @@ type DefaultRecordLayer struct {
 	direction    Direction
 	version      uint16        // The current version number
 	conn         io.ReadWriter // The underlying connection
-	frame        *frameReader  // The buffered frame reader
+	frame        *frameReader2 // The buffered frame reader
 	nextData     []byte        // The next record to send
 	cachedRecord *TLSPlaintext // Last record read, cached to enable "peek"
 	cachedError  error         // Error on the last record read
@@ -101,25 +102,6 @@ type DefaultRecordLayer struct {
 
 func (r *DefaultRecordLayer) Impl() *DefaultRecordLayer {
 	return r
-}
-
-type recordLayerFrameDetails struct {
-	datagram bool
-}
-
-func (d recordLayerFrameDetails) headerLen() int {
-	if d.datagram {
-		return recordHeaderLenDTLS
-	}
-	return recordHeaderLenTLS
-}
-
-func (d recordLayerFrameDetails) defaultReadLen() int {
-	return d.headerLen() + maxFragmentLen
-}
-
-func (d recordLayerFrameDetails) frameLen(hdr []byte) (int, error) {
-	return (int(hdr[d.headerLen()-2]) << 8) | int(hdr[d.headerLen()-1]), nil
 }
 
 func newCipherStateNull() *cipherState {
@@ -140,7 +122,7 @@ func NewRecordLayerTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
 	r.label = ""
 	r.direction = dir
 	r.conn = conn
-	r.frame = newFrameReader(recordLayerFrameDetails{false})
+	r.frame = newFrameReader2(lastNBytesFraming{recordHeaderLenTLS, 2})
 	r.cipher = newCipherStateNull()
 	r.version = tls10Version
 	return &r
@@ -151,7 +133,7 @@ func NewRecordLayerDTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
 	r.label = ""
 	r.direction = dir
 	r.conn = conn
-	r.frame = newFrameReader(recordLayerFrameDetails{true})
+	r.frame = newFrameReader2(lastNBytesFraming{recordHeaderLenDTLS, 2})
 	r.cipher = newCipherStateNull()
 	r.readCiphers = make(map[Epoch]*cipherState, 0)
 	r.readCiphers[0] = r.cipher
@@ -352,8 +334,8 @@ func (r *DefaultRecordLayer) nextRecord(allowOldEpoch bool) (*TLSPlaintext, erro
 	var header, body []byte
 
 	for err != nil {
-		if r.frame.needed() > 0 {
-			buf := make([]byte, r.frame.details.headerLen()+maxFragmentLen)
+		if !r.frame.ready() {
+			buf := make([]byte, maxHeaderLen+maxFragmentLen)
 			n, err := r.conn.Read(buf)
 			if err != nil {
 				logf(logTypeIO, "%s Error reading, %v", r.label, err)
@@ -370,7 +352,7 @@ func (r *DefaultRecordLayer) nextRecord(allowOldEpoch bool) (*TLSPlaintext, erro
 			r.frame.addChunk(buf)
 		}
 
-		header, body, err = r.frame.process()
+		header, body, err = r.frame.next()
 		// Loop around onAlertWouldBlock to see if some
 		// data is now available.
 		if err != nil && err != AlertWouldBlock {

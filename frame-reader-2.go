@@ -6,6 +6,23 @@ type framing2 interface {
 	parse(buffer []byte) (headerReady bool, headerLen, bodyLen int)
 }
 
+type lastNBytesFraming struct {
+	headerSize int
+	lengthSize int
+}
+
+func (lnb lastNBytesFraming) parse(buffer []byte) (headerReady bool, headerLen, bodyLen int) {
+	headerReady = len(buffer) >= lnb.headerSize
+	if !headerReady {
+		return
+	}
+
+	headerLen = lnb.headerSize
+	val, _ := decodeUint(buffer[lnb.headerSize-lnb.lengthSize:], lnb.lengthSize)
+	bodyLen = int(val)
+	return
+}
+
 type frameReader2 struct {
 	details   framing2
 	remainder []byte
@@ -20,6 +37,7 @@ func newFrameReader2(d framing2) *frameReader2 {
 
 func (f *frameReader2) ready() bool {
 	headerReady, headerLen, bodyLen := f.details.parse(f.remainder)
+	//logf(logTypeFrameReader, "header=%v body=(%v > %v)", headerReady, len(f.remainder), headerLen+bodyLen)
 	return headerReady && len(f.remainder) >= headerLen+bodyLen
 }
 

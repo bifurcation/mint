@@ -121,7 +121,7 @@ type HandshakeLayer struct {
 	ctx            *HandshakeContext   // The handshake we are attached to
 	nonblocking    bool                // Should we operate in nonblocking mode
 	conn           RecordLayer         // Used for reading/writing records
-	frame          *frameReader        // The buffered frame reader
+	frame          *frameReader2       // The buffered frame reader
 	datagram       bool                // Is this DTLS?
 	msgSeq         uint32              // The DTLS message sequence number
 	queued         []*HandshakeMessage // In/out queue
@@ -130,6 +130,7 @@ type HandshakeLayer struct {
 	maxFragmentLen int
 }
 
+/*
 type handshakeLayerFrameDetails struct {
 	datagram bool
 }
@@ -152,13 +153,14 @@ func (d handshakeLayerFrameDetails) frameLen(hdr []byte) (int, error) {
 	val, _ := decodeUint(hdr[len(hdr)-3:], 3)
 	return int(val), nil
 }
+*/
 
 func NewHandshakeLayerTLS(c *HandshakeContext, r RecordLayer) *HandshakeLayer {
 	h := HandshakeLayer{}
 	h.ctx = c
 	h.conn = r
 	h.datagram = false
-	h.frame = newFrameReader(&handshakeLayerFrameDetails{false})
+	h.frame = newFrameReader2(lastNBytesFraming{handshakeHeaderLenTLS, 3})
 	h.maxFragmentLen = maxFragmentLen
 	return &h
 }
@@ -168,7 +170,7 @@ func NewHandshakeLayerDTLS(c *HandshakeContext, r RecordLayer) *HandshakeLayer {
 	h.ctx = c
 	h.conn = r
 	h.datagram = true
-	h.frame = newFrameReader(&handshakeLayerFrameDetails{true})
+	h.frame = newFrameReader2(lastNBytesFraming{handshakeHeaderLenDTLS, 3})
 	h.maxFragmentLen = initialMtu // Not quite right
 	return &h
 }
@@ -359,7 +361,7 @@ func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 	}
 	for {
 		logf(logTypeVerbose, "ReadMessage() buffered=%v", len(h.frame.remainder))
-		if h.frame.needed() > 0 {
+		if !h.frame.ready() {
 			logf(logTypeVerbose, "Trying to read a new record")
 			err = h.readRecord()
 
@@ -368,7 +370,7 @@ func (h *HandshakeLayer) ReadMessage() (*HandshakeMessage, error) {
 			}
 		}
 
-		hdr, body, err = h.frame.process()
+		hdr, body, err = h.frame.next()
 		if err == nil {
 			break
 		}
