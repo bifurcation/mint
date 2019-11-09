@@ -121,7 +121,7 @@ type HandshakeLayer struct {
 	ctx            *HandshakeContext   // The handshake we are attached to
 	nonblocking    bool                // Should we operate in nonblocking mode
 	conn           RecordLayer         // Used for reading/writing records
-	frame          *frameReader2       // The buffered frame reader
+	frame          *frameReader        // The buffered frame reader
 	datagram       bool                // Is this DTLS?
 	msgSeq         uint32              // The DTLS message sequence number
 	queued         []*HandshakeMessage // In/out queue
@@ -160,7 +160,7 @@ func NewHandshakeLayerTLS(c *HandshakeContext, r RecordLayer) *HandshakeLayer {
 	h.ctx = c
 	h.conn = r
 	h.datagram = false
-	h.frame = newFrameReader2(lastNBytesFraming{handshakeHeaderLenTLS, 3})
+	h.frame = newFrameReader(lastNBytesFraming{handshakeHeaderLenTLS, 3})
 	h.maxFragmentLen = maxFragmentLen
 	return &h
 }
@@ -170,7 +170,7 @@ func NewHandshakeLayerDTLS(c *HandshakeContext, r RecordLayer) *HandshakeLayer {
 	h.ctx = c
 	h.conn = r
 	h.datagram = true
-	h.frame = newFrameReader2(lastNBytesFraming{handshakeHeaderLenDTLS, 3})
+	h.frame = newFrameReader(lastNBytesFraming{handshakeHeaderLenDTLS, 3})
 	h.maxFragmentLen = initialMtu // Not quite right
 	return &h
 }

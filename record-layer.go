@@ -89,7 +89,7 @@ type DefaultRecordLayer struct {
 	direction    Direction
 	version      uint16        // The current version number
 	conn         io.ReadWriter // The underlying connection
-	frame        *frameReader2 // The buffered frame reader
+	frame        *frameReader  // The buffered frame reader
 	nextData     []byte        // The next record to send
 	cachedRecord *TLSPlaintext // Last record read, cached to enable "peek"
 	cachedError  error         // Error on the last record read
@@ -122,7 +122,7 @@ func NewRecordLayerTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
 	r.label = ""
 	r.direction = dir
 	r.conn = conn
-	r.frame = newFrameReader2(lastNBytesFraming{recordHeaderLenTLS, 2})
+	r.frame = newFrameReader(lastNBytesFraming{recordHeaderLenTLS, 2})
 	r.cipher = newCipherStateNull()
 	r.version = tls10Version
 	return &r
@@ -133,7 +133,7 @@ func NewRecordLayerDTLS(conn io.ReadWriter, dir Direction) *DefaultRecordLayer {
 	r.label = ""
 	r.direction = dir
 	r.conn = conn
-	r.frame = newFrameReader2(lastNBytesFraming{recordHeaderLenDTLS, 2})
+	r.frame = newFrameReader(lastNBytesFraming{recordHeaderLenDTLS, 2})
 	r.cipher = newCipherStateNull()
 	r.readCiphers = make(map[Epoch]*cipherState, 0)
 	r.readCiphers[0] = r.cipher
