@@ -104,6 +104,14 @@ func TestDecodeErrors(t *testing.T) {
 			}{},
 			encoding: unhex("40"),
 		},
+
+		// Optional errors
+		"invalid-optional-flag": {
+			template: struct {
+				V *uint8 `tls:"optional"`
+			}{},
+			encoding: unhex("0203"),
+		},
 	}
 
 	for label, testCase := range errorCases {
