@@ -60,7 +60,7 @@ func (cs *CrypticString) UnmarshalTLS(data []byte) (int, error) {
 }
 
 func TestSuccessCases(t *testing.T) {
-	dummyUint16 := uint16(0xB0A0)
+	dummyUint16 := uint16(0xFFFF)
 	testCases := map[string]struct {
 		value    interface{}
 		encoding []byte
@@ -172,7 +172,25 @@ func TestSuccessCases(t *testing.T) {
 		},
 		"struct-pointer": {
 			value:    struct{ V *uint16 }{V: &dummyUint16},
-			encoding: unhex("B0A0"),
+			encoding: unhex("FFFF"),
+		},
+
+		// Optional
+		"optional-absent": {
+			value: struct {
+				A *uint16 `tls:"optional"`
+			}{
+				A: nil,
+			},
+			encoding: unhex("00"),
+		},
+		"optional-present": {
+			value: struct {
+				A *uint16 `tls:"optional"`
+			}{
+				A: &dummyUint16,
+			},
+			encoding: unhex("01FFFF"),
 		},
 
 		// Marshaler

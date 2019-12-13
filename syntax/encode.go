@@ -25,10 +25,11 @@ type Marshaler interface {
 // These are the options that can be specified in the struct tag.  Right now,
 // all of them apply to variable-length vectors and nothing else
 type encOpts struct {
-	head   uint // length of length in bytes
-	min    uint // minimum size in bytes
-	max    uint // maximum size in bytes
-	varint bool // whether to encode as a varint
+	head     uint // length of length in bytes
+	min      uint // minimum size in bytes
+	max      uint // maximum size in bytes
+	varint   bool // whether to encode as a varint
+	optional bool // whether to encode pointer as optional
 }
 
 type encodeState struct {
@@ -244,10 +245,11 @@ func newStructEncoder(t reflect.Type) encoderFunc {
 		tagOpts := parseTag(tag)
 
 		se.fieldOpts[i] = encOpts{
-			head:   tagOpts["head"],
-			max:    tagOpts["max"],
-			min:    tagOpts["min"],
-			varint: tagOpts[varintOption] > 0,
+			head:     tagOpts["head"],
+			max:      tagOpts["max"],
+			min:      tagOpts["min"],
+			varint:   tagOpts[varintOption] > 0,
+			optional: tagOpts[optionalOption] > 0,
 		}
 		se.fieldEncs[i] = typeEncoder(f.Type)
 	}
@@ -262,8 +264,17 @@ type pointerEncoder struct {
 }
 
 func (pe pointerEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+	if v.IsNil() && opts.optional {
+		writeUint(e, 0x00, 1)
+		return
+	}
+
 	if v.IsNil() {
 		panic(fmt.Errorf("Cannot marshal a struct containing a nil pointer"))
+	}
+
+	if opts.optional {
+		writeUint(e, 0x01, 1)
 	}
 
 	pe.base(e, v.Elem(), opts)

@@ -28,10 +28,11 @@ type Unmarshaler interface {
 // These are the options that can be specified in the struct tag.  Right now,
 // all of them apply to variable-length vectors and nothing else
 type decOpts struct {
-	head   uint // length of length in bytes
-	min    uint // minimum size in bytes
-	max    uint // maximum size in bytes
-	varint bool // whether to decode as a varint
+	head     uint // length of length in bytes
+	min      uint // minimum size in bytes
+	max      uint // maximum size in bytes
+	varint   bool // whether to decode as a varint
+	optional bool // whether to decode a pointer as optional
 }
 
 type decodeState struct {
@@ -314,10 +315,11 @@ func newStructDecoder(t reflect.Type) decoderFunc {
 		tagOpts := parseTag(tag)
 
 		sd.fieldOpts[i] = decOpts{
-			head:   tagOpts["head"],
-			max:    tagOpts["max"],
-			min:    tagOpts["min"],
-			varint: tagOpts[varintOption] > 0,
+			head:     tagOpts["head"],
+			max:      tagOpts["max"],
+			min:      tagOpts["min"],
+			varint:   tagOpts[varintOption] > 0,
+			optional: tagOpts[optionalOption] > 0,
 		}
 
 		sd.fieldDecs[i] = typeDecoder(f.Type)
@@ -333,8 +335,26 @@ type pointerDecoder struct {
 }
 
 func (pd *pointerDecoder) decode(d *decodeState, v reflect.Value, opts decOpts) int {
+	readBase := 0
+	if opts.optional {
+		readBase = 1
+		flag := d.Next(1)
+		switch flag[0] {
+		case 0:
+			indir := v.Elem()
+			indir.Set(reflect.Zero(indir.Type()))
+			return 1
+
+		case 1:
+			// No action; continue as normal
+
+		default:
+			panic(fmt.Errorf("Invalid flag byte for optional: [%x]", flag))
+		}
+	}
+
 	v.Elem().Set(reflect.New(v.Elem().Type().Elem()))
-	return pd.base(d, v.Elem(), opts)
+	return readBase + pd.base(d, v.Elem(), opts)
 }
 
 func newPointerDecoder(t reflect.Type) decoderFunc {
