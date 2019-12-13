@@ -170,6 +170,18 @@ func TestSuccessCases(t *testing.T) {
 			},
 			encoding: unhex("B0A0" + "0005A0A1A2A3A4" + "10111213202122233031323340414243"),
 		},
+		"struct-omit": {
+			value: struct {
+				A uint16
+				B []uint8 `tls:"omit"`
+				C [4]uint32
+			}{
+				A: 0xB0A0,
+				B: nil,
+				C: [4]uint32{0x10111213, 0x20212223, 0x30313233, 0x40414243},
+			},
+			encoding: unhex("B0A0" + "10111213202122233031323340414243"),
+		},
 		"struct-pointer": {
 			value:    struct{ V *uint16 }{V: &dummyUint16},
 			encoding: unhex("FFFF"),
