@@ -1,6 +1,7 @@
 package syntax
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -51,4 +52,31 @@ func parseTag(tag string) tagOptions {
 		}
 	}
 	return opts
+}
+
+func tagsValidForType(opts tagOptions, t reflect.Type) bool {
+	for tag := range opts {
+		switch tag {
+		case "head", "min", "max":
+			// head, min, and max are only valid for slices
+			if t.Kind() != reflect.Slice {
+				return false
+			}
+
+		case "varint":
+			// varint is only valid for integers
+			switch t.Kind() {
+			case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			default:
+				return false
+			}
+
+		case "optional":
+			// optional is only valid for pointers
+			if t.Kind() != reflect.Ptr {
+				return false
+			}
+		}
+	}
+	return true
 }
