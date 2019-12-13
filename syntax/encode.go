@@ -198,7 +198,7 @@ func (se *sliceEncoder) encode(e *encodeState, v reflect.Value, opts fieldOption
 		writeVarint(e, uint64(n))
 
 	case opts.headerSize > 0:
-		if n>>(8*opts.headerSize) > 0 {
+		if n>>uint(8*opts.headerSize) > 0 {
 			panic(fmt.Errorf("Encoded length too long for header length [%d, %d]", n, opts.headerSize))
 		}
 
