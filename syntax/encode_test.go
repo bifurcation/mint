@@ -29,6 +29,18 @@ func TestEncodeErrors(t *testing.T) {
 		}{V: buffer(0x20)},
 
 		"nil": struct{ V *uint8 }{V: nil},
+
+		"invalid-head-tag": struct {
+			V int `tls:"head=2"`
+		}{V: 0},
+
+		"invalid-varint-tag": struct {
+			V struct{} `tls:"varint"`
+		}{V: struct{}{}},
+
+		"invalid-optional-tag": struct {
+			V int `tls:"optional"`
+		}{V: 0},
 	}
 
 	for label, badValue := range errorCases {

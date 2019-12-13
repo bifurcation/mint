@@ -105,6 +105,27 @@ func TestDecodeErrors(t *testing.T) {
 			encoding: unhex("40"),
 		},
 
+		"invalid-head-tag": {
+			template: struct {
+				V int `tls:"head=2"`
+			}{V: 0},
+			encoding: unhex(""),
+		},
+
+		"invalid-varint-tag": {
+			template: struct {
+				V struct{} `tls:"varint"`
+			}{V: struct{}{}},
+			encoding: unhex(""),
+		},
+
+		"invalid-optional-tag": {
+			template: struct {
+				V int `tls:"optional"`
+			}{V: 0},
+			encoding: unhex(""),
+		},
+
 		// Optional errors
 		"invalid-optional-flag": {
 			template: struct {
