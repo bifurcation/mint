@@ -251,6 +251,10 @@ func newStructEncoder(t reflect.Type) encoderFunc {
 		tag := f.Tag.Get("tls")
 		tagOpts := parseTag(tag)
 
+		if !tagsValidForType(tagOpts, f.Type) {
+			panic(fmt.Errorf("Tags invalid for field type"))
+		}
+
 		se.fieldOpts[i] = encOpts{
 			head:     tagOpts["head"],
 			max:      tagOpts["max"],
