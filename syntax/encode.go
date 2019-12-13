@@ -9,7 +9,7 @@ import (
 
 func Marshal(v interface{}) ([]byte, error) {
 	e := &encodeState{}
-	err := e.marshal(v, encOpts{})
+	err := e.marshal(v, fieldOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -22,22 +22,11 @@ type Marshaler interface {
 	MarshalTLS() ([]byte, error)
 }
 
-// These are the options that can be specified in the struct tag.  Right now,
-// all of them apply to variable-length vectors and nothing else
-type encOpts struct {
-	head     uint // length of length in bytes
-	min      uint // minimum size in bytes
-	max      uint // maximum size in bytes
-	varint   bool // whether to encode as a varint
-	optional bool // whether to encode pointer as optional
-	omit     bool // whether to skip a field
-}
-
 type encodeState struct {
 	bytes.Buffer
 }
 
-func (e *encodeState) marshal(v interface{}, opts encOpts) (err error) {
+func (e *encodeState) marshal(v interface{}, opts fieldOptions) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -53,11 +42,11 @@ func (e *encodeState) marshal(v interface{}, opts encOpts) (err error) {
 	return nil
 }
 
-func (e *encodeState) reflectValue(v reflect.Value, opts encOpts) {
+func (e *encodeState) reflectValue(v reflect.Value, opts fieldOptions) {
 	valueEncoder(v)(e, v, opts)
 }
 
-type encoderFunc func(e *encodeState, v reflect.Value, opts encOpts)
+type encoderFunc func(e *encodeState, v reflect.Value, opts fieldOptions)
 
 func valueEncoder(v reflect.Value) encoderFunc {
 	if !v.IsValid() {
@@ -98,13 +87,13 @@ func newTypeEncoder(t reflect.Type) encoderFunc {
 
 ///// Specific encoders below
 
-func omitEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+func omitEncoder(e *encodeState, v reflect.Value, opts fieldOptions) {
 	// This space intentionally left blank
 }
 
 //////////
 
-func marshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+func marshalerEncoder(e *encodeState, v reflect.Value, opts fieldOptions) {
 	if v.Kind() == reflect.Ptr && v.IsNil() {
 		panic(fmt.Errorf("Cannot encode nil pointer"))
 	}
@@ -126,7 +115,7 @@ func marshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 
 //////////
 
-func uintEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+func uintEncoder(e *encodeState, v reflect.Value, opts fieldOptions) {
 	if opts.varint {
 		varintEncoder(e, v, opts)
 		return
@@ -135,7 +124,7 @@ func uintEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 	writeUint(e, v.Uint(), int(v.Type().Size()))
 }
 
-func varintEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+func varintEncoder(e *encodeState, v reflect.Value, opts fieldOptions) {
 	writeVarint(e, v.Uint())
 }
 
@@ -171,7 +160,7 @@ type arrayEncoder struct {
 	elemEnc encoderFunc
 }
 
-func (ae *arrayEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+func (ae *arrayEncoder) encode(e *encodeState, v reflect.Value, opts fieldOptions) {
 	n := v.Len()
 	for i := 0; i < n; i += 1 {
 		ae.elemEnc(e, v.Index(i), opts)
@@ -189,33 +178,34 @@ type sliceEncoder struct {
 	ae *arrayEncoder
 }
 
-func (se *sliceEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+func (se *sliceEncoder) encode(e *encodeState, v reflect.Value, opts fieldOptions) {
 	arrayState := &encodeState{}
 	se.ae.encode(arrayState, v, opts)
 
-	n := uint(arrayState.Len())
-	if opts.head == 0 {
-		panic(fmt.Errorf("Cannot encode a slice without a header length"))
+	n := arrayState.Len()
+	if opts.maxSize > 0 && n > opts.maxSize {
+		panic(fmt.Errorf("Encoded length more than max [%d > %d]", n, opts.maxSize))
+	}
+	if n < opts.minSize {
+		panic(fmt.Errorf("Encoded length less than min [%d < %d]", n, opts.minSize))
 	}
 
-	if opts.max > 0 && n > opts.max {
-		panic(fmt.Errorf("Encoded length more than max [%d > %d]", n, opts.max))
-	}
-	if n < opts.min {
-		panic(fmt.Errorf("Encoded length less than min [%d < %d]", n, opts.min))
-	}
-
-	switch opts.head {
-	case headValueNoHead:
+	switch {
+	case opts.omitHeader:
 		// None.
-	case headValueVarint:
+
+	case opts.varintHeader:
 		writeVarint(e, uint64(n))
-	default:
-		if n>>(8*opts.head) > 0 {
-			panic(fmt.Errorf("Encoded length too long for header length [%d, %d]", n, opts.head))
+
+	case opts.headerSize > 0:
+		if n>>(8*opts.headerSize) > 0 {
+			panic(fmt.Errorf("Encoded length too long for header length [%d, %d]", n, opts.headerSize))
 		}
 
-		writeUint(e, uint64(n), int(opts.head))
+		writeUint(e, uint64(n), int(opts.headerSize))
+
+	default:
+		panic(fmt.Errorf("Cannot encode a slice without a header length"))
 	}
 
 	e.Write(arrayState.Bytes())
@@ -229,11 +219,11 @@ func newSliceEncoder(t reflect.Type) encoderFunc {
 //////////
 
 type structEncoder struct {
-	fieldOpts []encOpts
+	fieldOpts []fieldOptions
 	fieldEncs []encoderFunc
 }
 
-func (se *structEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+func (se *structEncoder) encode(e *encodeState, v reflect.Value, opts fieldOptions) {
 	for i := range se.fieldEncs {
 		se.fieldEncs[i](e, v.Field(i), se.fieldOpts[i])
 	}
@@ -242,29 +232,21 @@ func (se *structEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
 func newStructEncoder(t reflect.Type) encoderFunc {
 	n := t.NumField()
 	se := structEncoder{
-		fieldOpts: make([]encOpts, n),
+		fieldOpts: make([]fieldOptions, n),
 		fieldEncs: make([]encoderFunc, n),
 	}
 
 	for i := 0; i < n; i += 1 {
 		f := t.Field(i)
 		tag := f.Tag.Get("tls")
-		tagOpts := parseTag(tag)
+		opts := parseTag(tag)
 
-		if !tagsValidForType(tagOpts, f.Type) {
+		if !opts.ValidForType(f.Type) {
 			panic(fmt.Errorf("Tags invalid for field type"))
 		}
 
-		se.fieldOpts[i] = encOpts{
-			head:     tagOpts["head"],
-			max:      tagOpts["max"],
-			min:      tagOpts["min"],
-			varint:   tagOpts[varintOption] > 0,
-			optional: tagOpts[optionalOption] > 0,
-			omit:     tagOpts[omitOption] > 0,
-		}
-
-		if se.fieldOpts[i].omit {
+		se.fieldOpts[i] = opts
+		if opts.omit {
 			se.fieldEncs[i] = omitEncoder
 		} else {
 			se.fieldEncs[i] = typeEncoder(f.Type)
@@ -280,7 +262,7 @@ type pointerEncoder struct {
 	base encoderFunc
 }
 
-func (pe pointerEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+func (pe pointerEncoder) encode(e *encodeState, v reflect.Value, opts fieldOptions) {
 	if v.IsNil() && opts.optional {
 		writeUint(e, 0x00, 1)
 		return

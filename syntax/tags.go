@@ -1,6 +1,7 @@
 package syntax
 
 import (
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -8,7 +9,79 @@ import (
 
 // `tls:"head=2,min=2,max=255,varint"`
 
-type tagOptions map[string]uint
+type fieldOptions struct {
+	omitHeader   bool // whether to omit the slice header
+	varintHeader bool // whether to encode the header length as a varint
+	headerSize   int  // length of length in bytes
+	minSize      int  // minimum vector size in bytes
+	maxSize      int  // maximum vector size in bytes
+
+	varint   bool // whether to encode as a varint
+	optional bool // whether to encode pointer as optional
+	omit     bool // whether to skip a field
+}
+
+func mutuallyExclusive(vals []bool) bool {
+	set := 0
+	for _, val := range vals {
+		if val {
+			set += 1
+		}
+	}
+	return set <= 1
+}
+
+func (opts fieldOptions) Consistent() bool {
+	// No more than one of the header options must be set
+	headerPaths := []bool{opts.omitHeader, opts.varintHeader, opts.headerSize > 1}
+	if !mutuallyExclusive(headerPaths) {
+		return false
+	}
+
+	// Max must be greater than min
+	if opts.maxSize > 0 && opts.minSize > opts.maxSize {
+		return false
+	}
+
+	// varint and optional are mutually exclusive with each other, and with the slice options
+	headerOpts := (opts.omitHeader || opts.varintHeader || opts.headerSize > 1 || opts.maxSize > 0 || opts.minSize > 0)
+	encodePaths := []bool{headerOpts, opts.varint, opts.optional}
+	if !mutuallyExclusive(encodePaths) {
+		return false
+	}
+
+	// Omit is mutually exclusive with everything else
+	otherThanOmit := (headerOpts || opts.varint || opts.optional)
+	if !mutuallyExclusive([]bool{opts.omit, otherThanOmit}) {
+		return false
+	}
+
+	return true
+}
+
+func (opts fieldOptions) ValidForType(t reflect.Type) bool {
+	sliceRequired := opts.omitHeader || opts.varintHeader || (opts.headerSize != 0) ||
+		(opts.minSize != 0) || (opts.maxSize != 0)
+	if sliceRequired && t.Kind() != reflect.Slice {
+		return false
+	}
+
+	uintRequired := opts.varint
+	if uintRequired {
+		switch t.Kind() {
+		case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		default:
+			return false
+		}
+	}
+
+	ptrRequired := opts.optional
+	if ptrRequired && t.Kind() != reflect.Ptr {
+		return false
+	}
+
+	return true
+}
 
 var (
 	varintOption   = "varint"
@@ -21,66 +94,67 @@ var (
 	headValueVarint  = uint(254)
 )
 
+func atoi(a string) int {
+	i, err := strconv.Atoi(a)
+	if err != nil {
+		panic(fmt.Errorf("Invalid header size: %v", err))
+	}
+	return i
+}
+
 // parseTag parses a struct field's "tls" tag as a comma-separated list of
 // name=value pairs, where the values MUST be unsigned integers, or in
 // the special case of head, "none" or "varint"
-func parseTag(tag string) tagOptions {
-	opts := tagOptions{}
+func parseTag(tag string) fieldOptions {
+	opts := fieldOptions{}
 	for _, token := range strings.Split(tag, ",") {
-		if token == varintOption {
-			opts[varintOption] = 1
-			continue
-		} else if token == optionalOption {
-			opts[optionalOption] = 1
-			continue
-		} else if token == omitOption {
-			opts[omitOption] = 1
-			continue
-		}
-
 		parts := strings.Split(token, "=")
-		if len(parts[0]) == 0 {
-			continue
-		}
 
+		// Handle name-only entries
 		if len(parts) == 1 {
+			switch parts[0] {
+			case varintOption:
+				opts.varint = true
+			case optionalOption:
+				opts.optional = true
+			case omitOption:
+				opts.omit = true
+			default:
+				// XXX(rlb): Ignoring unknown fields
+			}
 			continue
 		}
 
-		if parts[0] == "head" && parts[1] == headOptionNone {
-			opts[parts[0]] = headValueNoHead
-		} else if parts[0] == "head" && parts[1] == headOptionVarint {
-			opts[parts[0]] = headValueVarint
-		} else if val, err := strconv.Atoi(parts[1]); err == nil && val >= 0 {
-			opts[parts[0]] = uint(val)
+		if len(parts) != 2 || len(parts[0]) == 0 || len(parts[1]) == 0 {
+			panic(fmt.Errorf("Malformed tag"))
 		}
-	}
-	return opts
-}
 
-func tagsValidForType(opts tagOptions, t reflect.Type) bool {
-	for tag := range opts {
-		switch tag {
-		case "head", "min", "max":
-			// head, min, and max are only valid for slices
-			if t.Kind() != reflect.Slice {
-				return false
-			}
-
-		case "varint":
-			// varint is only valid for integers
-			switch t.Kind() {
-			case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		// Handle name=value entries
+		switch parts[0] {
+		case "head":
+			switch {
+			case parts[1] == headOptionNone:
+				opts.omitHeader = true
+			case parts[1] == headOptionVarint:
+				opts.varintHeader = true
 			default:
-				return false
+				opts.headerSize = atoi(parts[1])
 			}
 
-		case "optional":
-			// optional is only valid for pointers
-			if t.Kind() != reflect.Ptr {
-				return false
-			}
+		case "min":
+			opts.minSize = atoi(parts[1])
+
+		case "max":
+			opts.maxSize = atoi(parts[1])
+
+		default:
+			// XXX(rlb): Ignoring unknown fields
 		}
 	}
-	return true
+
+	if !opts.Consistent() {
+		panic(fmt.Errorf("Inconsistent options"))
+	}
+
+	return opts
 }
