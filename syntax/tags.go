@@ -18,6 +18,9 @@ var (
 	headOptionVarint = "varint"
 	headValueNoHead  = uint(255)
 	headValueVarint  = uint(254)
+
+	optionalFlagAbsent  uint8 = 0
+	optionalFlagPresent uint8 = 1
 )
 
 // parseTag parses a struct field's "tls" tag as a comma-separated list of
