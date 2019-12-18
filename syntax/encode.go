@@ -98,8 +98,17 @@ func newTypeEncoder(t reflect.Type) encoderFunc {
 ///// Specific encoders below
 
 func marshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
-	if v.Kind() == reflect.Ptr && v.IsNil() {
+	if v.Kind() == reflect.Ptr && v.IsNil() && !opts.optional {
 		panic(fmt.Errorf("Cannot encode nil pointer"))
+	}
+
+	if v.Kind() == reflect.Ptr && opts.optional {
+		if v.IsNil() {
+			writeUint(e, uint64(optionalFlagAbsent), 1)
+			return
+		}
+
+		writeUint(e, uint64(optionalFlagPresent), 1)
 	}
 
 	m, ok := v.Interface().(Marshaler)
@@ -268,17 +277,17 @@ type pointerEncoder struct {
 }
 
 func (pe pointerEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
-	if v.IsNil() && opts.optional {
-		writeUint(e, 0x00, 1)
-		return
-	}
-
-	if v.IsNil() {
-		panic(fmt.Errorf("Cannot marshal a struct containing a nil pointer"))
+	if v.IsNil() && !opts.optional {
+		panic(fmt.Errorf("Cannot encode nil pointer"))
 	}
 
 	if opts.optional {
-		writeUint(e, 0x01, 1)
+		if v.IsNil() {
+			writeUint(e, uint64(optionalFlagAbsent), 1)
+			return
+		}
+
+		writeUint(e, uint64(optionalFlagPresent), 1)
 	}
 
 	pe.base(e, v.Elem(), opts)
