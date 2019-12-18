@@ -13,6 +13,7 @@ type tagOptions map[string]uint
 var (
 	varintOption   = "varint"
 	optionalOption = "optional"
+	omitOption     = "omit"
 
 	headOptionNone   = "none"
 	headOptionVarint = "varint"
@@ -34,6 +35,9 @@ func parseTag(tag string) tagOptions {
 			continue
 		} else if token == optionalOption {
 			opts[optionalOption] = 1
+			continue
+		} else if token == omitOption {
+			opts[omitOption] = 1
 			continue
 		}
 

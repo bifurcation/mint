@@ -33,6 +33,7 @@ type decOpts struct {
 	max      uint // maximum size in bytes
 	varint   bool // whether to decode as a varint
 	optional bool // whether to decode a pointer as optional
+	omit     bool // whether to skip a field
 }
 
 type decodeState struct {
@@ -102,6 +103,12 @@ func newTypeDecoder(t reflect.Type) decoderFunc {
 }
 
 ///// Specific decoders below
+
+func omitDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
+	return 0
+}
+
+//////////
 
 func unmarshalerDecoder(d *decodeState, v reflect.Value, opts decOpts) int {
 	um, ok := v.Interface().(Unmarshaler)
@@ -324,9 +331,14 @@ func newStructDecoder(t reflect.Type) decoderFunc {
 			min:      tagOpts["min"],
 			varint:   tagOpts[varintOption] > 0,
 			optional: tagOpts[optionalOption] > 0,
+			omit:     tagOpts[omitOption] > 0,
 		}
 
-		sd.fieldDecs[i] = typeDecoder(f.Type)
+		if sd.fieldOpts[i].omit {
+			sd.fieldDecs[i] = omitDecoder
+		} else {
+			sd.fieldDecs[i] = typeDecoder(f.Type)
+		}
 	}
 
 	return sd.decode

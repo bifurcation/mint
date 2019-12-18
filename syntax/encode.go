@@ -30,6 +30,7 @@ type encOpts struct {
 	max      uint // maximum size in bytes
 	varint   bool // whether to encode as a varint
 	optional bool // whether to encode pointer as optional
+	omit     bool // whether to skip a field
 }
 
 type encodeState struct {
@@ -96,6 +97,12 @@ func newTypeEncoder(t reflect.Type) encoderFunc {
 }
 
 ///// Specific encoders below
+
+func omitEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+	// This space intentionally left blank
+}
+
+//////////
 
 func marshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 	if v.Kind() == reflect.Ptr && v.IsNil() && !opts.optional {
@@ -263,8 +270,14 @@ func newStructEncoder(t reflect.Type) encoderFunc {
 			min:      tagOpts["min"],
 			varint:   tagOpts[varintOption] > 0,
 			optional: tagOpts[optionalOption] > 0,
+			omit:     tagOpts[omitOption] > 0,
 		}
-		se.fieldEncs[i] = typeEncoder(f.Type)
+
+		if se.fieldOpts[i].omit {
+			se.fieldEncs[i] = omitEncoder
+		} else {
+			se.fieldEncs[i] = typeEncoder(f.Type)
+		}
 	}
 
 	return se.encode
