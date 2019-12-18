@@ -2,16 +2,95 @@ package syntax
 
 import (
 	"reflect"
+	"runtime"
 	"testing"
 )
 
 func TestTagParsing(t *testing.T) {
-	opts := parseTag("=x,head=2,min=3,max=60000,unknown,varint,optional")
-	if len(opts) != 5 {
-		t.Fatalf("Failed to parse all fields")
+	cases := []struct {
+		encoded string
+		opts    fieldOptions
+	}{
+		{
+			encoded: "head=2,min=3,max=60000",
+			opts: fieldOptions{
+				headerSize: 2,
+				minSize:    3,
+				maxSize:    60000,
+			},
+		},
+		{
+			encoded: "head=varint,min=3,max=60000",
+			opts: fieldOptions{
+				varintHeader: true,
+				minSize:      3,
+				maxSize:      60000,
+			},
+		},
+		{
+			encoded: "head=none,min=3,max=60000",
+			opts: fieldOptions{
+				omitHeader: true,
+				minSize:    3,
+				maxSize:    60000,
+			},
+		},
+		{
+			encoded: "varint",
+			opts:    fieldOptions{varint: true},
+		},
+		{
+			encoded: "optional",
+			opts:    fieldOptions{optional: true},
+		},
+		{
+			encoded: "omit",
+			opts:    fieldOptions{omit: true},
+		},
 	}
-	if opts["head"] != 2 || opts["min"] != 3 || opts["max"] != 60000 || opts[varintOption] != 1 || opts[optionalOption] != 1 {
-		t.Fatalf("Parsed fields incorrectly")
+
+	for _, c := range cases {
+		parsed := parseTag(c.encoded)
+		if !reflect.DeepEqual(parsed, c.opts) {
+			t.Fatalf("Incorrect options parsing: [%+v] != [%+v]", parsed, c.opts)
+		}
+	}
+}
+
+func TestTagConsistency(t *testing.T) {
+
+	cases := []string{
+		"head=3,head=none",
+		"head=none,head=varint",
+		"head=varint,head=3",
+		"min=4,max=2",
+		"head=3,varint",
+		"varint,optional",
+		"optional,head=3",
+		"omit,varint",
+	}
+
+	tryToParse := func(opts string) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				if _, ok := r.(runtime.Error); ok {
+					panic(r)
+				}
+				if s, ok := r.(string); ok {
+					panic(s)
+				}
+				err = r.(error)
+			}
+		}()
+		parseTag(opts)
+		return nil
+	}
+
+	for _, opts := range cases {
+		err := tryToParse(opts)
+		if err == nil {
+			t.Fatalf("Incorrectly allowed inconsistent options: [%s]", opts)
+		}
 	}
 }
 
@@ -24,27 +103,27 @@ func TestTagValidity(t *testing.T) {
 	uintType := reflect.TypeOf(uint8(0))
 	ptrType := reflect.TypeOf(new(uint8))
 
-	if !tagsValidForType(sliceTags, sliceType) {
+	if !sliceTags.ValidForType(sliceType) {
 		t.Fatalf("Rejected valid tags for slice")
 	}
 
-	if !tagsValidForType(uintTags, uintType) {
+	if !uintTags.ValidForType(uintType) {
 		t.Fatalf("Rejected valid tags for uint")
 	}
 
-	if !tagsValidForType(ptrTags, ptrType) {
+	if !ptrTags.ValidForType(ptrType) {
 		t.Fatalf("Rejected valid tags for ptr")
 	}
 
-	if tagsValidForType(uintTags, sliceType) {
+	if uintTags.ValidForType(sliceType) {
 		t.Fatalf("Accepted invalid tags for slice: %v", uintTags)
 	}
 
-	if tagsValidForType(ptrTags, uintType) {
+	if ptrTags.ValidForType(uintType) {
 		t.Fatalf("Accepted invalid tags for uint: %v", ptrTags)
 	}
 
-	if tagsValidForType(sliceTags, ptrType) {
+	if sliceTags.ValidForType(ptrType) {
 		t.Fatalf("Accepted invalid tags for ptr: %v", sliceTags)
 	}
 }
