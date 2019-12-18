@@ -328,12 +328,12 @@ func (pd *pointerDecoder) decode(d *decodeState, v reflect.Value, opts fieldOpti
 		readBase = 1
 		flag := d.Next(1)
 		switch flag[0] {
-		case 0:
+		case optionalFlagAbsent:
 			indir := v.Elem()
 			indir.Set(reflect.Zero(indir.Type()))
 			return 1
 
-		case 1:
+		case optionalFlagPresent:
 			// No action; continue as normal
 
 		default:
