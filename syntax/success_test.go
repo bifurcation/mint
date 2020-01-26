@@ -59,6 +59,19 @@ func (cs *CrypticString) UnmarshalTLS(data []byte) (int, error) {
 	return int(l + 1), nil
 }
 
+func (cs CrypticString) ValidForTLS() error {
+	if len(cs) > 256 {
+		return fmt.Errorf("CrypticString length to large: %d", len(cs))
+	}
+
+	fmt.Printf("val = [%s]\n", string(cs))
+	if string(cs) == "fnord" {
+		return fmt.Errorf("Forbidden value")
+	}
+
+	return nil
+}
+
 func TestSuccessCases(t *testing.T) {
 	dummyUint16 := uint16(0xFFFF)
 	crypticHello := CrypticString("hello")

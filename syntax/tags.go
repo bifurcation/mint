@@ -7,6 +7,15 @@ import (
 	"strings"
 )
 
+// Allow types to mark themselves as valid for TLS to marshal/unmarshal
+type Validator interface {
+	ValidForTLS() error
+}
+
+var (
+	validatorType = reflect.TypeOf(new(Validator)).Elem()
+)
+
 // `tls:"head=2,min=2,max=255,varint"`
 
 type fieldOptions struct {

@@ -1,6 +1,7 @@
 package syntax
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -41,6 +42,8 @@ func TestEncodeErrors(t *testing.T) {
 		"invalid-optional-tag": struct {
 			V int `tls:"optional"`
 		}{V: 0},
+
+		"invalid-validator": CrypticString(strings.Repeat("A", 257)),
 	}
 
 	for label, badValue := range errorCases {

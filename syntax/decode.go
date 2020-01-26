@@ -71,24 +71,31 @@ var (
 )
 
 func newTypeDecoder(t reflect.Type) decoderFunc {
+	var dec decoderFunc
 	if t.Kind() != reflect.Ptr && reflect.PtrTo(t).Implements(unmarshalerType) {
-		return unmarshalerDecoder
+		dec = unmarshalerDecoder
+	} else {
+		switch t.Kind() {
+		case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			dec = uintDecoder
+		case reflect.Array:
+			dec = newArrayDecoder(t)
+		case reflect.Slice:
+			dec = newSliceDecoder(t)
+		case reflect.Struct:
+			dec = newStructDecoder(t)
+		case reflect.Ptr:
+			dec = newPointerDecoder(t)
+		default:
+			panic(fmt.Errorf("Unsupported type (%s)", t))
+		}
 	}
 
-	switch t.Kind() {
-	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return uintDecoder
-	case reflect.Array:
-		return newArrayDecoder(t)
-	case reflect.Slice:
-		return newSliceDecoder(t)
-	case reflect.Struct:
-		return newStructDecoder(t)
-	case reflect.Ptr:
-		return newPointerDecoder(t)
-	default:
-		panic(fmt.Errorf("Unsupported type (%s)", t))
+	if reflect.PtrTo(t).Implements(validatorType) {
+		dec = newValidatorDecoder(dec)
 	}
+
+	return dec
 }
 
 ///// Specific decoders below
@@ -116,6 +123,25 @@ func unmarshalerDecoder(d *decodeState, v reflect.Value, opts fieldOptions) int 
 
 	d.Next(read)
 	return read
+}
+
+//////////
+
+func newValidatorDecoder(raw decoderFunc) decoderFunc {
+	return func(d *decodeState, v reflect.Value, opts fieldOptions) int {
+		read := raw(d, v, opts)
+
+		val, ok := v.Interface().(Validator)
+		if !ok {
+			panic(fmt.Errorf("Non-Validator passed to validatorDecoder"))
+		}
+
+		if err := val.ValidForTLS(); err != nil {
+			panic(fmt.Errorf("Decoded invalid TLS value: %v", err))
+		}
+
+		return read
+	}
 }
 
 //////////
