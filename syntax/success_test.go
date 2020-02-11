@@ -64,7 +64,6 @@ func (cs CrypticString) ValidForTLS() error {
 		return fmt.Errorf("CrypticString length to large: %d", len(cs))
 	}
 
-	fmt.Printf("val = [%s]\n", string(cs))
 	if string(cs) == "fnord" {
 		return fmt.Errorf("Forbidden value")
 	}
@@ -169,6 +168,16 @@ func TestSuccessCases(t *testing.T) {
 				V: buffer(0x3FFF),
 			},
 			encoding: unhex("7FFF" + hexBuffer(0x3FFF)),
+		},
+
+		// Maps
+		"map": {
+			value: struct {
+				V map[uint16]uint8 `tls:"head=1"`
+			}{
+				V: map[uint16]uint8{2: 1, 1: 2},
+			},
+			encoding: unhex("06000102000201"),
 		},
 
 		// Struct

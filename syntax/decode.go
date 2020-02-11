@@ -82,6 +82,8 @@ func newTypeDecoder(t reflect.Type) decoderFunc {
 			dec = newArrayDecoder(t)
 		case reflect.Slice:
 			dec = newSliceDecoder(t)
+		case reflect.Map:
+			dec = newMapDecoder(t)
 		case reflect.Struct:
 			dec = newStructDecoder(t)
 		case reflect.Ptr:
@@ -230,18 +232,12 @@ func newArrayDecoder(t reflect.Type) decoderFunc {
 
 //////////
 
-type sliceDecoder struct {
-	elementType reflect.Type
-	elementDec  decoderFunc
-}
-
-func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts fieldOptions) int {
+func decodeLength(d *decodeState, opts fieldOptions) (int, int) {
 	read := 0
-
-	// Determine the length of the vector
-	var length int
+	length := 0
 	switch {
 	case opts.omitHeader:
+		read = 0
 		length = d.Len()
 
 	case opts.varintHeader:
@@ -268,6 +264,20 @@ func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts fieldOption
 	if length < opts.minSize {
 		panic(fmt.Errorf("Length of vector below declared min"))
 	}
+
+	return read, length
+}
+
+//////////
+
+type sliceDecoder struct {
+	elementType reflect.Type
+	elementDec  decoderFunc
+}
+
+func (sd *sliceDecoder) decode(d *decodeState, v reflect.Value, opts fieldOptions) int {
+	// Determine the length of the vector
+	read, length := decodeLength(d, opts)
 
 	// Decode elements
 	elemData := d.Next(length)
@@ -297,6 +307,55 @@ func newSliceDecoder(t reflect.Type) decoderFunc {
 		elementDec:  typeDecoder(t.Elem()),
 	}
 	return dec.decode
+}
+
+//////////
+
+type mapDecoder struct {
+	keyType reflect.Type
+	valType reflect.Type
+	keyDec  decoderFunc
+	valDec  decoderFunc
+}
+
+func (md mapDecoder) decode(d *decodeState, v reflect.Value, opts fieldOptions) int {
+	// Determine the length of the data
+	read, length := decodeLength(d, opts)
+
+	// Decode key/value pairs
+	elemData := d.Next(length)
+	if len(elemData) != length {
+		panic(fmt.Errorf("Not enough data to read elements"))
+	}
+
+	mapType := reflect.MapOf(md.keyType, md.valType)
+	v.Elem().Set(reflect.MakeMap(mapType))
+
+	nullOpts := fieldOptions{}
+	elemBuf := &decodeState{}
+	elemBuf.Write(elemData)
+	for elemBuf.Len() > 0 {
+		key := reflect.New(md.keyType)
+		read += md.keyDec(elemBuf, key, nullOpts)
+
+		val := reflect.New(md.valType)
+		read += md.valDec(elemBuf, val, nullOpts)
+
+		v.Elem().SetMapIndex(key.Elem(), val.Elem())
+	}
+
+	return read
+}
+
+func newMapDecoder(t reflect.Type) decoderFunc {
+	md := mapDecoder{
+		keyType: t.Key(),
+		valType: t.Elem(),
+		keyDec:  typeDecoder(t.Key()),
+		valDec:  typeDecoder(t.Elem()),
+	}
+
+	return md.decode
 }
 
 //////////
