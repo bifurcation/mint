@@ -69,9 +69,10 @@ func (opts fieldOptions) Consistent() bool {
 }
 
 func (opts fieldOptions) ValidForType(t reflect.Type) bool {
-	sliceRequired := opts.omitHeader || opts.varintHeader || (opts.headerSize != 0) ||
+	headerType := t.Kind() == reflect.Slice || t.Kind() == reflect.Map
+	headerTags := opts.omitHeader || opts.varintHeader || (opts.headerSize != 0) ||
 		(opts.minSize != 0) || (opts.maxSize != 0)
-	if sliceRequired && t.Kind() != reflect.Slice {
+	if headerTags && !headerType {
 		return false
 	}
 

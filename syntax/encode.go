@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"sort"
 )
 
 func Marshal(v interface{}) ([]byte, error) {
@@ -78,6 +79,8 @@ func newTypeEncoder(t reflect.Type) encoderFunc {
 			enc = newSliceEncoder(t)
 		case reflect.Struct:
 			enc = newStructEncoder(t)
+		case reflect.Map:
+			enc = newMapEncoder(t)
 		case reflect.Ptr:
 			enc = newPointerEncoder(t)
 		default:
@@ -213,15 +216,7 @@ func newArrayEncoder(t reflect.Type) encoderFunc {
 
 //////////
 
-type sliceEncoder struct {
-	ae *arrayEncoder
-}
-
-func (se *sliceEncoder) encode(e *encodeState, v reflect.Value, opts fieldOptions) {
-	arrayState := &encodeState{}
-	se.ae.encode(arrayState, v, opts)
-
-	n := arrayState.Len()
+func encodeLength(e *encodeState, n int, opts fieldOptions) {
 	if opts.maxSize > 0 && n > opts.maxSize {
 		panic(fmt.Errorf("Encoded length more than max [%d > %d]", n, opts.maxSize))
 	}
@@ -246,7 +241,19 @@ func (se *sliceEncoder) encode(e *encodeState, v reflect.Value, opts fieldOption
 	default:
 		panic(fmt.Errorf("Cannot encode a slice without a header length"))
 	}
+}
 
+//////////
+
+type sliceEncoder struct {
+	ae *arrayEncoder
+}
+
+func (se *sliceEncoder) encode(e *encodeState, v reflect.Value, opts fieldOptions) {
+	arrayState := &encodeState{}
+	se.ae.encode(arrayState, v, opts)
+
+	encodeLength(e, arrayState.Len(), opts)
 	e.Write(arrayState.Bytes())
 }
 
@@ -293,6 +300,76 @@ func newStructEncoder(t reflect.Type) encoderFunc {
 	}
 
 	return se.encode
+}
+
+//////////
+
+type mapEncoder struct {
+	keyEnc encoderFunc
+	valEnc encoderFunc
+}
+
+type encMap struct {
+	keyEncs [][]byte
+	valEncs [][]byte
+}
+
+func (em encMap) Len() int { return len(em.keyEncs) }
+
+func (em *encMap) Swap(i, j int) {
+	em.keyEncs[i], em.keyEncs[j] = em.keyEncs[j], em.keyEncs[i]
+	em.valEncs[i], em.valEncs[j] = em.valEncs[j], em.valEncs[i]
+}
+
+func (em encMap) Less(i, j int) bool {
+	return bytes.Compare(em.keyEncs[i], em.keyEncs[j]) < 0
+}
+
+func (em encMap) Size() int {
+	size := 0
+	for i := range em.keyEncs {
+		size += len(em.keyEncs[i]) + len(em.valEncs[i])
+	}
+	return size
+}
+
+func (em encMap) Encode(e *encodeState) {
+	for i := range em.keyEncs {
+		e.Write(em.keyEncs[i])
+		e.Write(em.valEncs[i])
+	}
+}
+
+func (me *mapEncoder) encode(e *encodeState, v reflect.Value, opts fieldOptions) {
+	enc := &encMap{
+		keyEncs: make([][]byte, v.Len()),
+		valEncs: make([][]byte, v.Len()),
+	}
+	nullOpts := fieldOptions{}
+	it := v.MapRange()
+	for i := 0; i < enc.Len() && it.Next(); i++ {
+		keyState := &encodeState{}
+		me.keyEnc(keyState, it.Key(), nullOpts)
+		enc.keyEncs[i] = keyState.Bytes()
+
+		valState := &encodeState{}
+		me.valEnc(valState, it.Value(), nullOpts)
+		enc.valEncs[i] = valState.Bytes()
+	}
+
+	sort.Sort(enc)
+
+	encodeLength(e, enc.Size(), opts)
+	enc.Encode(e)
+}
+
+func newMapEncoder(t reflect.Type) encoderFunc {
+	me := mapEncoder{
+		keyEnc: typeEncoder(t.Key()),
+		valEnc: typeEncoder(t.Elem()),
+	}
+
+	return me.encode
 }
 
 //////////
