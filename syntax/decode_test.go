@@ -133,6 +133,12 @@ func TestDecodeErrors(t *testing.T) {
 			}{},
 			encoding: unhex("0203"),
 		},
+
+		// Validator errors
+		"invalid-validator": {
+			template: CrypticString(""),
+			encoding: unhex("056069677b6e"),
+		},
 	}
 
 	for label, testCase := range errorCases {

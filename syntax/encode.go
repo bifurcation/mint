@@ -65,24 +65,31 @@ var (
 )
 
 func newTypeEncoder(t reflect.Type) encoderFunc {
+	var enc encoderFunc
 	if t.Implements(marshalerType) {
-		return marshalerEncoder
+		enc = marshalerEncoder
+	} else {
+		switch t.Kind() {
+		case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			enc = uintEncoder
+		case reflect.Array:
+			enc = newArrayEncoder(t)
+		case reflect.Slice:
+			enc = newSliceEncoder(t)
+		case reflect.Struct:
+			enc = newStructEncoder(t)
+		case reflect.Ptr:
+			enc = newPointerEncoder(t)
+		default:
+			panic(fmt.Errorf("Unsupported type (%s)", t))
+		}
 	}
 
-	switch t.Kind() {
-	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return uintEncoder
-	case reflect.Array:
-		return newArrayEncoder(t)
-	case reflect.Slice:
-		return newSliceEncoder(t)
-	case reflect.Struct:
-		return newStructEncoder(t)
-	case reflect.Ptr:
-		return newPointerEncoder(t)
-	default:
-		panic(fmt.Errorf("Unsupported type (%s)", t))
+	if t.Implements(validatorType) {
+		enc = newValidatorEncoder(enc)
 	}
+
+	return enc
 }
 
 ///// Specific encoders below
@@ -119,6 +126,29 @@ func marshalerEncoder(e *encodeState, v reflect.Value, opts fieldOptions) {
 
 	if err != nil {
 		panic(err)
+	}
+}
+
+//////////
+
+func newValidatorEncoder(raw encoderFunc) encoderFunc {
+	return func(e *encodeState, v reflect.Value, opts fieldOptions) {
+		if v.Kind() == reflect.Ptr && v.IsNil() {
+			// Cannot validate nil values; just pass through to encoder
+			raw(e, v, opts)
+			return
+		}
+
+		val, ok := v.Interface().(Validator)
+		if !ok {
+			panic(fmt.Errorf("Non-Validator passed to validatorEncoder"))
+		}
+
+		if err := val.ValidForTLS(); err != nil {
+			panic(fmt.Errorf("Invalid TLS value: %v", err))
+		}
+
+		raw(e, v, opts)
 	}
 }
 
