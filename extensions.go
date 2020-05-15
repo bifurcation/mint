@@ -3,7 +3,7 @@ package mint
 import (
 	"bytes"
 	"fmt"
-	"github.com/bifurcation/mint/syntax"
+	"github.com/cisco/go-tls-syntax"
 )
 
 type ExtensionBody interface {
