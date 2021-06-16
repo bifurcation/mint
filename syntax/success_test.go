@@ -59,8 +59,21 @@ func (cs *CrypticString) UnmarshalTLS(data []byte) (int, error) {
 	return int(l + 1), nil
 }
 
+func (cs CrypticString) ValidForTLS() error {
+	if len(cs) > 256 {
+		return fmt.Errorf("CrypticString length to large: %d", len(cs))
+	}
+
+	if string(cs) == "fnord" {
+		return fmt.Errorf("Forbidden value")
+	}
+
+	return nil
+}
+
 func TestSuccessCases(t *testing.T) {
-	dummyUint16 := uint16(0xB0A0)
+	dummyUint16 := uint16(0xFFFF)
+	crypticHello := CrypticString("hello")
 	testCases := map[string]struct {
 		value    interface{}
 		encoding []byte
@@ -157,6 +170,16 @@ func TestSuccessCases(t *testing.T) {
 			encoding: unhex("7FFF" + hexBuffer(0x3FFF)),
 		},
 
+		// Maps
+		"map": {
+			value: struct {
+				V map[uint16]uint8 `tls:"head=1"`
+			}{
+				V: map[uint16]uint8{2: 1, 1: 2},
+			},
+			encoding: unhex("06000102000201"),
+		},
+
 		// Struct
 		"struct": {
 			value: struct {
@@ -170,14 +193,60 @@ func TestSuccessCases(t *testing.T) {
 			},
 			encoding: unhex("B0A0" + "0005A0A1A2A3A4" + "10111213202122233031323340414243"),
 		},
+		"struct-omit": {
+			value: struct {
+				A uint16
+				B []uint8 `tls:"omit"`
+				C [4]uint32
+			}{
+				A: 0xB0A0,
+				B: nil,
+				C: [4]uint32{0x10111213, 0x20212223, 0x30313233, 0x40414243},
+			},
+			encoding: unhex("B0A0" + "10111213202122233031323340414243"),
+		},
 		"struct-pointer": {
 			value:    struct{ V *uint16 }{V: &dummyUint16},
-			encoding: unhex("B0A0"),
+			encoding: unhex("FFFF"),
+		},
+
+		// Optional
+		"optional-absent": {
+			value: struct {
+				A *uint16 `tls:"optional"`
+			}{
+				A: nil,
+			},
+			encoding: unhex("00"),
+		},
+		"optional-present": {
+			value: struct {
+				A *uint16 `tls:"optional"`
+			}{
+				A: &dummyUint16,
+			},
+			encoding: unhex("01FFFF"),
+		},
+		"optional-marshaler-absent": {
+			value: struct {
+				A *CrypticString `tls:"optional"`
+			}{
+				A: nil,
+			},
+			encoding: unhex("00"),
+		},
+		"optional-marshaler-present": {
+			value: struct {
+				A *CrypticString `tls:"optional"`
+			}{
+				A: &crypticHello,
+			},
+			encoding: unhex("01056e62646565"),
 		},
 
 		// Marshaler
 		"marshaler": {
-			value:    CrypticString("hello"),
+			value:    crypticHello,
 			encoding: unhex("056e62646565"),
 		},
 		"struct-marshaler": {
