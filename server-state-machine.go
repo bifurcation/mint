@@ -123,8 +123,8 @@ func (state serverStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 	clientALPN := new(ALPNExtension)
 	clientPSKModes := new(PSKKeyExchangeModesExtension)
 	clientCookie := new(CookieExtension)
-	clientClientCertType := new(ClientCertTypeExtension)
-	clientServerCertType := new(ServerCertTypeExtension)
+	clientClientCertType := &ClientCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
+	clientServerCertType := &ServerCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
 
 	// Handle external extensions.
 	if state.Config.ExtensionHandler != nil {

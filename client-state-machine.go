@@ -104,10 +104,10 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 
 	// Raw public keys
 	var cct *ClientCertTypeExtension
-	var sct *ClientCertTypeExtension
+	var sct *CServerCertTypeExtension
 	if state.Config.AllowRawPublicKeys || !state.Config.ForbidCertificates {
-		cct := &ClientCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
-		sct := &ServerCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
+		cct = &ClientCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
+		sct = &ServerCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
 
 		if state.Config.AllowRawPublicKeys {
 			cct.CertificateTypes = append(cct.CertificateTypes, CertificateTypeRawPublicKey)
