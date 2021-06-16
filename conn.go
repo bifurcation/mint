@@ -131,9 +131,10 @@ type Config struct {
 	UseDTLS          bool
 
 	// These bools are arranged in opposite directions so that their default
-	// values reflect the correct default semantics (certs yes, raw keys no)
+	// values reflect the correct default semantics (certs yes, raw keys no).
+	// ForbidX509 is only meaningful if AllowRawPublicKeys is true.
 	AllowRawPublicKeys bool
-	ForbidCertificates bool
+	ForbidX509         bool
 
 	RecordLayer RecordLayerFactory
 
@@ -204,15 +205,25 @@ func (c *Config) Init(isClient bool) error {
 	return nil
 }
 
+func (c *Config) certTypeValid() bool {
+	// ForbidX509 can only be set when AllowRawPublicKeys is also set
+	// Note that this is equivalent to:
+	//   ForbidX509 => AllowRawPublicKeys
+	return !c.ForbidX509 || c.AllowRawPublicKeys
+}
+
 func (c *Config) ValidForServer() bool {
-	return (reflect.ValueOf(c.PSKs).IsValid() && c.PSKs.Size() > 0) ||
-		(len(c.Certificates) > 0 &&
-			len(c.Certificates[0].Chain) > 0 &&
-			c.Certificates[0].PrivateKey != nil)
+	// The server must have either PSKs or certificates
+	havePSK := reflect.ValueOf(c.PSKs).IsValid() && c.PSKs.Size() > 0
+	haveCert := len(c.Certificates) > 0 &&
+		len(c.Certificates[0].Chain) > 0 &&
+		c.Certificates[0].PrivateKey != nil
+
+	return (havePSK || haveCert) && c.certTypeValid()
 }
 
 func (c *Config) ValidForClient() bool {
-	return len(c.ServerName) > 0
+	return len(c.ServerName) > 0 && c.certTypeValid()
 }
 
 func (c *Config) time() time.Time {

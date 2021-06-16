@@ -96,30 +96,6 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 
 	state.Params.ServerName = state.Opts.ServerName
 
-	// Application Layer Protocol Negotiation
-	var alpn *ALPNExtension
-	if (state.Opts.NextProtos != nil) && (len(state.Opts.NextProtos) > 0) {
-		alpn = &ALPNExtension{Protocols: state.Opts.NextProtos}
-	}
-
-	// Raw public keys
-	var cct *ClientCertTypeExtension
-	var sct *ServerCertTypeExtension
-	if state.Config.AllowRawPublicKeys || !state.Config.ForbidCertificates {
-		cct = &ClientCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
-		sct = &ServerCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
-
-		if state.Config.AllowRawPublicKeys {
-			cct.CertificateTypes = append(cct.CertificateTypes, CertificateTypeRawPublicKey)
-			sct.CertificateTypes = append(sct.CertificateTypes, CertificateTypeRawPublicKey)
-		}
-
-		if !state.Config.ForbidCertificates {
-			cct.CertificateTypes = append(cct.CertificateTypes, CertificateTypeX509)
-			sct.CertificateTypes = append(sct.CertificateTypes, CertificateTypeX509)
-		}
-	}
-
 	// Construct base ClientHello
 	ch := &ClientHelloBody{
 		LegacyVersion: wireVersion(state.hsCtx.hIn),
@@ -131,22 +107,36 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 		return nil, nil, AlertInternalError
 	}
 	for _, ext := range []ExtensionBody{&sv, &sni, &ks, &sg, &sa} {
-		err = ch.Extensions.Add(ext)
+		err := ch.Extensions.Add(ext)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateStart] Error adding extension type=[%v] [%v]", ext.Type(), err)
 			return nil, nil, AlertInternalError
 		}
 	}
-	// XXX: These optional extensions can't be folded into the above because Go
-	// interface-typed values are never reported as nil
-	if alpn != nil {
+
+	// Application Layer Protocol Negotiation
+	if (state.Opts.NextProtos != nil) && (len(state.Opts.NextProtos) > 0) {
+		alpn := &ALPNExtension{Protocols: state.Opts.NextProtos}
 		err := ch.Extensions.Add(alpn)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateStart] Error adding ALPN extension [%v]", err)
 			return nil, nil, AlertInternalError
 		}
 	}
-	if cct != nil {
+
+	// Certificate type negotiation (to enable raw public keys)
+	if state.Config.AllowRawPublicKeys {
+		cct := &ClientCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
+		sct := &ServerCertTypeExtension{HandshakeType: HandshakeTypeClientHello}
+
+		cct.CertificateTypes = append(cct.CertificateTypes, CertificateTypeRawPublicKey)
+		sct.CertificateTypes = append(sct.CertificateTypes, CertificateTypeRawPublicKey)
+
+		if !state.Config.ForbidX509 {
+			cct.CertificateTypes = append(cct.CertificateTypes, CertificateTypeX509)
+			sct.CertificateTypes = append(sct.CertificateTypes, CertificateTypeX509)
+		}
+
 		err = ch.Extensions.Add(cct)
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateStart] Error adding ClientCertType extension [%v]", err)
@@ -158,6 +148,7 @@ func (state clientStateStart) Next(hr handshakeMessageReader) (HandshakeState, [
 			return nil, nil, AlertInternalError
 		}
 	}
+
 	if state.cookie != nil {
 		err := ch.Extensions.Add(&CookieExtension{Cookie: state.cookie})
 		if err != nil {
@@ -641,12 +632,24 @@ func (state clientStateWaitEE) Next(hr handshakeMessageReader) (HandshakeState, 
 		state.Params.NextProto = serverALPN.Protocols[0]
 	}
 
-	if foundExts[ExtensionTypeClientCertType] &&
-		foundExts[ExtensionTypeServerCertType] &&
-		state.Config.AllowRawPublicKeys {
-		foundClient := serverClientCertType.CertificateTypes[0] == CertificateTypeRawPublicKey
-		foundServer := serverServerCertType.CertificateTypes[0] == CertificateTypeRawPublicKey
-		state.Params.UsingRawPublicKeys = foundClient && foundServer
+	if foundExts[ExtensionTypeServerCertType] {
+		certType := serverServerCertType.CertificateTypes[0]
+		if !CertificateTypeValid(certType, state.Config.AllowRawPublicKeys, state.Config.ForbidX509) {
+			logf(logTypeHandshake, "[ClientStateWaitEE] Server sent illegal certificate type: %v", certType)
+			return nil, nil, AlertHandshakeFailure
+		}
+
+		state.Params.ServerCertType = certType
+	}
+
+	if foundExts[ExtensionTypeClientCertType] {
+		certType := serverClientCertType.CertificateTypes[0]
+		if !CertificateTypeValid(certType, state.Config.AllowRawPublicKeys, state.Config.ForbidX509) {
+			logf(logTypeHandshake, "[ClientStateWaitEE] Client sent illegal certificate type: %v", certType)
+			return nil, nil, AlertHandshakeFailure
+		}
+
+		state.Params.ClientCertType = certType
 	}
 
 	state.handshakeHash.Write(hm.Marshal())
@@ -868,17 +871,21 @@ func (state clientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	var err error
 	var serverPublicKey crypto.PublicKey
 	var eeCert *x509.Certificate
-	if !state.Params.UsingRawPublicKeys {
+	switch state.Params.ServerCertType {
+	case CertificateTypeX509:
 		eeCert, err = x509.ParseCertificate(certs[0])
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateWaitCV] Unable to parse client cert: %v", err)
+			return nil, nil, AlertDecodeError
 		}
 
 		serverPublicKey = eeCert.PublicKey
-	} else {
+
+	case CertificateTypeRawPublicKey:
 		serverPublicKey, err = unmarshalSigningKey(certs[0])
 		if err != nil {
 			logf(logTypeHandshake, "[ClientStateWaitCV] Unable to parse raw public key: %v", err)
+			return nil, nil, AlertDecodeError
 		}
 	}
 
@@ -888,7 +895,7 @@ func (state clientStateWaitCV) Next(hr handshakeMessageReader) (HandshakeState, 
 	}
 
 	var verifiedChains [][]*x509.Certificate
-	if !state.Params.UsingRawPublicKeys {
+	if state.Params.ServerCertType == CertificateTypeX509 {
 		if !state.Config.InsecureSkipVerify {
 			opts := x509.VerifyOptions{
 				Roots:         state.Config.RootCAs,
@@ -1066,12 +1073,13 @@ func (state clientStateWaitFinished) Next(hr handshakeMessageReader) (HandshakeS
 		} else {
 			// Create and send Certificate, CertificateVerify
 			var certList []CertificateEntry
-			if !state.Params.UsingRawPublicKeys {
+			switch state.Params.ClientCertType {
+			case CertificateTypeX509:
 				certList = make([]CertificateEntry, len(cert.Chain))
 				for i, entry := range cert.Chain {
 					certList[i] = CertificateEntry{CertData: entry.Raw}
 				}
-			} else {
+			case CertificateTypeRawPublicKey:
 				certData, err := marshalSigningKey(cert.PrivateKey.Public())
 				if err != nil {
 					logf(logTypeHandshake, "[ClientStateWaitFinished] Unable to marshal raw public key [%v]", err)

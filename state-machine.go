@@ -57,11 +57,13 @@ type ConnectionOptions struct {
 type ConnectionParameters struct {
 	UsingPSK               bool
 	UsingDH                bool
-	UsingRawPublicKeys     bool
 	ClientSendingEarlyData bool
 	UsingEarlyData         bool
 	RejectedEarlyData      bool
 	UsingClientAuth        bool
+
+	ClientCertType CertificateType
+	ServerCertType CertificateType
 
 	CipherSuite CipherSuite
 	ServerName  string
