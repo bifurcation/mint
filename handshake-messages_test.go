@@ -153,11 +153,11 @@ var (
 		CertificateRequestContext: []byte{0, 0, 0, 0},
 		CertificateList: []CertificateEntry{
 			{
-				CertData:   cert1,
+				CertData:   cert1.Raw,
 				Extensions: extListValidIn,
 			},
 			{
-				CertData:   cert2,
+				CertData:   cert2.Raw,
 				Extensions: extListValidIn,
 			},
 		},
@@ -166,7 +166,7 @@ var (
 		CertificateRequestContext: []byte{0, 0, 0, 0},
 		CertificateList: []CertificateEntry{
 			{
-				CertData:   cert1,
+				CertData:   cert1.Raw,
 				Extensions: extListSingleTooLongIn,
 			},
 		},
@@ -462,11 +462,11 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	certValidIn.CertificateRequestContext = originalContext
 
 	// Test marshal failure on no raw certa
-	originalRaw := cert1.Raw
-	cert1.Raw = []byte{}
+	originalCert := certValidIn.CertificateList[0].CertData
+	certValidIn.CertificateList[0].CertData = nil
 	out, err = certValidIn.Marshal()
 	assertError(t, err, "Marshaled a Certificate with an empty cert")
-	cert1.Raw = originalRaw
+	certValidIn.CertificateList[0].CertData = originalCert
 
 	// Test marshal failure on extension list marshal failure
 	out, err = certOverflowIn.Marshal()
@@ -500,12 +500,6 @@ func TestCertificateMarshalUnmarshal(t *testing.T) {
 	_, err = cert.Unmarshal(certValid)
 	assertError(t, err, "Unmarshaled a Certificate with truncated certificates")
 	certValid[8] ^= 0xFF
-
-	// Test unmarshal failure on malformed certificate
-	certValid[11] ^= 0xFF // Clobber first octet of first cert
-	_, err = cert.Unmarshal(certValid)
-	assertError(t, err, "Unmarshaled a Certificate with truncated certificates")
-	certValid[11] ^= 0xFF
 }
 
 func TestCertificateVerifyMarshalUnmarshal(t *testing.T) {

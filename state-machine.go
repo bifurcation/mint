@@ -62,6 +62,9 @@ type ConnectionParameters struct {
 	RejectedEarlyData      bool
 	UsingClientAuth        bool
 
+	ClientCertType CertificateType
+	ServerCertType CertificateType
+
 	CipherSuite CipherSuite
 	ServerName  string
 	NextProto   string
@@ -97,7 +100,7 @@ type stateConnected struct {
 	clientTrafficSecret []byte
 	serverTrafficSecret []byte
 	exporterSecret      []byte
-	peerCertificates    []*x509.Certificate
+	peerCertificates    [][]byte
 	verifiedChains      [][]*x509.Certificate
 }
 

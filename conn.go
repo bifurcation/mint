@@ -16,6 +16,7 @@ import (
 type Certificate struct {
 	Chain      []*x509.Certificate
 	PrivateKey crypto.Signer
+	PublicKey  crypto.PublicKey
 }
 
 type PreSharedKey struct {
@@ -129,6 +130,12 @@ type Config struct {
 	NonBlocking      bool
 	UseDTLS          bool
 
+	// These bools are arranged in opposite directions so that their default
+	// values reflect the correct default semantics (certs yes, raw keys no).
+	// ForbidX509 is only meaningful if AllowRawPublicKeys is true.
+	AllowRawPublicKeys bool
+	ForbidX509         bool
+
 	RecordLayer RecordLayerFactory
 
 	// The same config object can be shared among different connections, so it
@@ -198,15 +205,25 @@ func (c *Config) Init(isClient bool) error {
 	return nil
 }
 
+func (c *Config) certTypeValid() bool {
+	// ForbidX509 can only be set when AllowRawPublicKeys is also set
+	// Note that this is equivalent to:
+	//   ForbidX509 => AllowRawPublicKeys
+	return !c.ForbidX509 || c.AllowRawPublicKeys
+}
+
 func (c *Config) ValidForServer() bool {
-	return (reflect.ValueOf(c.PSKs).IsValid() && c.PSKs.Size() > 0) ||
-		(len(c.Certificates) > 0 &&
-			len(c.Certificates[0].Chain) > 0 &&
-			c.Certificates[0].PrivateKey != nil)
+	// The server must have either PSKs or certificates
+	havePSK := reflect.ValueOf(c.PSKs).IsValid() && c.PSKs.Size() > 0
+	haveCert := len(c.Certificates) > 0 &&
+		len(c.Certificates[0].Chain) > 0 &&
+		c.Certificates[0].PrivateKey != nil
+
+	return (havePSK || haveCert) && c.certTypeValid()
 }
 
 func (c *Config) ValidForClient() bool {
-	return len(c.ServerName) > 0
+	return len(c.ServerName) > 0 && c.certTypeValid()
 }
 
 func (c *Config) time() time.Time {
@@ -250,7 +267,7 @@ var (
 type ConnectionState struct {
 	HandshakeState   State
 	CipherSuite      CipherSuiteParams     // cipher suite in use (TLS_RSA_WITH_RC4_128_SHA, ...)
-	PeerCertificates []*x509.Certificate   // certificate chain presented by remote peer
+	PeerCertificates [][]byte              // certificate chain presented by remote peer
 	VerifiedChains   [][]*x509.Certificate // verified chains built from PeerCertificates
 	NextProto        string                // Selected ALPN proto
 	UsingPSK         bool                  // Are we using PSK.

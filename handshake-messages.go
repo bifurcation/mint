@@ -3,7 +3,6 @@ package mint
 import (
 	"bytes"
 	"crypto"
-	"crypto/x509"
 	"encoding/binary"
 	"fmt"
 
@@ -269,23 +268,13 @@ func (ee *EncryptedExtensionsBody) Unmarshal(data []byte) (int, error) {
 //     CertificateEntry certificate_list<0..2^24-1>;
 // } Certificate;
 type CertificateEntry struct {
-	CertData   *x509.Certificate
-	Extensions ExtensionList
-}
-
-type CertificateBody struct {
-	CertificateRequestContext []byte
-	CertificateList           []CertificateEntry
-}
-
-type certificateEntryInner struct {
 	CertData   []byte        `tls:"head=3,min=1"`
 	Extensions ExtensionList `tls:"head=2"`
 }
 
-type certificateBodyInner struct {
-	CertificateRequestContext []byte                  `tls:"head=1"`
-	CertificateList           []certificateEntryInner `tls:"head=3"`
+type CertificateBody struct {
+	CertificateRequestContext []byte             `tls:"head=1"`
+	CertificateList           []CertificateEntry `tls:"head=3"`
 }
 
 func (c CertificateBody) Type() HandshakeType {
@@ -293,41 +282,11 @@ func (c CertificateBody) Type() HandshakeType {
 }
 
 func (c CertificateBody) Marshal() ([]byte, error) {
-	inner := certificateBodyInner{
-		CertificateRequestContext: c.CertificateRequestContext,
-		CertificateList:           make([]certificateEntryInner, len(c.CertificateList)),
-	}
-
-	for i, entry := range c.CertificateList {
-		inner.CertificateList[i] = certificateEntryInner{
-			CertData:   entry.CertData.Raw,
-			Extensions: entry.Extensions,
-		}
-	}
-
-	return syntax.Marshal(inner)
+	return syntax.Marshal(c)
 }
 
 func (c *CertificateBody) Unmarshal(data []byte) (int, error) {
-	inner := certificateBodyInner{}
-	read, err := syntax.Unmarshal(data, &inner)
-	if err != nil {
-		return read, err
-	}
-
-	c.CertificateRequestContext = inner.CertificateRequestContext
-	c.CertificateList = make([]CertificateEntry, len(inner.CertificateList))
-
-	for i, entry := range inner.CertificateList {
-		c.CertificateList[i].CertData, err = x509.ParseCertificate(entry.CertData)
-		if err != nil {
-			return 0, fmt.Errorf("tls:certificate: Certificate failed to parse: %v", err)
-		}
-
-		c.CertificateList[i].Extensions = entry.Extensions
-	}
-
-	return read, nil
+	return syntax.Unmarshal(data, c)
 }
 
 // struct {

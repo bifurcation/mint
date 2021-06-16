@@ -179,7 +179,7 @@ var (
 	psk  PreSharedKey
 	psks *PSKMapCache
 
-	basicConfig, dtlsConfig, nbConfig, nbDTLSConfig, hrrConfig, alpnConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
+	basicConfig, dtlsConfig, nbConfig, nbDTLSConfig, hrrConfig, alpnConfig, rawConfig, pskConfig, pskDTLSConfig, pskECDHEConfig, pskDHEConfig, resumptionConfig, ffdhConfig, x25519Config *Config
 )
 
 func init() {
@@ -259,6 +259,13 @@ func init() {
 		ServerName:         serverName,
 		Certificates:       certificates,
 		NextProtos:         []string{"http/1.1", "h2"},
+		InsecureSkipVerify: true,
+	}
+
+	rawConfig = &Config{
+		ServerName:         serverName,
+		Certificates:       certificates,
+		AllowRawPublicKeys: true,
 		InsecureSkipVerify: true,
 	}
 
@@ -357,11 +364,13 @@ func checkConsistency(t *testing.T, client *Conn, server *Conn) {
 
 func testConnInner(t *testing.T, name string, p testInstanceState) {
 	// Configs array:
-	configs := map[string]*Config{"basic config": basicConfig,
-		"HRR":    hrrConfig,
-		"ALPN":   alpnConfig,
-		"FFDH":   ffdhConfig,
-		"x25519": x25519Config,
+	configs := map[string]*Config{
+		"basic config": basicConfig,
+		"HRR":          hrrConfig,
+		"ALPN":         alpnConfig,
+		"RawPK":        rawConfig,
+		"FFDH":         ffdhConfig,
+		"x25519":       x25519Config,
 	}
 
 	c := configs[p["config"]]
@@ -400,6 +409,7 @@ func TestBasicFlows(t *testing.T) {
 			"basic config",
 			"HRR",
 			"ALPN",
+			"RawPK",
 			"FFDH",
 			"x25519",
 		},
@@ -1232,9 +1242,9 @@ func TestConnectionState(t *testing.T) {
 	serverCS := server.ConnectionState()
 	assertEquals(t, clientCS.CipherSuite.Suite, configClient.CipherSuites[0])
 	assertDeepEquals(t, clientCS.VerifiedChains, [][]*x509.Certificate{{serverCert}})
-	assertDeepEquals(t, clientCS.PeerCertificates, []*x509.Certificate{serverCert})
+	assertDeepEquals(t, clientCS.PeerCertificates, [][]byte{serverCert.Raw})
 	assertEquals(t, serverCS.CipherSuite.Suite, serverConfig.CipherSuites[0])
-	assertDeepEquals(t, serverCS.PeerCertificates, []*x509.Certificate{clientCert})
+	assertDeepEquals(t, serverCS.PeerCertificates, [][]byte{clientCert.Raw})
 }
 
 func TestDTLS(t *testing.T) {

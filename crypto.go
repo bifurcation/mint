@@ -328,6 +328,31 @@ func newSigningKey(sig SignatureScheme) (crypto.Signer, error) {
 	}
 }
 
+func marshalSigningKey(pub crypto.PublicKey) ([]byte, error) {
+	switch pub.(type) {
+	case *rsa.PublicKey:
+		return x509.MarshalPKIXPublicKey(pub)
+
+	case *ecdsa.PublicKey:
+		return x509.MarshalPKIXPublicKey(pub)
+
+	// TODO support Ed25519
+
+	default:
+		return nil, fmt.Errorf("tls.marshalsigningkey: Unsupported public key type")
+	}
+}
+
+func unmarshalSigningKey(data []byte) (interface{}, error) {
+	pub, err := x509.ParsePKIXPublicKey(data)
+	if err == nil {
+		return pub, err
+	}
+
+	// TODO attempt to parse Ed25519
+	return nil, err
+}
+
 // XXX(rlb): Copied from crypto/x509
 type ecdsaSignature struct {
 	R, S *big.Int

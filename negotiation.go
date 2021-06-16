@@ -216,3 +216,25 @@ func ALPNNegotiation(psk *PreSharedKey, offered, supported []string) (string, er
 	}
 	return "", err
 }
+
+func CertificateTypeValid(certType CertificateType, allowRawPublicKey, forbidX509 bool) bool {
+	switch certType {
+	case CertificateTypeRawPublicKey:
+		return allowRawPublicKey
+	case CertificateTypeX509:
+		return !forbidX509
+	default:
+		return false
+	}
+}
+
+func CertificateTypeNegotiation(offered []CertificateType, allowRawPublicKey, forbidX509 bool) *CertificateType {
+	for _, t := range offered {
+		if CertificateTypeValid(t, allowRawPublicKey, forbidX509) {
+			out := new(CertificateType)
+			*out = t
+			return out
+		}
+	}
+	return nil
+}

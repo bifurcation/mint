@@ -624,3 +624,99 @@ func (c CookieExtension) Marshal() ([]byte, error) {
 func (c *CookieExtension) Unmarshal(data []byte) (int, error) {
 	return syntax.Unmarshal(data, c)
 }
+
+// struct {
+//         select(ClientOrServerExtension) {
+//             case client:
+//               CertificateType client_certificate_types<1..2^8-1>;
+//             case server:
+//               CertificateType client_certificate_type;
+//         }
+// } ClientCertTypeExtension;
+type ClientCertTypeExtension struct {
+	HandshakeType    HandshakeType     `tls:"none"`
+	CertificateTypes []CertificateType `tls:"head=1,min=1"`
+}
+
+func (cct ClientCertTypeExtension) Type() ExtensionType {
+	return ExtensionTypeClientCertType
+}
+
+func (cct ClientCertTypeExtension) Marshal() ([]byte, error) {
+	switch cct.HandshakeType {
+	case HandshakeTypeClientHello:
+		return syntax.Marshal(cct)
+
+	case HandshakeTypeEncryptedExtensions:
+		return syntax.Marshal(uint8(cct.CertificateTypes[0]))
+	}
+
+	return nil, fmt.Errorf("tls.certificate_types: Handshake type not allowed")
+}
+
+func (cct *ClientCertTypeExtension) Unmarshal(data []byte) (int, error) {
+	switch cct.HandshakeType {
+	case HandshakeTypeClientHello:
+		return syntax.Unmarshal(data, cct)
+
+	case HandshakeTypeEncryptedExtensions:
+		var val uint8
+		n, err := syntax.Unmarshal(data, &val)
+		if err != nil {
+			return 0, err
+		}
+
+		cct.CertificateTypes = []CertificateType{CertificateType(val)}
+		return n, err
+	}
+
+	return 0, fmt.Errorf("tls.certificate_types: Handshake type not allowed")
+}
+
+// struct {
+//         select(ClientOrServerExtension) {
+//             case client:
+//               CertificateType client_certificate_types<1..2^8-1>;
+//             case server:
+//               CertificateType client_certificate_type;
+//         }
+// } ServerCertTypeExtension;
+type ServerCertTypeExtension struct {
+	HandshakeType    HandshakeType     `tls:"none"`
+	CertificateTypes []CertificateType `tls:"head=1,min=1"`
+}
+
+func (sct ServerCertTypeExtension) Type() ExtensionType {
+	return ExtensionTypeServerCertType
+}
+
+func (sct ServerCertTypeExtension) Marshal() ([]byte, error) {
+	switch sct.HandshakeType {
+	case HandshakeTypeClientHello:
+		return syntax.Marshal(sct)
+
+	case HandshakeTypeEncryptedExtensions:
+		return syntax.Marshal(uint8(sct.CertificateTypes[0]))
+	}
+
+	return nil, fmt.Errorf("tls.certificate_types: Handshake type not allowed")
+}
+
+func (sct *ServerCertTypeExtension) Unmarshal(data []byte) (int, error) {
+	switch sct.HandshakeType {
+	case HandshakeTypeClientHello:
+		return syntax.Unmarshal(data, sct)
+
+	case HandshakeTypeEncryptedExtensions:
+		var val uint8
+		n, err := syntax.Unmarshal(data, &val)
+		if err != nil {
+			return 0, err
+		}
+
+		sct.CertificateTypes = []CertificateType{CertificateType(val)}
+		return n, err
+	}
+
+	return 0, fmt.Errorf("tls.certificate_types: Handshake type not allowed")
+}
