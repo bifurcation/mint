@@ -17,7 +17,9 @@ import (
 	"math/big"
 	"time"
 
+	"git.schwanenlied.me/yawning/x448.git"
 	"golang.org/x/crypto/curve25519"
+	"golang.org/x/crypto/ed25519"
 
 	// Blank includes to ensure hash support
 	_ "crypto/sha1"
@@ -43,6 +45,7 @@ const (
 	signatureAlgorithmRSA_PKCS1
 	signatureAlgorithmRSA_PSS
 	signatureAlgorithmECDSA
+	signatureAlgorithmEd25519
 )
 
 var (
@@ -70,6 +73,7 @@ var (
 		RSA_PSS_SHA256:    signatureAlgorithmRSA_PSS,
 		RSA_PSS_SHA384:    signatureAlgorithmRSA_PSS,
 		RSA_PSS_SHA512:    signatureAlgorithmRSA_PSS,
+		Ed25519:           signatureAlgorithmEd25519,
 	}
 
 	curveMap = map[SignatureScheme]NamedGroup{
@@ -111,6 +115,8 @@ var (
 		ECDSA_P256_SHA256: x509.ECDSAWithSHA256,
 		ECDSA_P384_SHA384: x509.ECDSAWithSHA384,
 		ECDSA_P521_SHA512: x509.ECDSAWithSHA512,
+		// XXX(rlb@ipv.sx): Ed25519 not supported by crypto/x509
+		// XXX(rlb@ipv.sx): Ed448 not supported by crypto/x509
 	}
 
 	defaultRSAKeySize = 2048
@@ -145,6 +151,8 @@ func keyExchangeSizeFromNamedGroup(group NamedGroup) (size int) {
 	switch group {
 	case X25519:
 		size = 32
+	case X448:
+		size = 56
 	case P256:
 		size = 65
 	case P384:
@@ -188,6 +196,8 @@ func schemeValidForKey(alg SignatureScheme, key crypto.Signer) bool {
 		return sigType == signatureAlgorithmRSA_PKCS1 || sigType == signatureAlgorithmRSA_PSS
 	case *ecdsa.PrivateKey:
 		return sigType == signatureAlgorithmECDSA
+	case *ed25519.PrivateKey:
+		return sigType == signatureAlgorithmEd25519
 	default:
 		return false
 	}
@@ -254,6 +264,22 @@ func newKeyShare(group NamedGroup) (pub []byte, priv []byte, err error) {
 		pub = public[:]
 		return
 
+	case X448:
+		var private, public [56]byte
+		_, err = prng.Read(private[:])
+		if err != nil {
+			return
+		}
+
+		rv := x448.ScalarBaseMult(&public, &private)
+		if rv != 0 {
+			return nil, nil, fmt.Errorf("tls.newkeyshare: X448 failed")
+		}
+
+		priv = private[:]
+		pub = public[:]
+		return
+
 	default:
 		return nil, nil, fmt.Errorf("tls.newkeyshare: Unsupported group %v", group)
 	}
@@ -305,6 +331,21 @@ func keyAgreement(group NamedGroup, pub []byte, priv []byte) ([]byte, error) {
 
 		return ret[:], nil
 
+	case X448:
+		if len(pub) != keyExchangeSizeFromNamedGroup(group) {
+			return nil, fmt.Errorf("tls.keyagreement: Wrong public key size")
+		}
+
+		var private, public, ret [56]byte
+		copy(private[:], priv)
+		copy(public[:], pub)
+		rv := x448.ScalarMult(&ret, &private, &public)
+		if rv != 0 {
+			return nil, fmt.Errorf("tls.keyagreement: Error in X448")
+		}
+
+		return ret[:], nil
+
 	default:
 		return nil, fmt.Errorf("tls.keyagreement: Unsupported group %v", group)
 	}
@@ -323,6 +364,9 @@ func newSigningKey(sig SignatureScheme) (crypto.Signer, error) {
 		return ecdsa.GenerateKey(elliptic.P384(), prng)
 	case ECDSA_P521_SHA512:
 		return ecdsa.GenerateKey(elliptic.P521(), prng)
+	case Ed25519:
+		_, priv, err := ed25519.GenerateKey(prng)
+		return priv, err
 	default:
 		return nil, fmt.Errorf("tls.newsigningkey: Unsupported signature algorithm [%04x]", sig)
 	}
@@ -375,6 +419,13 @@ func sign(alg SignatureScheme, privateKey crypto.Signer, sigInput []byte) ([]byt
 		h := hash.New()
 		h.Write(sigInput)
 		realInput = h.Sum(nil)
+	case ed25519.PrivateKey:
+		if sigType != signatureAlgorithmEd25519 {
+			return nil, fmt.Errorf("tls.crypto.sign: Unsupported algorithm for ECDSA key")
+		}
+
+		realInput = sigInput
+		opts = crypto.Hash(0)
 	default:
 		return nil, fmt.Errorf("tls.crypto.sign: Unsupported private key type")
 	}
@@ -442,6 +493,17 @@ func verify(alg SignatureScheme, publicKey crypto.PublicKey, sigInput []byte, si
 			return fmt.Errorf("tls.verify: ECDSA verification failure")
 		}
 		return nil
+
+	case ed25519.PublicKey:
+		if sigType != signatureAlgorithmEd25519 {
+			return fmt.Errorf("tls.verify: Unsupported algorithm for ECDSA key")
+		}
+
+		if !ed25519.Verify(pub, sigInput, sig) {
+			return fmt.Errorf("tls.verify: Ed25519 verification failure")
+		}
+		return nil
+
 	default:
 		return fmt.Errorf("tls.verify: Unsupported key type")
 	}
