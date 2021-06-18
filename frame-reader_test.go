@@ -1,75 +1,126 @@
 package mint
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
-var kTestFrame = []byte{0x00, 0x05, 'a', 'b', 'c', 'd', 'e'}
-var kTestEmptyFrame = []byte{0x00, 0x00}
+var (
+	fixedFullFrame     = unhex("ff00056162636465")
+	fixedEmptyFrame    = unhex("ff0000")
+	variableFullFrame  = unhex("40ff" + strings.Repeat("A0", 255))
+	variableEmptyFrame = unhex("00")
+)
 
-type simpleHeader struct{}
+type variableHeader struct{}
 
-func (h simpleHeader) headerLen() int {
-	return 2
-}
-
-func (h simpleHeader) defaultReadLen() int {
-	return 1024
-}
-
-func (h simpleHeader) frameLen(hdr []byte) (int, error) {
-	if len(hdr) != 2 {
-		panic("Assert!")
+func (h variableHeader) parse(buffer []byte) (headerReady bool, headerLen, bodyLen int) {
+	if len(buffer) == 0 {
+		headerReady = false
+		return
 	}
 
-	return (int(hdr[0]) << 8) | int(hdr[1]), nil
+	// XXX: Need a way to return parse errors other than "insufficient data"
+	length := struct {
+		Value uint64 `tls:"varint"`
+	}{}
+	read, err := syntax.Unmarshal(buffer, &length)
+
+	headerReady = (err == nil)
+	if !headerReady {
+		return
+	}
+
+	headerLen = read
+	bodyLen = int(length.Value)
+	return
 }
 
-func checkFrame(t *testing.T, hdr []byte, body []byte) {
-	assertByteEquals(t, hdr, kTestFrame[:2])
-	assertByteEquals(t, body, kTestFrame[2:])
+type frameReaderTester struct {
+	details        framing
+	headerLenFull  int
+	fullFrame      []byte
+	headerLenEmpty int
+	emptyFrame     []byte
 }
 
-func TestFrameReaderFullFrame(t *testing.T) {
-	r := newFrameReader(simpleHeader{})
-	r.addChunk(kTestFrame)
-	hdr, body, err := r.process()
+func (frt frameReaderTester) checkFrameFull(t *testing.T, hdr, body []byte) {
+	assertByteEquals(t, hdr, frt.fullFrame[:frt.headerLenFull])
+	assertByteEquals(t, body, frt.fullFrame[frt.headerLenFull:])
+}
+
+func (frt frameReaderTester) checkFrameEmpty(t *testing.T, hdr, body []byte) {
+	assertByteEquals(t, hdr, frt.emptyFrame[:frt.headerLenEmpty])
+	assertByteEquals(t, body, frt.emptyFrame[frt.headerLenEmpty:])
+}
+
+func (frt frameReaderTester) TestFrames(t *testing.T) {
+	r := newFrameReader(frt.details)
+	r.addChunk(frt.fullFrame)
+	hdr, body, err := r.next()
 	assertNotError(t, err, "Couldn't read frame 1")
-	checkFrame(t, hdr, body)
+	frt.checkFrameFull(t, hdr, body)
 
-	r.addChunk(kTestFrame)
-	hdr, body, err = r.process()
+	r.addChunk(frt.emptyFrame)
+	hdr, body, err = r.next()
 	assertNotError(t, err, "Couldn't read frame 2")
-	checkFrame(t, hdr, body)
+	frt.checkFrameEmpty(t, hdr, body)
 }
 
-func TestFrameReaderTwoFrames(t *testing.T) {
-	r := newFrameReader(simpleHeader{})
-	r.addChunk(kTestFrame)
-	r.addChunk(kTestFrame)
-	hdr, body, err := r.process()
+func (frt frameReaderTester) TestTwoFrames(t *testing.T) {
+	r := newFrameReader(frt.details)
+	r.addChunk(frt.fullFrame)
+	r.addChunk(frt.fullFrame)
+	hdr, body, err := r.next()
 	assertNotError(t, err, "Couldn't read frame 1")
-	checkFrame(t, hdr, body)
+	frt.checkFrameFull(t, hdr, body)
 
-	hdr, body, err = r.process()
+	hdr, body, err = r.next()
 	assertNotError(t, err, "Couldn't read frame 2")
-	checkFrame(t, hdr, body)
+	frt.checkFrameFull(t, hdr, body)
 }
 
-func TestFrameReaderTrickle(t *testing.T) {
-	r := newFrameReader(simpleHeader{})
+func (frt frameReaderTester) TestTrickle(t *testing.T) {
+	r := newFrameReader(frt.details)
 
 	var hdr, body []byte
 	var err error
-	for i := 0; i <= len(kTestFrame); i += 1 {
-		hdr, body, err = r.process()
-		if i < len(kTestFrame) {
+	for i := 0; i <= len(frt.fullFrame); i += 1 {
+		hdr, body, err = r.next()
+		if i < len(frt.fullFrame) {
 			assertEquals(t, err, AlertWouldBlock)
 			assertEquals(t, 0, len(hdr))
 			assertEquals(t, 0, len(body))
-			r.addChunk(kTestFrame[i : i+1])
+			r.addChunk(frt.fullFrame[i : i+1])
 		}
 	}
 	assertNil(t, err, "Error reading")
-	checkFrame(t, hdr, body)
+	frt.checkFrameFull(t, hdr, body)
+}
+
+func (frt frameReaderTester) Run(t *testing.T) {
+	t.Run("frames", frt.TestFrames)
+	t.Run("two-frames", frt.TestTwoFrames)
+	t.Run("trickle", frt.TestTrickle)
+}
+
+func TestFrameReader(t *testing.T) {
+	cases := map[string]frameReaderTester{
+		"fixed": frameReaderTester{
+			lastNBytesFraming{3, 2},
+			3, fixedFullFrame,
+			3, fixedEmptyFrame,
+		},
+		"variable": frameReaderTester{
+			variableHeader{},
+			2, variableFullFrame,
+			1, variableEmptyFrame,
+		},
+	}
+
+	for label, c := range cases {
+		t.Run(label, c.Run)
+	}
 }
