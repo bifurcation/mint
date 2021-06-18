@@ -7,7 +7,7 @@ import (
 	"hash"
 	"reflect"
 
-	"github.com/bifurcation/mint/syntax"
+	"github.com/cisco/go-tls-syntax"
 )
 
 // Server State Machine
